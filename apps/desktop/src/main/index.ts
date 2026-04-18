@@ -1,15 +1,21 @@
 import { app, BrowserWindow } from "electron";
 import * as path from "node:path";
 
+app.commandLine.appendSwitch("enable-unsafe-webgpu");
+if (process.platform === "linux") {
+    app.commandLine.appendSwitch("enable-features", "Vulkan");
+}
+
 
 function createWindow(): void {
     const win = new BrowserWindow({
         width: 1400,
         height: 900,
         title: "riptide",
+        autoHideMenuBar: true,
     });
     win.loadFile(path.join(app.getAppPath(), "dist/renderer/index.html"));
-    win.webContents.openDevTools({ mode: "detach" });
+    // win.webContents.openDevTools({ mode: "detach" });
 }
 
 app.whenReady().then(createWindow);
