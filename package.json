@@ -1,0 +1,9 @@
+{
+  "name": "riptide",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @riptide/desktop dev"
+  },
+  "packageManager": "pnpm@9.0.0"
+}

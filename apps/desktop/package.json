@@ -1,0 +1,17 @@
+{
+  "name": "@riptide/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "main": "dist/main/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json && mkdir -p dist/renderer && cp src/renderer/index.html dist/renderer/index.html",
+    "dev": "pnpm build && electron .",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0",
+    "@webgpu/types": "^0.1.50"
+  }
+}
