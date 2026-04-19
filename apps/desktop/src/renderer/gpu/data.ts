@@ -23,9 +23,9 @@ export interface Viewport {
 // rst_n: deasserted after 5 ns, glitch at 55 ns
 function makeRst(row: number): Segment[] {
   return [
-    { tStart: 0,  tEnd: 5,   value: 0, row },
-    { tStart: 5,  tEnd: 55,  value: 1, row },
-    { tStart: 55, tEnd: 58,  value: 0, row },
+    { tStart: 0, tEnd: 5, value: 0, row },
+    { tStart: 5, tEnd: 55, value: 1, row },
+    { tStart: 55, tEnd: 58, value: 0, row },
     { tStart: 58, tEnd: 100, value: 1, row },
   ];
 }
@@ -33,12 +33,12 @@ function makeRst(row: number): Segment[] {
 // irq: sporadic interrupt pulses
 function makeIrq(row: number): Segment[] {
   return [
-    { tStart: 0,  tEnd: 18,  value: 0, row },
-    { tStart: 18, tEnd: 23,  value: 1, row },
-    { tStart: 23, tEnd: 47,  value: 0, row },
-    { tStart: 47, tEnd: 52,  value: 1, row },
-    { tStart: 52, tEnd: 71,  value: 0, row },
-    { tStart: 71, tEnd: 75,  value: 1, row },
+    { tStart: 0, tEnd: 18, value: 0, row },
+    { tStart: 18, tEnd: 23, value: 1, row },
+    { tStart: 23, tEnd: 47, value: 0, row },
+    { tStart: 47, tEnd: 52, value: 1, row },
+    { tStart: 52, tEnd: 71, value: 0, row },
+    { tStart: 71, tEnd: 75, value: 1, row },
     { tStart: 75, tEnd: 100, value: 0, row },
   ];
 }
@@ -46,10 +46,10 @@ function makeIrq(row: number): Segment[] {
 // data_valid: high window with mid dip
 function makeDataValid(row: number): Segment[] {
   return [
-    { tStart: 0,  tEnd: 12,  value: 0, row },
-    { tStart: 12, tEnd: 38,  value: 1, row },
-    { tStart: 38, tEnd: 42,  value: 0, row },
-    { tStart: 42, tEnd: 78,  value: 1, row },
+    { tStart: 0, tEnd: 12, value: 0, row },
+    { tStart: 12, tEnd: 38, value: 1, row },
+    { tStart: 38, tEnd: 42, value: 0, row },
+    { tStart: 42, tEnd: 78, value: 1, row },
     { tStart: 78, tEnd: 100, value: 0, row },
   ];
 }
@@ -57,12 +57,12 @@ function makeDataValid(row: number): Segment[] {
 // busy: long high then alternating short pulses
 function makeBusy(row: number): Segment[] {
   return [
-    { tStart: 0,  tEnd: 8,   value: 0, row },
-    { tStart: 8,  tEnd: 63,  value: 1, row },
-    { tStart: 63, tEnd: 70,  value: 0, row },
-    { tStart: 70, tEnd: 77,  value: 1, row },
-    { tStart: 77, tEnd: 84,  value: 0, row },
-    { tStart: 84, tEnd: 91,  value: 1, row },
+    { tStart: 0, tEnd: 8, value: 0, row },
+    { tStart: 8, tEnd: 63, value: 1, row },
+    { tStart: 63, tEnd: 70, value: 0, row },
+    { tStart: 70, tEnd: 77, value: 1, row },
+    { tStart: 77, tEnd: 84, value: 0, row },
+    { tStart: 84, tEnd: 91, value: 1, row },
     { tStart: 91, tEnd: 100, value: 0, row },
   ];
 }
@@ -70,8 +70,8 @@ function makeBusy(row: number): Segment[] {
 // done: single short pulse near end
 function makeDone(row: number): Segment[] {
   return [
-    { tStart: 0,  tEnd: 82,  value: 0, row },
-    { tStart: 82, tEnd: 88,  value: 1, row },
+    { tStart: 0, tEnd: 82, value: 0, row },
+    { tStart: 82, tEnd: 88, value: 1, row },
     { tStart: 88, tEnd: 100, value: 0, row },
   ];
 }

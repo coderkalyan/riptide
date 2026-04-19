@@ -24,7 +24,7 @@ spawn("node_modules/.bin/esbuild", [
   "--bundle",
   `--outfile=${DST_DIR}/index.js`,
   "--format=iife", "--target=es2022",
-  "--loader:.tsx=tsx", "--jsx=automatic",
+  "--loader:.tsx=tsx", "--loader:.wgsl=text", "--jsx=automatic",
   "--watch",
   "--serve=localhost:5173",
   `--servedir=${DST_DIR}`,
