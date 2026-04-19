@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { ArrowLeftToLine, ArrowRightToLine, ChevronLeft, ChevronRight, Maximize, Minus, PanelLeftClose, Plus } from "lucide-react";
 import { ActiveSignal, ActiveSignalProps } from "./ActiveSignal";
 import { SignalTree, Scope, SignalNode } from "./SignalTree";
 import { DerivedSignals, DerivedSignal } from "./DerivedSignals";
@@ -46,7 +47,7 @@ export function App() {
             <h3>Signal Tree</h3>
             <span className="sp" style={{ flex: 1 }} />
             {/* <span className="hint">147 signals</span> */}
-            <span className="collapse" title="collapse panel">‹</span>
+            <span className="collapse" title="collapse panel"><PanelLeftClose size={14} strokeWidth={1.75} /></span>
           </div>
           <div className="col-sub"><input className="search" placeholder="filter scope/name" /></div>
           <SignalTree>
@@ -106,15 +107,17 @@ export function App() {
           <div className="col-head toolbar">
             <h3>Waves</h3>
             <div className="divider" />
-            <span className="btn icon" title="to beginning">⏮</span>
-            <span className="btn icon" title="step backward">⏴</span>
-            <span className="btn icon" title="step forward">⏵</span>
-            <span className="btn icon" title="to end">⏭</span>
+            <span className="btn icon" title="to beginning"><ArrowLeftToLine size={14} /></span>
+            <span className="btn icon" title="step backward"><ChevronLeft size={14} /></span>
+            <span className="btn icon" title="step forward"><ChevronRight size={14} /></span>
+            <span className="btn icon" title="to end"><ArrowRightToLine size={14} /></span>
             <div className="divider" />
             <span className="pill"><span className="swatch" /><span className="mono">cursor 32.400 ns</span></span>
             <div className="divider" />
             <div className="seg">
-              <span className="btn">−</span><span className="btn" title="fit">⛶</span><span className="btn">＋</span>
+              <span className="btn"><Minus size={14} /></span>
+              <span className="btn" title="fit"><Maximize size={14} /></span>
+              <span className="btn"><Plus size={14} /></span>
             </div>
             <span className="sp" style={{ flex: 1 }} />
             <span className="hint mono">1 ns / 14 px · 0 – 100 ns</span>

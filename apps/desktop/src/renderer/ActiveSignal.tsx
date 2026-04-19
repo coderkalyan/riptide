@@ -21,8 +21,8 @@ export function ActiveSignal(props: ActiveSignalProps) {
         <span className="n">{props.name}</span>
         <span className="v">{props.value}</span>
       </span>
-      <span className={"tag " + props.type}>{props.type}</span>
-      <span className="radix">{props.radix} ▾</span>
+      {/* <span className={"tag " + props.type}>{props.type}</span> */}
+      {/* <span className="radix">{props.radix} ▾</span> */}
       <span className="kebab">⋯</span>
     </div>
   );
