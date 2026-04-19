@@ -4,26 +4,26 @@ import { ActiveSignal, ActiveSignalProps } from "./ActiveSignal";
 import { SignalTree, Scope, SignalNode } from "./SignalTree";
 import { DerivedSignals, DerivedSignal } from "./DerivedSignals";
 import { initGPU, resizeCanvas, GPUInitError } from "./gpu/device";
-import { buildDigitalPipeline } from "./gpu/pipelines/digital";
+import { buildDigitalPipeline, LINE_PX } from "./gpu/pipelines/digital";
 import { renderFrame } from "./gpu/frame";
 import { HARDCODED_SEGMENTS, DEFAULT_VIEWPORT } from "./gpu/data";
 
 const ACTIVE_SIGNALS: ActiveSignalProps[] = [
-  { name: "clk", value: "0b1", type: "clk", radix: "bin", pinned: true },
-  { name: "rst_n", value: "0b1", type: "bool", radix: "bin" },
-  { name: "c[10:0]", value: "0x3FF", type: "bus", radix: "hex", selected: true },
-  { name: "data[31:0]", value: "0xCAFEB0BA", type: "bus", radix: "hex" },
-  { name: "state[1:0]", value: "SEND", type: "enum", radix: "dec" },
-  { name: "busy_any", value: "0b1", type: "drv", radix: "bin" },
-  { name: "data_valid", value: "0b0", type: "drv", radix: "bin" },
+  { name: "rst_n",      value: "0b1", type: "bool", radix: "bin", pinned: true },
+  { name: "irq",        value: "0b0", type: "bool", radix: "bin" },
+  { name: "data_valid", value: "0b1", type: "drv",  radix: "bin", selected: true },
+  { name: "busy",       value: "0b1", type: "drv",  radix: "bin" },
+  { name: "done",       value: "0b0", type: "bool", radix: "bin" },
 ];
 
 export function App() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasRef  = useRef<HTMLCanvasElement>(null);
+  const signalsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const canvas  = canvasRef.current;
+    const signals = signalsRef.current;
+    if (!canvas || !signals) return;
 
     let raf = 0;
 
@@ -36,10 +36,28 @@ export function App() {
       resizeCanvas(canvas, device, ctx, format);
 
       const frame = () => {
+        // All measurements are in CSS pixels from getBoundingClientRect.
+        // Multiply by DPR to get physical canvas pixels — the only unit the
+        // GPU shader knows about.
+        const dpr         = window.devicePixelRatio || 1;
+        const canvasRect  = canvas.getBoundingClientRect();
+        const signalsRect = signals.getBoundingClientRect();
+
+        // Row height: measure the first rendered row element directly so any
+        // future CSS change (compact mode, zoom) is picked up automatically.
+        const firstRow = signals.firstElementChild as HTMLElement | null;
+        const rowHeightCSS = firstRow
+          ? firstRow.getBoundingClientRect().height
+          : 22;
+
         const vp = {
           ...DEFAULT_VIEWPORT,
-          width:  canvas.width,
-          height: canvas.height,
+          width:      canvas.width,
+          height:     canvas.height,
+          rowHeight:  rowHeightCSS  * dpr,
+          rowPadding: 3             * dpr,
+          offsetY:    (signalsRect.top - canvasRect.top) * dpr,
+          linePx:     LINE_PX       * dpr,
         };
         renderFrame(gpuCtx, digital, vp);
         raf = requestAnimationFrame(frame);
@@ -130,7 +148,7 @@ export function App() {
             <span>Value</span>
             <span />
           </div>
-          <div className="signals">
+          <div className="signals" ref={signalsRef}>
             {ACTIVE_SIGNALS.map((s, i) => <ActiveSignal key={i} {...s} />)}
           </div>
         </div>

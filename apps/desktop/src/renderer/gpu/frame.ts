@@ -21,7 +21,7 @@ export function renderFrame(
 
   pass.setPipeline(digital.pipeline);
   pass.setBindGroup(0, digital.bindGroup);
-  pass.draw(6, digital.segmentCount);  // 6 verts × N instances
+  pass.draw(12, digital.segmentCount);  // 12 verts × N instances (fill + line)
   pass.end();
 
   device.queue.submit([enc.finish()]);
