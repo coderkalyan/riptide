@@ -200,12 +200,12 @@ export function App() {
                   <div className="lb mono" style={{ left: `${t}%` }}>{t} ns</div>
                 </span>
               ))}
+              <div className="cursor" style={{ left: "32.4%" }}><div className="flag">32.400 ns</div></div>
+              <div className="marker" style={{ left: "19.6%" }}><div className="flag">M1 · 19.600 ns</div></div>
             </div>
             <div className="gpu-host">
               <canvas id="gpu" ref={canvasRef} />
             </div>
-            <div className="cursor" style={{ left: "32.4%" }}><div className="flag">32.400 ns</div></div>
-            <div className="marker" style={{ left: "19.6%" }}><div className="flag">M1 · 19.600 ns</div></div>
           </div>
         </div>
       </div>
