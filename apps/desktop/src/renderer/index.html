@@ -1,405 +1,377 @@
 <!doctype html>
 <html lang="en" data-theme="dark">
-<head>
-<meta charset="utf-8">
-<title>Riptide</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-  :root {
-    --bg:#141517; --panel:#1B1D21; --panel-2:#22252A; --panel-3:#2B2F36;
-    --border:#2F333A; --border-strong:#40454F;
-    --text:#E6E6E2; --text-2:#B4B4AD; --muted:#7A7E87;
-    --accent:#6F86F3; --accent-soft:#2A3258;
-    --hot:#F06B5B; --marker:#4FD2BD; --ok:#57C88A; --warn:#E6B14E; --danger:#E86A5A;
-    --clk:#72F5DF; --bus:#727BF5; --bus2:#B48CFF; --bool:#72F5B4;
-    --enum-idle:#F05A6E; --enum-send:#F5C972; --enum-recv:#97F572;
-    --drv-tag-bg:#4A1E18; --drv-tag-fg:#F4A698;
-    --row-h:22px;
-    --shadow-1: 0 1px 0 rgba(0,0,0,.4), 0 1px 3px rgba(0,0,0,.25);
-  }
+    <head>
+        <meta charset="utf-8">
+        <title>Riptide</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+        <style>
+        :root {
+            --bg:#141517; --panel:#1B1D21; --panel-2:#22252A; --panel-3:#2B2F36;
+            --border:#2F333A; --border-strong:#40454F;
+            --text:#E6E6E2; --text-2:#B4B4AD; --muted:#7A7E87;
+            --accent:#6F86F3; --accent-soft:#2A3258;
+            --hot:#F06B5B; --marker:#4FD2BD; --ok:#57C88A; --warn:#E6B14E; --danger:#E86A5A;
+            --clk:#72F5DF; --bus:#727BF5; --bus2:#B48CFF; --bool:#72F5B4;
+            --enum-idle:#F05A6E; --enum-send:#F5C972; --enum-recv:#97F572;
+            --drv-tag-bg:#4A1E18; --drv-tag-fg:#F4A698;
+            --row-h:22px;
+            --shadow-1: 0 1px 0 rgba(0,0,0,.4), 0 1px 3px rgba(0,0,0,.25);
+        }
 
-  * { box-sizing: border-box; }
-  html, body { margin:0; padding:0; height:100%; background: var(--bg); color: var(--text);
-    font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px;
-    -webkit-font-smoothing: antialiased; overflow: hidden;
-  }
-  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+        * { box-sizing: border-box; }
+        html, body { margin:0; padding:0; height:100%; background: var(--bg); color: var(--text);
+            font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px;
+            -webkit-font-smoothing: antialiased; overflow: hidden;
+        }
+        .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
 
-  .app {
-    height: 100vh; width: 100vw; background: var(--panel); overflow: hidden;
-    display: flex; flex-direction: column;
-  }
+        .app {
+            height: 100vh; width: 100vw; background: var(--panel); overflow: hidden;
+            display: flex; flex-direction: column;
+        }
 
-  .titlebar {
-    height: 36px; display:flex; align-items:center; gap:10px;
-    padding: 0 12px; background: var(--panel-2);
-    border-bottom: 1px solid var(--border);
-  }
-  .dots { display:flex; gap:6px; }
-  .dots i { width:11px; height:11px; border-radius:50%; background: var(--border-strong); display:inline-block; }
-  .dots i.r { background:#E86A5A; } .dots i.y{ background:#E6B14E;} .dots i.g{ background:#57C88A;}
-  .title { font-weight: 600; font-size: 12.5px; letter-spacing:.1px; }
-  .title .sub { color: var(--muted); font-weight: 400; margin-left:6px; }
-  .titlebar .sp { flex:1; }
-  .tchip {
-    font-family: 'JetBrains Mono', monospace; font-size: 11px;
-    padding: 2px 8px; border: 1px solid var(--border);
-    border-radius: 999px; color: var(--text-2); background: var(--panel);
-  }
-  .tchip .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background: var(--ok); margin-right:6px; vertical-align: 1px;}
+        .titlebar {
+            height: 36px; display:flex; align-items:center; gap:10px;
+            padding: 0 12px; background: var(--panel-2);
+            border-bottom: 1px solid var(--border);
+        }
+        .dots { display:flex; gap:6px; }
+        .dots i { width:11px; height:11px; border-radius:50%; background: var(--border-strong); display:inline-block; }
+        .dots i.r { background:#E86A5A; } .dots i.y{ background:#E6B14E;} .dots i.g{ background:#57C88A;}
+        .title { font-weight: 600; font-size: 12.5px; letter-spacing:.1px; }
+        .title .sub { color: var(--muted); font-weight: 400; margin-left:6px; }
+        .titlebar .sp { flex:1; }
+        .tchip {
+            font-family: 'JetBrains Mono', monospace; font-size: 11px;
+            padding: 2px 8px; border: 1px solid var(--border);
+            border-radius: 999px; color: var(--text-2); background: var(--panel);
+        }
+        .tchip .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background: var(--ok); margin-right:6px; vertical-align: 1px;}
 
-  .menubar {
-    display:flex; gap: 2px; padding: 4px 8px;
-    background: var(--panel); border-bottom: 1px solid var(--border);
-    font-size: 12.5px;
-  }
-  .menubar span.m { padding: 3px 8px; border-radius: 4px; color: var(--text-2); }
-  .menubar span.m:hover { background: var(--panel-2); color: var(--text); }
-  .menubar .sp { flex:1; }
-  .menubar .kbd { font-family: 'JetBrains Mono', monospace; font-size:11px; color: var(--muted); padding: 3px 8px; border: 1px dashed var(--border); border-radius: 5px; }
+        .menubar {
+            display:flex; gap: 2px; padding: 4px 8px;
+            background: var(--panel); border-bottom: 1px solid var(--border);
+            font-size: 12.5px;
+        }
+        .menubar span.m { padding: 3px 8px; border-radius: 4px; color: var(--text-2); }
+        .menubar span.m:hover { background: var(--panel-2); color: var(--text); }
+        .menubar .sp { flex:1; }
+        .menubar .kbd { font-family: 'JetBrains Mono', monospace; font-size:11px; color: var(--muted); padding: 3px 8px; border: 1px dashed var(--border); border-radius: 5px; }
 
-  .toolbar {
-    height: 42px; display:flex; align-items:center; gap:6px;
-    padding: 0 10px; background: var(--panel); border-bottom: 1px solid var(--border);
-  }
-  .btn {
-    height: 26px; padding: 0 9px; border: 1px solid var(--border);
-    background: var(--panel); color: var(--text); border-radius: 6px;
-    font-size: 12.5px; display:inline-flex; align-items:center; gap: 5px;
-    cursor: default; white-space: nowrap;
-  }
-  .btn:hover { background: var(--panel-2); }
-  .btn.icon { padding: 0 7px; }
-  .btn.primary { background: var(--accent); color: #fff; border-color: transparent; }
-  .btn.primary:hover { filter: brightness(1.05); }
-  .btn.ghost { border-color: transparent; background: transparent; color: var(--text-2); }
-  .btn.ghost:hover { background: var(--panel-2); color: var(--text); }
-  .btn.sm { height: 22px; padding: 0 7px; font-size: 11.5px; }
-  .divider { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
-  .pill {
-    height: 24px; padding: 0 10px; font-family: 'JetBrains Mono', monospace;
-    font-size: 11px; border: 1px solid var(--border); border-radius: 999px;
-    display:inline-flex; align-items:center; gap: 6px; background: var(--panel);
-  }
-  .pill .swatch { width:8px; height:8px; border-radius:50%; background: var(--hot); }
-  .pill.marker .swatch { background: var(--marker); }
-  .search {
-    height: 26px; padding: 0 10px 0 26px; border: 1px solid var(--border);
-    border-radius: 6px; background: var(--panel) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238C8C84' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='7'/><path d='m20 20-3-3'/></svg>") no-repeat 8px center;
-    font-size: 12.5px; color: var(--text); min-width: 220px;
-    font-family: inherit;
-  }
-  .search::placeholder { color: var(--muted); }
-  .toolbar .sp { flex: 1; }
+        .toolbar {
+            height: 42px; display:flex; align-items:center; gap:6px;
+            padding: 0 10px; background: var(--panel); border-bottom: 1px solid var(--border);
+        }
+        .btn {
+            height: 26px; padding: 0 9px; border: 1px solid var(--border);
+            background: var(--panel); color: var(--text); border-radius: 6px;
+            font-size: 12.5px; display:inline-flex; align-items:center; gap: 5px;
+            cursor: default; white-space: nowrap;
+        }
+        .btn:hover { background: var(--panel-2); }
+        .btn.icon { padding: 0 7px; }
+        .btn.primary { background: var(--accent); color: #fff; border-color: transparent; }
+        .btn.primary:hover { filter: brightness(1.05); }
+        .btn.ghost { border-color: transparent; background: transparent; color: var(--text-2); }
+        .btn.ghost:hover { background: var(--panel-2); color: var(--text); }
+        .btn.sm { height: 22px; padding: 0 7px; font-size: 11.5px; }
+        .divider { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+        .pill {
+            height: 24px; padding: 0 10px; font-family: 'JetBrains Mono', monospace;
+            font-size: 11px; border: 1px solid var(--border); border-radius: 999px;
+            display:inline-flex; align-items:center; gap: 6px; background: var(--panel);
+        }
+        .pill .swatch { width:8px; height:8px; border-radius:50%; background: var(--hot); }
+        .pill.marker .swatch { background: var(--marker); }
+        .search {
+            height: 26px; padding: 0 10px 0 26px; border: 1px solid var(--border);
+            border-radius: 6px; background: var(--panel) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238C8C84' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='7'/><path d='m20 20-3-3'/></svg>") no-repeat 8px center;
+            font-size: 12.5px; color: var(--text); min-width: 220px;
+            font-family: inherit;
+        }
+        .search::placeholder { color: var(--muted); }
+        .toolbar .sp { flex: 1; }
 
-  .body {
-    display: grid;
-    grid-template-columns: 236px 296px 1fr;
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-  }
-  .col { border-right: 1px solid var(--border); min-width: 0; display:flex; flex-direction: column; }
-  .col:last-child { border-right: none; }
-  .col-head {
-    height: 30px; padding: 0 10px;
-    display:flex; align-items:center; justify-content:space-between;
-    background: var(--panel-2); border-bottom: 1px solid var(--border);
-    font-size: 11.5px; flex: 0 0 auto;
-  }
-  .col-head h3 { margin:0; font-size: 11.5px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--text-2); }
-  .col-head .hint { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--muted); }
+        .body {
+            display: grid;
+            grid-template-columns: 236px 296px 1fr;
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
+        }
+        .col { border-right: 1px solid var(--border); min-width: 0; display:flex; flex-direction: column; }
+        .col:last-child { border-right: none; }
+        .col-head {
+            height: 30px; padding: 0 10px;
+            display:flex; align-items:center; justify-content:space-between;
+            background: var(--panel-2); border-bottom: 1px solid var(--border);
+            font-size: 11.5px; flex: 0 0 auto;
+        }
+        .col-head h3 { margin:0; font-size: 11.5px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--text-2); }
+        .col-head .hint { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--muted); }
 
-  .col-sub {
-    height: 30px; padding: 0 8px;
-    display:flex; align-items:center; gap:6px;
-    border-bottom: 1px solid var(--border); background: var(--panel);
-    flex: 0 0 auto;
-  }
-  .col-sub .search { flex:1; height: 22px; font-size: 12px; min-width: 0; }
+        .col-sub {
+            height: 30px; padding: 0 8px;
+            display:flex; align-items:center; gap:6px;
+            border-bottom: 1px solid var(--border); background: var(--panel);
+            flex: 0 0 auto;
+        }
+        .col-sub .search { flex:1; height: 22px; font-size: 12px; min-width: 0; }
 
-  .tree { padding: 4px 4px 12px; overflow:auto; flex:1; }
-  .t-row {
-    height: 22px; display:flex; align-items:center; gap:4px;
-    padding: 0 6px; font-family: 'JetBrains Mono', monospace; font-size: 12px;
-    border-radius: 4px; color: var(--text); white-space: nowrap;
-  }
-  .t-row:hover { background: var(--panel-2); }
-  .t-row.sel { background: var(--accent-soft); color: var(--text); }
-  .t-row .chev { width: 10px; text-align:center; color: var(--muted); font-size: 10px; }
-  .t-row .icon { width: 14px; text-align:center; color: var(--text-2); font-size: 12px; }
-  .t-row .icon.clk { color: var(--clk); }
-  .t-row .icon.bus { color: var(--bus); }
-  .t-row .icon.bus2 { color: var(--bus2); }
-  .t-row .icon.drv { color: var(--drv-tag-fg); }
-  .t-row .lbl { flex:1; overflow: hidden; text-overflow: ellipsis; }
-  .t-row .count { font-size: 10px; color: var(--muted); padding: 0 4px; border: 1px solid var(--border); border-radius: 8px; height: 14px; display:inline-flex; align-items:center; }
-  .t-row .count.expr { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
-  .t-row .plus {
-    width: 14px; height: 14px; display:inline-flex; align-items:center; justify-content:center;
-    border-radius: 50%; color: var(--muted); font-size: 14px; line-height: 1; cursor: default;
-  }
-  .t-row .plus:hover { background: var(--accent); color: #fff; }
-  .indent-1 { padding-left: 18px !important; }
-  .indent-2 { padding-left: 32px !important; }
-  .tree-section {
-    margin-top: 8px; padding: 4px 10px 2px; font-size: 10.5px;
-    color: var(--muted); letter-spacing: .5px; text-transform: uppercase;
-    border-top: 1px solid var(--border);
-  }
+        .tree { padding: 4px 4px 12px; overflow:auto; flex:1; }
+        .t-row {
+            height: 22px; display:flex; align-items:center; gap:4px;
+            padding: 0 6px; font-family: 'JetBrains Mono', monospace; font-size: 12px;
+            border-radius: 4px; color: var(--text); white-space: nowrap;
+        }
+        .t-row:hover { background: var(--panel-2); }
+        .t-row.sel { background: var(--accent-soft); color: var(--text); }
+        .t-row .chev { width: 10px; text-align:center; color: var(--muted); font-size: 10px; }
+        .t-row .icon { width: 14px; text-align:center; color: var(--text-2); font-size: 12px; }
+        .t-row .icon.clk { color: var(--clk); }
+        .t-row .icon.bus { color: var(--bus); }
+        .t-row .icon.bus2 { color: var(--bus2); }
+        .t-row .icon.drv { color: var(--drv-tag-fg); }
+        .t-row .lbl { flex:1; overflow: hidden; text-overflow: ellipsis; }
+        .t-row .count { font-size: 10px; color: var(--muted); padding: 0 4px; border: 1px solid var(--border); border-radius: 8px; height: 14px; display:inline-flex; align-items:center; }
+        .t-row .count.expr { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+        .t-row .plus {
+            width: 14px; height: 14px; display:inline-flex; align-items:center; justify-content:center;
+            border-radius: 50%; color: var(--muted); font-size: 14px; line-height: 1; cursor: default;
+        }
+        .t-row .plus:hover { background: var(--accent); color: #fff; }
+        .indent-1 { padding-left: 18px !important; }
+        .indent-2 { padding-left: 32px !important; }
+        .tree-section {
+            margin-top: 8px; padding: 4px 10px 2px; font-size: 10.5px;
+            color: var(--muted); letter-spacing: .5px; text-transform: uppercase;
+            border-top: 1px solid var(--border);
+        }
 
-  .signals { overflow: auto; flex:1; }
-  .s-head {
-    display:grid; grid-template-columns: 16px 1fr 44px 44px 16px;
-    gap: 6px; padding: 0 8px; height: 22px; align-items:center;
-    font-size: 10px; color: var(--muted); letter-spacing: .4px; text-transform: uppercase;
-    border-bottom: 1px solid var(--border); background: var(--panel);
-  }
-  .s-row {
-    display:grid; grid-template-columns: 16px 1fr 44px 44px 16px;
-    gap: 6px; padding: 0 8px; align-items:center;
-    height: var(--row-h);
-    border-bottom: 1px solid var(--border);
-    font-family: 'JetBrains Mono', monospace; font-size: 12px;
-  }
-  .s-row:hover { background: var(--panel-2); }
-  .s-row.sel { background: var(--accent-soft); }
-  .pin { text-align:center; color: var(--muted); font-size: 10px; cursor: default;}
-  .pin.on { color: var(--accent); }
-  .s-name { display:flex; align-items:baseline; gap: 6px; min-width: 0; }
-  .s-name .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .s-name .v { font-size: 11px; color: var(--muted); margin-left: auto; padding-left: 8px;}
-  .tag {
-    font-size: 9.5px; padding: 0 5px; height: 14px; display:inline-flex; align-items:center;
-    border-radius: 3px; background: var(--panel-2); color: var(--text-2); border: 1px solid var(--border);
-    text-transform: uppercase; letter-spacing: .3px;
-  }
-  .tag.clk { color: var(--clk); border-color: color-mix(in srgb, var(--clk) 40%, var(--border)); }
-  .tag.bus { color: var(--bus); border-color: color-mix(in srgb, var(--bus) 40%, var(--border)); }
-  .tag.bool{ color: var(--bool); border-color: color-mix(in srgb, var(--bool) 40%, var(--border));}
-  .tag.enum{ color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--border));}
-  .tag.drv { background: var(--drv-tag-bg); color: var(--drv-tag-fg); border-color: transparent; }
-  .radix {
-    height: 16px; width: 48px; padding: 0 5px; font-size: 10px;
-    border: 1px solid var(--border); border-radius: 3px; background: var(--panel);
-    display:inline-flex; align-items:center; justify-content: space-between; gap:3px; cursor: default;
-    font-family: 'JetBrains Mono', monospace;
-  }
-  .radix:hover { background: var(--panel-2); }
-  .kebab { text-align:center; color: var(--muted); cursor: default;}
-  .s-row.nested { padding-left: 22px; background: color-mix(in srgb, var(--panel-2) 60%, transparent); }
+        .signals { overflow: auto; flex:1; }
+        .s-head {
+            display:grid; grid-template-columns: 16px 1fr 44px 44px 16px;
+            gap: 6px; padding: 0 8px; height: 22px; align-items:center;
+            font-size: 10px; color: var(--muted); letter-spacing: .4px; text-transform: uppercase;
+            border-bottom: 1px solid var(--border); background: var(--panel);
+        }
+        .s-row {
+            display:grid; grid-template-columns: 16px 1fr 44px 44px 16px;
+            gap: 6px; padding: 0 8px; align-items:center;
+            height: var(--row-h);
+            border-bottom: 1px solid var(--border);
+            font-family: 'JetBrains Mono', monospace; font-size: 12px;
+        }
+        .s-row:hover { background: var(--panel-2); }
+        .s-row.sel { background: var(--accent-soft); }
+        .pin { text-align:center; color: var(--muted); font-size: 10px; cursor: default;}
+        .pin.on { color: var(--accent); }
+        .s-name { display:flex; align-items:baseline; gap: 6px; min-width: 0; }
+        .s-name .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .s-name .v { font-size: 11px; color: var(--muted); margin-left: auto; padding-left: 8px;}
+        .tag {
+            font-size: 9.5px; padding: 0 5px; height: 14px; display:inline-flex; align-items:center;
+            border-radius: 3px; background: var(--panel-2); color: var(--text-2); border: 1px solid var(--border);
+            text-transform: uppercase; letter-spacing: .3px;
+        }
+        .tag.clk { color: var(--clk); border-color: color-mix(in srgb, var(--clk) 40%, var(--border)); }
+        .tag.bus { color: var(--bus); border-color: color-mix(in srgb, var(--bus) 40%, var(--border)); }
+        .tag.bool{ color: var(--bool); border-color: color-mix(in srgb, var(--bool) 40%, var(--border));}
+        .tag.enum{ color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, var(--border));}
+        .tag.drv { background: var(--drv-tag-bg); color: var(--drv-tag-fg); border-color: transparent; }
+        .radix {
+            height: 16px; width: 48px; padding: 0 5px; font-size: 10px;
+            border: 1px solid var(--border); border-radius: 3px; background: var(--panel);
+            display:inline-flex; align-items:center; justify-content: space-between; gap:3px; cursor: default;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .radix:hover { background: var(--panel-2); }
+        .kebab { text-align:center; color: var(--muted); cursor: default;}
+        .s-row.nested { padding-left: 22px; background: color-mix(in srgb, var(--panel-2) 60%, transparent); }
 
-  .waves { position: relative; }
-  .wv-sub {
-    height: 30px; padding: 0 8px;
-    display:flex; align-items:center; gap:6px;
-    background: var(--panel); border-bottom: 1px solid var(--border);
-    flex: 0 0 auto;
-  }
-  .seg {
-    display:inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--panel);
-  }
-  .seg .btn { border: none; border-radius: 0; border-right: 1px solid var(--border); height: 22px; padding: 0 8px; font-size: 11.5px;}
-  .seg .btn:last-child { border-right: none; }
-  .seg .btn.on { background: var(--accent); color: #fff; }
+        .waves { position: relative; }
+        .wv-sub {
+            height: 30px; padding: 0 8px;
+            display:flex; align-items:center; gap:6px;
+            background: var(--panel); border-bottom: 1px solid var(--border);
+            flex: 0 0 auto;
+        }
+        .seg {
+            display:inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--panel);
+        }
+        .seg .btn { border: none; border-radius: 0; border-right: 1px solid var(--border); height: 22px; padding: 0 8px; font-size: 11.5px;}
+        .seg .btn:last-child { border-right: none; }
+        .seg .btn.on { background: var(--accent); color: #fff; }
 
-  .wv-canvas { position: relative; background: var(--panel); overflow: hidden; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+        .wv-canvas { position: relative; background: var(--panel); overflow: hidden; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 
-  .ruler {
-    position: relative; height: 24px; flex: 0 0 auto;
-    border-bottom: 1px solid var(--border);
-    background: var(--panel-2);
-    font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--text-2);
-    user-select:none;
-  }
-  .ruler .tk { position:absolute; top: 16px; bottom: 0; width: 1px; background: var(--border-strong); }
-  .ruler .tk.major { top: 10px; }
-  .ruler .lb { position:absolute; top: 4px; transform: translateX(3px); font-size: 10px; }
+        .ruler {
+            position: relative; height: 24px; flex: 0 0 auto;
+            border-bottom: 1px solid var(--border);
+            background: var(--panel-2);
+            font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--text-2);
+            user-select:none;
+        }
+        .ruler .tk { position:absolute; top: 16px; bottom: 0; width: 1px; background: var(--border-strong); }
+        .ruler .tk.major { top: 10px; }
+        .ruler .lb { position:absolute; top: 4px; transform: translateX(3px); font-size: 10px; }
 
-  .gpu-host { position: relative; flex: 1; min-height: 0; }
-  #gpu { display: block; width: 100%; height: 100%; background: var(--panel); }
+        .gpu-host { position: relative; flex: 1; min-height: 0; }
+        #gpu { display: block; width: 100%; height: 100%; background: var(--panel); }
 
-  .cursor, .marker {
-    position: absolute; top: 24px; bottom: 0; width: 0; z-index: 5; pointer-events:none;
-  }
-  .cursor { border-left: 1.5px solid var(--hot); }
-  .marker { border-left: 1px dashed var(--marker); z-index: 4; }
-  .flag {
-    position: absolute; top: 3px; transform: translateX(-50%);
-    font-family: 'JetBrains Mono', monospace; font-size: 10px;
-    padding: 0 5px; height: 16px; display:inline-flex; align-items:center;
-    background: var(--hot); color: #fff; border-radius: 3px; white-space: nowrap;
-  }
-  .marker .flag { background: var(--marker); }
+        .cursor, .marker {
+            position: absolute; top: 24px; bottom: 0; width: 0; z-index: 5; pointer-events:none;
+        }
+        .cursor { border-left: 1.5px solid var(--hot); }
+        .marker { border-left: 1px dashed var(--marker); z-index: 4; }
+        .flag {
+            position: absolute; top: 3px; transform: translateX(-50%);
+            font-family: 'JetBrains Mono', monospace; font-size: 10px;
+            padding: 0 5px; height: 16px; display:inline-flex; align-items:center;
+            background: var(--hot); color: #fff; border-radius: 3px; white-space: nowrap;
+        }
+        .marker .flag { background: var(--marker); }
 
-  .status {
-    height: 24px; display:flex; align-items:center; gap: 14px;
-    padding: 0 12px; background: var(--panel-2); border-top: 1px solid var(--border);
-    font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-2);
-    flex: 0 0 auto;
-  }
-  .status b { color: var(--text); font-weight: 600; }
-  .status .sp { flex:1; }
-  .status .dotted { display:inline-flex; align-items:center; gap:5px; }
-  .status .dot { width:7px; height:7px; border-radius:50%; background: var(--ok); }
-</style>
-</head>
-<body>
+        .status {
+            height: 24px; display:flex; align-items:center; gap: 14px;
+            padding: 0 12px; background: var(--panel-2); border-top: 1px solid var(--border);
+            font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-2);
+            flex: 0 0 auto;
+        }
+        .status b { color: var(--text); font-weight: 600; }
+        .status .sp { flex:1; }
+        .status .dotted { display:inline-flex; align-items:center; gap:5px; }
+        .status .dot { width:7px; height:7px; border-radius:50%; background: var(--ok); }
+        </style>
+    </head>
+    <body>
 
-<div class="app">
+        <div class="app">
 
-  <div class="titlebar">
-    <div class="dots"><i class="r"></i><i class="y"></i><i class="g"></i></div>
-    <div class="title">Riptide <span class="sub">— keysched.vcd</span></div>
-    <div class="sp"></div>
-    <span class="tchip mono">top / keysched</span>
-    <span class="tchip"><span class="dot"></span>connected</span>
-  </div>
+            <div class="titlebar">
+                <div class="dots"><i class="r"></i><i class="y"></i><i class="g"></i></div>
+                <div class="title">Riptide <span class="sub">— keysched.vcd</span></div>
+                <div class="sp"></div>
+                <span class="tchip mono">top / keysched</span>
+                <span class="tchip"><span class="dot"></span>connected</span>
+            </div>
 
-  <div class="menubar">
-    <span class="m">File</span><span class="m">Edit</span><span class="m">View</span>
-    <span class="m">Signals</span><span class="m">Markers</span><span class="m">Window</span><span class="m">Help</span>
-    <span class="sp"></span>
-    <span class="kbd mono">⌘K  command palette</span>
-  </div>
+            <div class="menubar">
+                <span class="m">File</span><span class="m">Edit</span><span class="m">View</span>
+                <span class="m">Signals</span><span class="m">Markers</span><span class="m">Window</span><span class="m">Help</span>
+                <span class="sp"></span>
+                <span class="kbd mono">⌘K  command palette</span>
+            </div>
 
-  <div class="toolbar">
-    <span class="btn icon" title="open">📂</span>
-    <span class="btn icon" title="reload">↻</span>
-    <div class="divider"></div>
-    <span class="btn icon">⏮</span>
-    <span class="btn primary">▶ run</span>
-    <span class="btn icon">⏭</span>
-    <div class="divider"></div>
-    <span class="pill"><span class="swatch"></span><span class="mono">cursor 32.400 ns</span></span>
-    <div class="divider"></div>
-    <div class="seg">
-      <span class="btn">−</span><span class="btn">fit</span><span class="btn">＋</span>
-    </div>
-    <span class="btn ghost">radix ▾</span>
-    <span class="btn ghost">group ▾</span>
-    <span class="sp"></span>
-    <input class="search" placeholder="Find signal, scope, or value…" />
-    <span class="btn icon ghost">⚙</span>
-  </div>
+            <div class="toolbar">
+                <span class="btn icon" title="open">📂</span>
+                <span class="btn icon" title="reload">↻</span>
+                <div class="divider"></div>
+                <span class="btn icon">⏮</span>
+                <span class="btn primary">▶ run</span>
+                <span class="btn icon">⏭</span>
+                <div class="divider"></div>
+                <span class="pill"><span class="swatch"></span><span class="mono">cursor 32.400 ns</span></span>
+                <div class="divider"></div>
+                <div class="seg">
+                    <span class="btn">−</span><span class="btn">fit</span><span class="btn">＋</span>
+                </div>
+                <span class="btn ghost">radix ▾</span>
+                <span class="btn ghost">group ▾</span>
+                <span class="sp"></span>
+                <input class="search" placeholder="Find signal, scope, or value…" />
+                <span class="btn icon ghost">⚙</span>
+            </div>
 
-  <div class="body">
-    <div class="col">
-      <div class="col-head"><h3>Signal Tree</h3><span class="hint">2 scopes · 147 sig</span></div>
-      <div class="col-sub"><input class="search" placeholder="filter scope/name" /></div>
-      <div class="tree">
-        <div class="t-row"><span class="chev">▾</span><span class="icon">▣</span><span class="lbl">top</span><span class="count">module</span></div>
-        <div class="t-row indent-1"><span class="chev">▸</span><span class="icon">▢</span><span class="lbl">des</span><span class="count">42</span></div>
-        <div class="t-row indent-1"><span class="chev">▾</span><span class="icon">▣</span><span class="lbl">keysched</span><span class="count">28</span></div>
-        <div class="t-row indent-2"><span class="chev"></span><span class="icon clk">◷</span><span class="lbl">clk</span><span class="plus">＋</span></div>
-        <div class="t-row indent-2"><span class="chev"></span><span class="icon">⏚</span><span class="lbl">rst_n</span><span class="plus">＋</span></div>
-        <div class="t-row indent-2 sel"><span class="chev"></span><span class="icon bus">∿</span><span class="lbl">c[10:0]</span><span class="plus">＋</span></div>
-        <div class="t-row indent-2"><span class="chev"></span><span class="icon bus">∿</span><span class="lbl">load1[0:8]</span><span class="count">3</span><span class="plus">＋</span></div>
-        <div class="t-row indent-2"><span class="chev"></span><span class="icon bus">∿</span><span class="lbl">load2[0:8]</span><span class="plus">＋</span></div>
-        <div class="t-row indent-2"><span class="chev"></span><span class="icon bus">∿</span><span class="lbl">load3[0:8]</span><span class="count">1</span><span class="plus">＋</span></div>
-        <div class="t-row indent-2"><span class="chev"></span><span class="icon bus2">∿</span><span class="lbl">data[31:0]</span><span class="plus">＋</span></div>
-        <div class="t-row indent-2"><span class="chev"></span><span class="icon">▦</span><span class="lbl">state[1:0]</span><span class="plus">＋</span></div>
-        <div class="t-row indent-2"><span class="chev">▸</span><span class="icon">▢</span><span class="lbl">fsm</span><span class="count">9</span></div>
-        <div class="t-row indent-2"><span class="chev">▸</span><span class="icon">▢</span><span class="lbl">xbar</span><span class="count">14</span></div>
-        <div class="t-row indent-1"><span class="chev">▸</span><span class="icon">▢</span><span class="lbl">mem_ctrl</span><span class="count">31</span></div>
-        <div class="t-row indent-1"><span class="chev">▸</span><span class="icon">▢</span><span class="lbl">dma</span><span class="count">22</span></div>
-        <div class="t-row indent-1"><span class="chev">▸</span><span class="icon">▢</span><span class="lbl">uart</span><span class="count">11</span></div>
+            <div class="body">
+                <div class="col">
+                    <div class="col-head"><h3>Signal Tree</h3><span class="hint">2 scopes · 147 sig</span></div>
+                    <div class="col-sub"><input class="search" placeholder="filter scope/name" /></div>
+                    <div class="tree">
+                        <div class="t-row indent-2 sel"><span class="chev"></span><span class="icon bus">∿</span><span class="lbl">c[10:0]</span><span class="plus">＋</span></div>
 
-        <div class="tree-section">Derived signals · 4</div>
-        <div class="t-row indent-1"><span class="chev"></span><span class="icon drv">ƒ</span><span class="lbl">busy_any</span><span class="count expr mono" title="load1 | load2 | load3">load1 | load2 | load3</span></div>
-        <div class="t-row indent-1"><span class="chev"></span><span class="icon drv">ƒ</span><span class="lbl">state_name</span><span class="count expr mono" title="decode(state, IDLE,SEND,RECV)">decode(state, IDLE,…)</span></div>
-        <div class="t-row indent-1"><span class="chev"></span><span class="icon drv">ƒ</span><span class="lbl">data_valid</span><span class="count expr mono" title="state == SEND &amp;&amp; clk">state == SEND &amp;&amp; clk</span></div>
-        <div class="t-row indent-1"><span class="chev"></span><span class="icon drv">ƒ</span><span class="lbl">cafe_match</span><span class="count expr mono" title="data[31:0] == 0xCAFEB0BA">data[31:0] == 0xCAFE…</span></div>
-        <div class="t-row indent-1"><span class="chev"></span><span class="icon">＋</span><span class="lbl" style="color:var(--muted)">new derived…</span></div>
-      </div>
-    </div>
+                        <div class="tree-section">Derived signals · 4</div>
+                        <div class="t-row indent-1"><span class="chev"></span><span class="icon drv">ƒ</span><span class="lbl">busy_any</span><span class="count expr mono" title="load1 | load2 | load3">load1 | load2 | load3</span></div>
+                        <div class="t-row indent-1"><span class="chev"></span><span class="icon">＋</span><span class="lbl" style="color:var(--muted)">new derived…</span></div>
+                    </div>
+                </div>
 
-    <div class="col">
-      <div class="col-head"><h3>Active Signals</h3><span class="hint">9 rows</span></div>
-      <div class="col-sub">
-        <input class="search" placeholder="＋ new derived expression  (e.g. c[7:0] == 0x8F)" />
-        <span class="btn sm primary">add</span>
-      </div>
-      <div class="s-head">
-        <span></span><span>Name · value @ cursor</span><span>Type</span><span>Radix</span><span></span>
-      </div>
-      <div class="signals">
-        <div class="s-row"><span class="pin on">●</span><span class="s-name"><span class="n">clk</span><span class="v">1'b0</span></span><span class="tag clk">clk</span><span class="radix">bin ▾</span><span class="kebab">⋯</span></div>
-        <div class="s-row"><span class="pin on">●</span><span class="s-name"><span class="n">rst_n</span><span class="v">1'b1</span></span><span class="tag bool">bool</span><span class="radix">bin ▾</span><span class="kebab">⋯</span></div>
-        <div class="s-row"><span class="pin">●</span><span class="s-name"><span class="n">c[7:0]</span><span class="v">0x8F</span></span><span class="tag bus">bus</span><span class="radix">hex ▾</span><span class="kebab">⋯</span></div>
-        <div class="s-row sel"><span class="pin">●</span><span class="s-name"><span class="n">c[10:8]</span><span class="v">3'b101</span></span><span class="tag bus">bus</span><span class="radix">bin ▾</span><span class="kebab">⋯</span></div>
-        <div class="s-row nested"><span class="pin">●</span><span class="s-name"><span class="n">└ c[10]</span><span class="v">true</span></span><span class="tag bool">bool</span><span class="radix">bool ▾</span><span class="kebab">⋯</span></div>
-        <div class="s-row nested"><span class="pin">●</span><span class="s-name"><span class="n">└ c[9]</span><span class="v">false</span></span><span class="tag bool">bool</span><span class="radix">bool ▾</span><span class="kebab">⋯</span></div>
-        <div class="s-row nested"><span class="pin">●</span><span class="s-name"><span class="n">└ c[8]</span><span class="v">true</span></span><span class="tag bool">bool</span><span class="radix">bool ▾</span><span class="kebab">⋯</span></div>
-        <div class="s-row"><span class="pin">●</span><span class="s-name"><span class="n">derived1</span><span class="v">false</span></span><span class="tag drv">drv</span><span class="radix">bool ▾</span><span class="kebab">⋯</span></div>
-        <div class="s-row"><span class="pin">●</span><span class="s-name"><span class="n">data[31:0]</span><span class="v">0xCAFEB0BA</span></span><span class="tag drv">drv</span><span class="radix">hex ▾</span><span class="kebab">⋯</span></div>
-        <div class="s-row"><span class="pin">●</span><span class="s-name"><span class="n">state[1:0]</span><span class="v">RECV</span></span><span class="tag enum">enum</span><span class="radix">enum ▾</span><span class="kebab">⋯</span></div>
-        <div class="s-row"><span class="pin">●</span><span class="s-name"><span class="n">busy_any</span><span class="v">true</span></span><span class="tag drv">drv</span><span class="radix">bool ▾</span><span class="kebab">⋯</span></div>
-        <div class="s-row"><span class="pin">●</span><span class="s-name"><span class="n">addr[15:0]</span><span class="v">0x07A0</span></span><span class="tag bus">bus</span><span class="radix">hex ▾</span><span class="kebab">⋯</span></div>
-        <div class="s-row"><span class="pin">●</span><span class="s-name"><span class="n">wr_en</span><span class="v">1</span></span><span class="tag bool">bool</span><span class="radix">bin ▾</span><span class="kebab">⋯</span></div>
-        <div class="s-row"><span class="pin">●</span><span class="s-name"><span class="n">rd_en</span><span class="v">0</span></span><span class="tag bool">bool</span><span class="radix">bin ▾</span><span class="kebab">⋯</span></div>
-      </div>
-    </div>
+                <div class="col">
+                    <div class="col-head"><h3>Active Signals</h3><span class="hint">9 rows</span></div>
+                    <div class="col-sub">
+                        <input class="search" placeholder="＋ new derived expression  (e.g. c[7:0] == 0x8F)" />
+                        <span class="btn sm primary">add</span>
+                    </div>
+                    <div class="s-head">
+                        <span></span>
+                        <span>Name</span>
+                        <span>Value</span>
+                        <span></span>
+                    </div>
+                    <div class="signals">
+                        <div class="s-row"><span class="pin on">●</span><span class="s-name"><span class="n">clk</span><span class="v">1'b0</span></span><span class="tag clk">clk</span><span class="radix">bin ▾</span><span class="kebab">⋯</span></div>
+                    </div>
+                </div>
 
-    <div class="col waves">
-      <div class="col-head">
-        <h3>Waves</h3>
-        <span class="hint mono">1 ns / 14 px · 0 – 100 ns</span>
-      </div>
-      <div class="wv-sub">
-        <div class="seg">
-          <span class="btn sm">⇤ edge</span><span class="btn sm">edge ⇥</span>
+                <div class="col waves">
+                    <div class="col-head">
+                        <h3>Waves</h3>
+                        <span class="hint mono">1 ns / 14 px · 0 – 100 ns</span>
+                    </div>
+                    <div class="wv-sub">
+                        <div class="seg">
+                            <span class="btn sm">⇤ edge</span><span class="btn sm">edge ⇥</span>
+                        </div>
+                        <span class="btn sm">set marker</span>
+                        <span class="btn sm ghost">clear</span>
+                        <div class="divider"></div>
+                        <span class="btn sm ghost">annotate</span>
+                        <span class="btn sm ghost">split</span>
+                        <span class="sp" style="flex:1"></span>
+                        <div class="seg">
+                            <span class="btn sm">1 ns</span><span class="btn sm on">10 ns</span><span class="btn sm">100 ns</span><span class="btn sm">1 µs</span>
+                        </div>
+                    </div>
+
+                    <div class="wv-canvas">
+                        <div class="ruler">
+                            <div class="tk major" style="left:0%"></div><div class="lb mono" style="left:0%">0 ns</div>
+                            <div class="tk major" style="left:10%"></div><div class="lb mono" style="left:10%">10 ns</div>
+                            <div class="tk major" style="left:20%"></div><div class="lb mono" style="left:20%">20 ns</div>
+                            <div class="tk major" style="left:30%"></div><div class="lb mono" style="left:30%">30 ns</div>
+                            <div class="tk major" style="left:40%"></div><div class="lb mono" style="left:40%">40 ns</div>
+                            <div class="tk major" style="left:50%"></div><div class="lb mono" style="left:50%">50 ns</div>
+                            <div class="tk major" style="left:60%"></div><div class="lb mono" style="left:60%">60 ns</div>
+                            <div class="tk major" style="left:70%"></div><div class="lb mono" style="left:70%">70 ns</div>
+                            <div class="tk major" style="left:80%"></div><div class="lb mono" style="left:80%">80 ns</div>
+                            <div class="tk major" style="left:90%"></div><div class="lb mono" style="left:90%">90 ns</div>
+                            <div class="tk major" style="left:100%"></div><div class="lb mono" style="left:100%">100 ns</div>
+                        </div>
+                        <div class="gpu-host">
+                            <canvas id="gpu"></canvas>
+                        </div>
+                        <div class="cursor" style="left: 32.4%;"><div class="flag">32.400 ns</div></div>
+                        <div class="marker" style="left: 19.6%;"><div class="flag">M1 · 19.600 ns</div></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="status">
+                <span class="dotted"><span class="dot"></span>sim ready</span>
+                <span>cursor <b>32.400 ns</b></span>
+                <span>M1 <b>19.600 ns</b></span>
+                <span>Δ <b>12.800 ns</b></span>
+                <span>zoom <b>1 ns / 14 px</b></span>
+                <span class="sp"></span>
+                <span>147 signals</span>
+                <span>9 active</span>
+                <span>2 derived</span>
+                <span>top / keysched</span>
+            </div>
         </div>
-        <span class="btn sm">set marker</span>
-        <span class="btn sm ghost">clear</span>
-        <div class="divider"></div>
-        <span class="btn sm ghost">annotate</span>
-        <span class="btn sm ghost">split</span>
-        <span class="sp" style="flex:1"></span>
-        <div class="seg">
-          <span class="btn sm">1 ns</span><span class="btn sm on">10 ns</span><span class="btn sm">100 ns</span><span class="btn sm">1 µs</span>
-        </div>
-      </div>
 
-      <div class="wv-canvas">
-        <div class="ruler">
-          <div class="tk major" style="left:0%"></div><div class="lb mono" style="left:0%">0 ns</div>
-          <div class="tk major" style="left:10%"></div><div class="lb mono" style="left:10%">10 ns</div>
-          <div class="tk major" style="left:20%"></div><div class="lb mono" style="left:20%">20 ns</div>
-          <div class="tk major" style="left:30%"></div><div class="lb mono" style="left:30%">30 ns</div>
-          <div class="tk major" style="left:40%"></div><div class="lb mono" style="left:40%">40 ns</div>
-          <div class="tk major" style="left:50%"></div><div class="lb mono" style="left:50%">50 ns</div>
-          <div class="tk major" style="left:60%"></div><div class="lb mono" style="left:60%">60 ns</div>
-          <div class="tk major" style="left:70%"></div><div class="lb mono" style="left:70%">70 ns</div>
-          <div class="tk major" style="left:80%"></div><div class="lb mono" style="left:80%">80 ns</div>
-          <div class="tk major" style="left:90%"></div><div class="lb mono" style="left:90%">90 ns</div>
-          <div class="tk major" style="left:100%"></div><div class="lb mono" style="left:100%">100 ns</div>
-        </div>
-        <div class="gpu-host">
-          <canvas id="gpu"></canvas>
-        </div>
-        <div class="cursor" style="left: 32.4%;"><div class="flag">32.400 ns</div></div>
-        <div class="marker" style="left: 19.6%;"><div class="flag">M1 · 19.600 ns</div></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="status">
-    <span class="dotted"><span class="dot"></span>sim ready</span>
-    <span>cursor <b>32.400 ns</b></span>
-    <span>M1 <b>19.600 ns</b></span>
-    <span>Δ <b>12.800 ns</b></span>
-    <span>zoom <b>1 ns / 14 px</b></span>
-    <span class="sp"></span>
-    <span>147 signals</span>
-    <span>9 active</span>
-    <span>2 derived</span>
-    <span>top / keysched</span>
-  </div>
-</div>
-
-<script src="index.js"></script>
-</body>
+        <script src="index.js"></script>
+    </body>
 </html>
