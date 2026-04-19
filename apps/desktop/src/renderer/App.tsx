@@ -3,6 +3,10 @@ import { ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLe
 import { ActiveSignal, ActiveSignalProps } from "./ActiveSignal";
 import { SignalTree, Scope, SignalNode } from "./SignalTree";
 import { DerivedSignals, DerivedSignal } from "./DerivedSignals";
+import { initGPU, resizeCanvas, GPUInitError } from "./gpu/device";
+import { buildDigitalPipeline } from "./gpu/pipelines/digital";
+import { renderFrame } from "./gpu/frame";
+import { HARDCODED_SEGMENTS, DEFAULT_VIEWPORT } from "./gpu/data";
 
 const ACTIVE_SIGNALS: ActiveSignalProps[] = [
   { name: "clk", value: "0b1", type: "clk", radix: "bin", pinned: true },
@@ -20,14 +24,35 @@ export function App() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const resize = (): void => {
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.floor(canvas.clientWidth * dpr);
-      canvas.height = Math.floor(canvas.clientHeight * dpr);
-    };
-    resize();
-    window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
+
+    let raf = 0;
+
+    initGPU(canvas).then(({ device, ctx, format }) => {
+      const gpuCtx = { device, ctx, format };
+      const digital = buildDigitalPipeline(gpuCtx, HARDCODED_SEGMENTS);
+
+      const ro = new ResizeObserver(() => resizeCanvas(canvas, device, ctx, format));
+      ro.observe(canvas);
+      resizeCanvas(canvas, device, ctx, format);
+
+      const frame = () => {
+        const vp = {
+          ...DEFAULT_VIEWPORT,
+          width:  canvas.width,
+          height: canvas.height,
+        };
+        renderFrame(gpuCtx, digital, vp);
+        raf = requestAnimationFrame(frame);
+      };
+      raf = requestAnimationFrame(frame);
+
+      return () => { ro.disconnect(); cancelAnimationFrame(raf); };
+    }).catch((e) => {
+      if (e instanceof GPUInitError) console.error("GPU init failed:", e.message);
+      else throw e;
+    });
+
+    return () => cancelAnimationFrame(raf);
   }, []);
 
   return (
