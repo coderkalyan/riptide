@@ -29,8 +29,8 @@ export function App() {
         <div className="dots"><i className="r" /><i className="y" /><i className="g" /></div>
         <div className="title">Riptide <span className="sub">— keysched.vcd</span></div>
         <div className="sp" />
-        <span className="tchip mono">top / keysched</span>
-        <span className="tchip"><span className="dot" />connected</span>
+        {/* <span className="tchip mono">top / keysched</span> */}
+        {/* <span className="tchip"><span className="dot" />connected</span> */}
       </div>
 
       <div className="menubar">
@@ -40,30 +40,14 @@ export function App() {
         <span className="kbd mono">⌘K  command palette</span>
       </div>
 
-      <div className="toolbar">
-        <span className="btn icon" title="open">📂</span>
-        <span className="btn icon" title="reload">↻</span>
-        <div className="divider" />
-        <span className="btn icon" title="to beginning">⏮</span>
-        <span className="btn icon" title="step backward">⏴</span>
-        <span className="btn icon" title="step forward">⏵</span>
-        <span className="btn icon" title="to end">⏭</span>
-        <div className="divider" />
-        <span className="pill"><span className="swatch" /><span className="mono">cursor 32.400 ns</span></span>
-        <div className="divider" />
-        <div className="seg">
-          <span className="btn">−</span><span className="btn" title="fit">⛶</span><span className="btn">＋</span>
-        </div>
-        <span className="btn ghost">radix ▾</span>
-        <span className="btn ghost">group ▾</span>
-        <span className="sp" />
-        <input className="search" placeholder="Find signal, scope, or value…" />
-        <span className="btn icon ghost">⚙</span>
-      </div>
-
       <div className="body">
         <div className="col">
-          <div className="col-head"><h3>Signal Tree</h3><span className="hint">2 scopes · 147 sig</span></div>
+          <div className="col-head">
+            <h3>Signal Tree</h3>
+            <span className="sp" style={{ flex: 1 }} />
+            {/* <span className="hint">147 signals</span> */}
+            <span className="collapse" title="collapse panel">‹</span>
+          </div>
           <div className="col-sub"><input className="search" placeholder="filter scope/name" /></div>
           <SignalTree>
             <Scope name="top" badge="module" expanded>
@@ -86,7 +70,10 @@ export function App() {
             </Scope>
           </SignalTree>
 
-          <div className="col-head"><h3>Derived Signals</h3><span className="hint">4 rows</span></div>
+          <div className="col-head">
+            <h3>Derived Signals</h3>
+            {/* <span className="hint">4 rows</span> */}
+          </div>
           <div className="col-sub">
             <input className="search" placeholder="new derived expression" />
             <span className="btn sm icon primary" title="add">＋</span>
@@ -100,7 +87,7 @@ export function App() {
         </div>
 
         <div className="col">
-          <div className="col-head"><h3>Active Signals</h3><span className="hint">{ACTIVE_SIGNALS.length} rows</span></div>
+          <div className="col-head"><h3>Active Signals</h3><span className="hint">{ACTIVE_SIGNALS.length} active</span></div>
           <div className="col-sub">
             <input className="search" placeholder="filter active signals" />
           </div>
@@ -116,11 +103,24 @@ export function App() {
         </div>
 
         <div className="col waves">
-          <div className="col-head">
+          <div className="col-head toolbar">
             <h3>Waves</h3>
+            <div className="divider" />
+            <span className="btn icon" title="to beginning">⏮</span>
+            <span className="btn icon" title="step backward">⏴</span>
+            <span className="btn icon" title="step forward">⏵</span>
+            <span className="btn icon" title="to end">⏭</span>
+            <div className="divider" />
+            <span className="pill"><span className="swatch" /><span className="mono">cursor 32.400 ns</span></span>
+            <div className="divider" />
+            <div className="seg">
+              <span className="btn">−</span><span className="btn" title="fit">⛶</span><span className="btn">＋</span>
+            </div>
+            <span className="sp" style={{ flex: 1 }} />
             <span className="hint mono">1 ns / 14 px · 0 – 100 ns</span>
+            <span className="btn icon ghost">⚙</span>
           </div>
-          <div className="wv-sub">
+          <div className="col-sub">
             <div className="seg">
               <span className="btn sm">⇤ edge</span><span className="btn sm">edge ⇥</span>
             </div>
@@ -154,7 +154,7 @@ export function App() {
       </div>
 
       <div className="status">
-        <span className="dotted"><span className="dot" />sim ready</span>
+        {/* <span className="dotted"><span className="dot" />sim ready</span> */}
         <span>cursor <b>32.400 ns</b></span>
         <span>M1 <b>19.600 ns</b></span>
         <span>Δ <b>12.800 ns</b></span>

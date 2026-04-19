@@ -51,7 +51,7 @@
         .tchip .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background: var(--ok); margin-right:6px; vertical-align: 1px;}
 
         .menubar {
-            display:flex; gap: 2px; padding: 4px 8px;
+            height: 34px; display:flex; align-items:center; gap: 2px; padding: 0 8px;
             background: var(--panel); border-bottom: 1px solid var(--border);
             font-size: 12.5px;
         }
@@ -71,7 +71,7 @@
             cursor: default; white-space: nowrap;
         }
         .btn:hover { background: var(--panel-2); }
-        .btn.icon { padding: 0 7px; }
+        .btn.icon { padding: 0 8px; font-size: 16px; }
         .btn.primary { background: var(--accent); color: #fff; border-color: transparent; }
         .btn.primary:hover { filter: brightness(1.05); }
         .btn.ghost { border-color: transparent; background: transparent; color: var(--text-2); }
@@ -107,21 +107,25 @@
         .col { border-right: 1px solid var(--border); min-width: 0; display:flex; flex-direction: column; }
         .col:last-child { border-right: none; }
         .col-head {
-            height: 30px; padding: 0 10px;
+            height: 34px; padding: 0 10px;
             display:flex; align-items:center; justify-content:space-between;
             background: var(--panel-2); border-bottom: 1px solid var(--border);
             font-size: 11.5px; flex: 0 0 auto;
         }
         .col-head h3 { margin:0; font-size: 11.5px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--text-2); }
         .col-head .hint { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--muted); }
+        .col-head .collapse { width: 22px; height: 22px; display:inline-flex; align-items:center; justify-content:center; border-radius: 4px; color: var(--muted); font-size: 14px; cursor: default; margin-left: 4px; }
+        .col-head .collapse:hover { background: var(--panel); color: var(--text); }
+        .col-head.toolbar { height: 34px; padding: 0 8px; gap: 6px; justify-content: flex-start; }
+        .col-head.toolbar .search { min-width: 180px; }
 
         .col-sub {
-            height: 30px; padding: 0 8px;
+            height: 34px; padding: 0 8px;
             display:flex; align-items:center; gap:6px;
             border-bottom: 1px solid var(--border); background: var(--panel);
             flex: 0 0 auto;
         }
-        .col-sub .search { flex:1; height: 22px; font-size: 12px; min-width: 0; }
+        .col-sub .search { flex:1; height: 26px; font-size: 12.5px; min-width: 0; }
 
         .tree { padding: 4px 4px 12px; overflow:auto; flex:1; }
         .t-row {
@@ -220,7 +224,7 @@
         .seg {
             display:inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--panel);
         }
-        .seg .btn { border: none; border-radius: 0; border-right: 1px solid var(--border); height: 22px; padding: 0 8px; font-size: 11.5px;}
+        .seg .btn { border: none; border-radius: 0; border-right: 1px solid var(--border); height: 22px; min-width: 22px; padding: 0 8px; font-size: 11.5px;}
         .seg .btn:last-child { border-right: none; }
         .seg .btn.on { background: var(--accent); color: var(--on-accent); }
 
