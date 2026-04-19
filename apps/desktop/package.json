@@ -4,14 +4,21 @@
   "private": true,
   "main": "dist/main/index.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json && mkdir -p dist/renderer && cp src/renderer/index.html dist/renderer/index.html",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/renderer && esbuild src/renderer/index.tsx --bundle --outfile=dist/renderer/index.js --format=iife --target=es2022 --loader:.tsx=tsx --jsx=automatic && cp src/renderer/index.html dist/renderer/index.html",
     "dev": "pnpm build && electron .",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json --noEmit"
   },
   "devDependencies": {
-    "electron": "^41.0.0",
-    "typescript": "^5.6.0",
     "@types/node": "^22.0.0",
-    "@webgpu/types": "^0.1.50"
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@webgpu/types": "^0.1.50",
+    "electron": "^41.0.0",
+    "esbuild": "^0.28.0",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
   }
 }
