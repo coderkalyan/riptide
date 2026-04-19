@@ -44,14 +44,15 @@ export function App() {
         <span className="btn icon" title="open">📂</span>
         <span className="btn icon" title="reload">↻</span>
         <div className="divider" />
-        <span className="btn icon">⏮</span>
-        <span className="btn primary">▶ run</span>
-        <span className="btn icon">⏭</span>
+        <span className="btn icon" title="to beginning">⏮</span>
+        <span className="btn icon" title="step backward">⏴</span>
+        <span className="btn icon" title="step forward">⏵</span>
+        <span className="btn icon" title="to end">⏭</span>
         <div className="divider" />
         <span className="pill"><span className="swatch" /><span className="mono">cursor 32.400 ns</span></span>
         <div className="divider" />
         <div className="seg">
-          <span className="btn">−</span><span className="btn">fit</span><span className="btn">＋</span>
+          <span className="btn">−</span><span className="btn" title="fit">⛶</span><span className="btn">＋</span>
         </div>
         <span className="btn ghost">radix ▾</span>
         <span className="btn ghost">group ▾</span>
@@ -84,13 +85,11 @@ export function App() {
               <Scope name="uart" badge="11" />
             </Scope>
           </SignalTree>
-        </div>
 
-        <div className="col">
           <div className="col-head"><h3>Derived Signals</h3><span className="hint">4 rows</span></div>
           <div className="col-sub">
-            <input className="search" placeholder="＋ new derived expression" />
-            <span className="btn sm primary">add</span>
+            <input className="search" placeholder="new derived expression" />
+            <span className="btn sm icon primary" title="add">＋</span>
           </div>
           <DerivedSignals>
             <DerivedSignal name="busy_any" expr="load1 | load2 | load3" />
@@ -103,8 +102,7 @@ export function App() {
         <div className="col">
           <div className="col-head"><h3>Active Signals</h3><span className="hint">{ACTIVE_SIGNALS.length} rows</span></div>
           <div className="col-sub">
-            <input className="search" placeholder="＋ new derived expression  (e.g. c[7:0] == 0x8F)" />
-            <span className="btn sm primary">add</span>
+            <input className="search" placeholder="filter active signals" />
           </div>
           <div className="s-head">
             <span />
