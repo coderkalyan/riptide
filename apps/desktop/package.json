@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && mkdir -p dist/renderer && esbuild src/renderer/index.tsx --bundle --outfile=dist/renderer/index.js --format=iife --target=es2022 --loader:.tsx=tsx --jsx=automatic && cp src/renderer/index.html dist/renderer/index.html",
     "dev": "pnpm build && electron .",
+    "dev:ui": "node scripts/dev-ui.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json --noEmit"
   },
   "devDependencies": {

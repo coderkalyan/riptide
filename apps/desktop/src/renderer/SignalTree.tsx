@@ -1,4 +1,5 @@
 import { createContext, useContext, ReactNode } from "react";
+import { Box, ChevronRight, ChevronDown, Clock, Minus, Layers, LayoutGrid, Plus, Equal } from "lucide-react";
 
 const DepthContext = createContext(0);
 
@@ -19,10 +20,12 @@ export function Scope({ name, badge, expanded, children }: ScopeProps) {
   return (
     <>
       <div className={cls}>
-        <span className="chev">{expanded ? "▾" : "▸"}</span>
-        <span className="icon">{expanded ? "▣" : "▢"}</span>
+        <span className="chev">
+          {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+        </span>
+        <span className="icon module"><Box size={12} /></span>
         <span className="lbl">{name}</span>
-        {badge && <span className="count">{badge}</span>}
+        {/* {badge && <span className="count">{badge}</span>} */}
       </div>
       {expanded && (
         <DepthContext.Provider value={depth + 1}>
@@ -33,18 +36,26 @@ export function Scope({ name, badge, expanded, children }: ScopeProps) {
   );
 }
 
-export type SignalIconKind = "clk" | "bus" | "bus2" | "drv" | "";
+export type SignalIconKind = "clk" | "bus" | "bus2" | "state" | "drv" | "";
+
+const KIND_ICON: Record<SignalIconKind, ReactNode> = {
+  clk: <Clock size={12} />,
+  bus: <Layers size={12} />,
+  bus2: <Layers size={12} />,
+  state: <LayoutGrid size={12} />,
+  drv: <Equal size={12} />,
+  "": <Minus size={12} />,
+};
 
 export interface SignalNodeProps {
   name: string;
-  icon: string;
   iconKind?: SignalIconKind;
   count?: string;
   plus?: boolean;
   selected?: boolean;
 }
 
-export function SignalNode({ name, icon, iconKind, count, plus, selected }: SignalNodeProps) {
+export function SignalNode({ name, iconKind = "", count, plus, selected }: SignalNodeProps) {
   const depth = useContext(DepthContext);
   const cls = ["t-row", depth > 0 ? `indent-${depth}` : "", selected ? "sel" : ""]
     .filter(Boolean)
@@ -52,11 +63,10 @@ export function SignalNode({ name, icon, iconKind, count, plus, selected }: Sign
   return (
     <div className={cls}>
       <span className="chev" />
-      <span className={"icon" + (iconKind ? ` ${iconKind}` : "")}>{icon}</span>
+      <span className={"icon" + (iconKind ? ` ${iconKind}` : "")}>{KIND_ICON[iconKind]}</span>
       <span className="lbl">{name}</span>
-      {count && <span className="count">{count}</span>}
-      {plus && <span className="plus">＋</span>}
+      {/* {count && <span className="count">{count}</span>} */}
+      {plus && <span className="plus"><Plus size={12} /></span>}
     </div>
   );
 }
-

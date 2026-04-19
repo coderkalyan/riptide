@@ -14,7 +14,11 @@ function createWindow(): void {
         title: "riptide",
         autoHideMenuBar: true,
     });
-    win.loadFile(path.join(app.getAppPath(), "dist/renderer/index.html"));
+    if (process.env.RIPTIDE_DEV) {
+        win.loadURL("http://localhost:5173");
+    } else {
+        win.loadFile(path.join(app.getAppPath(), "dist/renderer/index.html"));
+    }
     // win.webContents.openDevTools({ mode: "detach" });
 }
 
