@@ -23,14 +23,12 @@
   * { box-sizing: border-box; }
   html, body { margin:0; padding:0; height:100%; background: var(--bg); color: var(--text);
     font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px;
-    -webkit-font-smoothing: antialiased;
+    -webkit-font-smoothing: antialiased; overflow: hidden;
   }
   .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
 
   .app {
-    max-width: 1460px; margin: 18px auto; border: 1px solid var(--border);
-    border-radius: 10px; background: var(--panel); overflow: hidden;
-    box-shadow: var(--shadow-1);
+    height: 100vh; width: 100vw; background: var(--panel); overflow: hidden;
     display: flex; flex-direction: column;
   }
 
@@ -101,6 +99,7 @@
     grid-template-columns: 236px 296px 1fr;
     flex: 1;
     min-height: 0;
+    overflow: hidden;
   }
   .col { border-right: 1px solid var(--border); min-width: 0; display:flex; flex-direction: column; }
   .col:last-child { border-right: none; }
@@ -275,7 +274,6 @@
     <span class="btn icon">⏭</span>
     <div class="divider"></div>
     <span class="pill"><span class="swatch"></span><span class="mono">cursor 32.400 ns</span></span>
-    <span class="pill marker"><span class="swatch"></span><span class="mono">Δ 12.800 ns</span></span>
     <div class="divider"></div>
     <div class="seg">
       <span class="btn">−</span><span class="btn">fit</span><span class="btn">＋</span>
