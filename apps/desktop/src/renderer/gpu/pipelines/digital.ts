@@ -5,10 +5,10 @@ import WGSL from "./digital.wgsl";
 export const LINE_PX = 2.5;
 
 export interface DigitalPipeline {
-  pipeline:     GPURenderPipeline;
-  uniformBuf:   GPUBuffer;
-  segmentBuf:   GPUBuffer;
-  bindGroup:    GPUBindGroup;
+  pipeline: GPURenderPipeline;
+  uniformBuf: GPUBuffer;
+  segmentBuf: GPUBuffer;
+  bindGroup: GPUBindGroup;
   segmentCount: number;
   updateViewport(vp: Viewport): void;
 }
@@ -28,7 +28,7 @@ export function buildDigitalPipeline(
 
   const pipeline = device.createRenderPipeline({
     layout: device.createPipelineLayout({ bindGroupLayouts: [bgl] }),
-    vertex:   { module, entryPoint: "vs" },
+    vertex: { module, entryPoint: "vs" },
     fragment: {
       module,
       entryPoint: "fs",
@@ -36,11 +36,11 @@ export function buildDigitalPipeline(
         format,
         blend: {
           color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
-          alpha: { srcFactor: "one",       dstFactor: "one-minus-src-alpha", operation: "add" },
+          alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
         },
       }],
     },
-    primitive: { topology: "triangle-list" },
+    primitive: { topology: "triangle-strip" },
   });
 
   const uniformBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });

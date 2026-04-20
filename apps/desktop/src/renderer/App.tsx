@@ -4,24 +4,24 @@ import { ActiveSignal, ActiveSignalProps } from "./ActiveSignal";
 import { SignalTree, Scope, SignalNode } from "./SignalTree";
 import { DerivedSignals, DerivedSignal } from "./DerivedSignals";
 import { initGPU, resizeCanvas, GPUInitError } from "./gpu/device";
-import { buildDigitalPipeline, LINE_PX } from "./gpu/pipelines/digital";
+import { buildDigitalPipeline } from "./gpu/pipelines/digital";
 import { renderFrame } from "./gpu/frame";
-import { HARDCODED_SEGMENTS, DEFAULT_VIEWPORT } from "./gpu/data";
+import { HARDCODED_SEGMENTS } from "./gpu/data";
 
 const ACTIVE_SIGNALS: ActiveSignalProps[] = [
-  { name: "rst_n",      value: "0b1", type: "bool", radix: "bin", pinned: true },
-  { name: "irq",        value: "0b0", type: "bool", radix: "bin" },
-  { name: "data_valid", value: "0b1", type: "drv",  radix: "bin", selected: true },
-  { name: "busy",       value: "0b1", type: "drv",  radix: "bin" },
-  { name: "done",       value: "0b0", type: "bool", radix: "bin" },
+  { name: "rst_n", value: "0b1", type: "bool", radix: "bin", pinned: true },
+  { name: "irq", value: "0b0", type: "bool", radix: "bin" },
+  { name: "data_valid", value: "0b1", type: "drv", radix: "bin", selected: true },
+  { name: "busy", value: "0b1", type: "drv", radix: "bin" },
+  { name: "done", value: "0b0", type: "bool", radix: "bin" },
 ];
 
 export function App() {
-  const canvasRef  = useRef<HTMLCanvasElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const signalsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const canvas  = canvasRef.current;
+    const canvas = canvasRef.current;
     const signals = signalsRef.current;
     if (!canvas || !signals) return;
 
@@ -39,8 +39,8 @@ export function App() {
         // All measurements are in CSS pixels from getBoundingClientRect.
         // Multiply by DPR to get physical canvas pixels — the only unit the
         // GPU shader knows about.
-        const dpr         = window.devicePixelRatio || 1;
-        const canvasRect  = canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        const canvasRect = canvas.getBoundingClientRect();
         const signalsRect = signals.getBoundingClientRect();
 
         // Row height: measure the first rendered row element directly so any
@@ -51,13 +51,12 @@ export function App() {
           : 22;
 
         const vp = {
-          ...DEFAULT_VIEWPORT,
-          width:      canvas.width,
-          height:     canvas.height,
-          rowHeight:  rowHeightCSS  * dpr,
-          rowPadding: 3             * dpr,
-          offsetY:    (signalsRect.top - canvasRect.top) * dpr,
-          linePx:     LINE_PX       * dpr,
+          ticks_per_pixel: 100.0 / canvasRect.width,
+          start_ticks: 0,
+          width: canvasRect.width,
+          height: canvasRect.height,
+          row_height: rowHeightCSS,
+          dpr,
         };
         renderFrame(gpuCtx, digital, vp);
         raf = requestAnimationFrame(frame);

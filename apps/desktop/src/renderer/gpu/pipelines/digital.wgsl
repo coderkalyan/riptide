@@ -1,4 +1,11 @@
 struct Viewport {
+    ticks_per_pixel: f32,
+    start_ticks: u32,
+    width: f32,
+    height: f32,
+    row_height: f32,
+    dpr: f32,
+    /*
     t0: f32,
     t1: f32,
     width: f32,
@@ -7,6 +14,7 @@ struct Viewport {
     row_padding: f32,
     offset_y: f32,
     line_px: f32,
+    */
 }
 
 struct Segment {
@@ -18,53 +26,51 @@ struct Segment {
     flags: u32,
 }
 
-@group(0) @binding(0) var<uniform> vp: Viewport;
+@group(0) @binding(0) var<uniform> viewport: Viewport;
 @group(0) @binding(1) var<storage, read> segments: array<Segment>;
 
-struct VertOut {
+struct VertexOutput {
     @builtin(position) pos: vec4f,
-    @location(0) color: vec4f,
-}
-
-var<private> QUAD: array<vec2f, 6> = array<vec2f, 6>(
-    vec2f(0.0, 0.0), vec2f(1.0, 0.0), vec2f(0.0, 1.0),
-    vec2f(1.0, 0.0), vec2f(1.0, 1.0), vec2f(0.0, 1.0),
-);
-
-fn clip(px: f32, py: f32) -> vec4f {
-    return vec4f(px / vp.width * 2.0 - 1.0, -py / vp.height * 2.0 + 1.0, 0.0, 1.0);
+    @location(0) pill_local_px: vec2f,
+    @location(1) @interpolate(flat) half_size_px: vec2f,
+    @location(2) @interpolate(flat) flags: u32,
 }
 
 @vertex
-fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VertOut {
-    let seg = segments[ii];
-    let accent = vec3f(0.651, 0.820, 0.537);
+fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VertexOutput {
+    let segment = segments[ii];
 
-    let x0 = (f32(seg.t_start) - vp.t0) / (vp.t1 - vp.t0) * vp.width;
-    let x1 = (f32(seg.t_end) - vp.t0) / (vp.t1 - vp.t0) * vp.width;
+    // Synthesize vertices for a triangle strip rect in [0, 1]^2.
+    let corner_x = f32(vi & 1u);
+    let corner_y = f32((vi >> 1u) & 1u);
 
-    let row_top = vp.offset_y + f32(seg.row) * vp.row_height + vp.row_padding;
-    let row_bot = vp.offset_y + (f32(seg.row) + 1.0) * vp.row_height - vp.row_padding;
-    let inner = row_bot - row_top;
+    // Transform from timeline (tick) space into pixel space.
+    let local_ticks = vec2i(i32(segment.t_start), i32(segment.t_end)) - i32(viewport.start_ticks);
+    var pixel_bounds = vec2f(local_ticks) / viewport.ticks_per_pixel;
 
-    // Signal line: 20% from top when high, 80% when low
-    let line_y = row_top + inner * select(0.95, 0.05, f32(seg.value) > 0.5);
+    // Apply the inset gap for pills.
+    let gap_px = 4.0;
+    pixel_bounds += vec2f(gap_px * 0.5, -gap_px * 0.5);
 
-    let uv = QUAD[vi % 6u];
-    let px = mix(x0, x1, uv.x);
+    // Compute the pill's center and half-size in pixels.
+    let center_px = vec2f((pixel_bounds[0] + pixel_bounds[1]) * 0.5, viewport.row_height * (f32(segment.row) + 0.5));
+    let half_size_px = vec2f((pixel_bounds[1] - pixel_bounds[0]) * 0.5, (viewport.row_height - gap_px) * 0.5);
 
-    if vi < 6u {
-        // Fill: full inner-row height, alpha encodes level (line already shows position)
-        let alpha = select(0.20, 0.70, f32(seg.value) > 0.5);
-        return VertOut(clip(px, mix(row_top, row_bot, uv.y)), vec4f(accent, alpha));
-    } else {
-        // Line: LINE_PX thick bar centered on line_y
-        let half = vp.line_px * 0.5;
-        return VertOut(clip(px, mix(line_y - half, line_y + half, uv.y)), vec4f(accent, 1.0));
-    }
+    // Compute the vertex position in pixel space.
+    let corner = vec2f(corner_x, corner_y);
+    let signed_corner = corner * 2.0 - 1.0;
+    let vertex_local_px = (corner * 2.0 - 1.0) * half_size_px;
+    let vertex_px = center_px + vertex_local_px;
+
+    // Convert vertex position to clip space.
+    let clip_x = vertex_px.x / viewport.width * 2.0 - 1.0;
+    let clip_y = 1.0 - vertex_px.y / viewport.height * 2.0;
+
+    return VertexOutput(vec4f(clip_x, clip_y, 0.0, 1.0), vertex_local_px, half_size_px, segment.flags);
 }
 
 @fragment
-fn fs(in: VertOut) -> @location(0) vec4f {
-    return in.color;
+fn fs(in: VertexOutput) -> @location(0) vec4f {
+    let accent = vec3f(0.651, 0.820, 0.537);
+    return vec4f(accent, 1.0);
 }

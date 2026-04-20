@@ -3,20 +3,31 @@ export interface Segment {
   tEnd: number;
   value: number;   // 0 or 1 for digital
   row: number;     // 0-based row index
-  flags: number;   // packed flags u32 (reserved, set to 0)
+  flags?: number;  // packed flags u32 (reserved, defaults to 0)
 }
 
 // Viewport describing the visible time window and canvas dimensions.
 // Passed to the GPU as a uniform buffer each frame.
 export interface Viewport {
-  t0: number;           // ns — left edge
-  t1: number;           // ns — right edge
-  width: number;        // canvas pixels (physical, post-DPR)
+  // Number of ticks per pixel (f32).
+  ticks_per_pixel: number;
+  // Leftmost visible tick (u32).
+  start_ticks: number;
+  // Size in pixels of the canvas, before DPR (f32).
+  width: number;
   height: number;
-  rowHeight: number;    // pixels per signal row  (physical)
-  rowPadding: number;   // vertical inset inside each row (physical)
-  offsetY: number;      // y of row 0 from canvas top (physical)
-  linePx: number;       // signal line thickness in physical pixels
+  // Height of each signal row, in pixels (f32).
+  row_height: number;
+  // devicePixelRatio for HiDPI (f32).
+  dpr: number;
+
+  // t0: number;           // ns — left edge
+  // t1: number;           // ns — right edge
+  // width: number;        // canvas pixels (physical, post-DPR)
+  // height: number;
+  // rowPadding: number;   // vertical inset inside each row (physical)
+  // offsetY: number;      // y of row 0 from canvas top (physical)
+  // linePx: number;       // signal line thickness in physical pixels
 }
 
 // ---- hardcoded signals ------------------------------------------------
@@ -87,14 +98,15 @@ export const HARDCODED_SEGMENTS: Segment[] = [
 
 // Only the time range is static — geometry fields are filled in per-frame
 // from DOM measurements in App.tsx.
-export const DEFAULT_VIEWPORT: Viewport = {
-  t0: 0, t1: 100,
-  width: 800, height: 400,
-  rowHeight: 28,
-  rowPadding: 4,
-  offsetY: 0,
-  linePx: 2.5,
-};
+// export const DEFAULT_VIEWPORT: Viewport = {
+// t0: 0, t1: 100,
+// width: 800,
+// height: 400,
+// rowHeight: 28,
+// rowPadding: 4,
+// offsetY: 0,
+// linePx: 2.5,
+// };
 
 // ---- GPU packing -------------------------------------------------------
 // Layout: each segment = 4 × f32 = 16 bytes
@@ -109,17 +121,27 @@ export function packSegments(segs: Segment[]): Uint32Array {
     buf[i * 5 + 1] = s.tEnd;
     buf[i * 5 + 2] = s.value;
     buf[i * 5 + 3] = s.row;
-    buf[i * 5 + 4] = s.flags;
+    buf[i * 5 + 4] = s.flags ?? 0;
   }
   return buf;
 }
 
-// Viewport packed as 8 × f32 = 32 bytes (multiple of 16, required by WebGPU).
+// Viewport packed as (6 + 2) × f32 = 32 bytes (multiple of 16, required by WebGPU).
 export function packViewport(vp: Viewport): Float32Array {
   return new Float32Array([
-    vp.t0, vp.t1,
-    vp.width, vp.height,
-    vp.rowHeight, vp.rowPadding,
-    vp.offsetY, vp.linePx,
+    vp.ticks_per_pixel,
+    vp.start_ticks,
+    vp.width,
+    vp.height,
+    vp.row_height,
+    vp.dpr,
+
+    // Padding.
+    0.0,
+    0.0,
+    // vp.t0, vp.t1,
+    // vp.width, vp.height,
+    // vp.rowHeight, vp.rowPadding,
+    // vp.offsetY, vp.linePx,
   ]);
 }
