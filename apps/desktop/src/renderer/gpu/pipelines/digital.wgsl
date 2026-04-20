@@ -32,7 +32,7 @@ fn sdf(point: vec2f, half_size: vec2f, radius: f32) -> f32 {
 }
 
 fn hatch(pill_local_px: vec2f) -> f32 {
-    let hatch_spacing_px = 6.0 * viewport.dpr;
+    let hatch_spacing_px = 4.0 * viewport.dpr;
     let hatch_thickness = 0.5;
 
     let hatch_coord = (pill_local_px.x + pill_local_px.y) / hatch_spacing_px;
@@ -78,7 +78,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> Verte
 @fragment
 fn fs(in: VertexOutput) -> @location(0) vec4f {
     let radius = 2.0 * viewport.dpr;
-    let border_width = 0.0; // 1.5 * viewport.dpr;
+    let border_width = 1.0 * viewport.dpr;
 
     // Calculate masks for rounded corner, edge, fill based on SDF.
     let d_px = sdf(in.pill_local_px, in.half_size_px, radius);
@@ -88,14 +88,14 @@ fn fs(in: VertexOutput) -> @location(0) vec4f {
     let fill_mask = 1.0 - smoothstep(-border_width - aa, -border_width, d_px);
 
     // Calculate cross hatch shading.
-    // let hatch_color = vec4f(1.0, 1.0, 1.0, 1.0);
-    // let accent = vec4f(0.651, 0.820, 0.537, 1.0);
-    // let base_color = vec4f(0.651, 0.820, 0.537, 0.7);
+    let base_color = vec4f(0.651, 0.820, 0.537, 0.0);
+    // let hatch_color = vec4f(0.9608, 0.4471, 0.4471, 1.0);
+    let hatch_color = vec4f(0.47, 0.47, 0.47, 1.0);
+    let stroke_color = vec4f(0.447, 0.482, 0.961, 1.0);
     let stripe_mask = hatch(in.pill_local_px);
     let fill = mix(base_color, hatch_color, stripe_mask);
 
-    // let fill = vec4f(0.651, 0.820, 0.537, 0.7);
-    let final_color = accent * border_mask + fill * fill_mask;
+    let final_color = stroke_color * border_mask + fill * fill_mask;
     let final_alpha = border_mask + fill.a * fill_mask;
     return vec4f(final_color.r, final_color.g, final_color.b, final_alpha);
 }
