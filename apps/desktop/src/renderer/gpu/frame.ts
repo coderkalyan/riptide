@@ -1,13 +1,15 @@
 import { GPUContext } from "./device";
-import { DigitalPipeline } from "./pipelines/digital";
+import { SignalPipeline } from "./pipelines/digital";
 import { Viewport } from "./data";
 
 export function renderFrame(
   { device, ctx }: GPUContext,
-  digital: DigitalPipeline,
+  pipelines: SignalPipeline[],
   vp: Viewport,
 ): void {
-  digital.updateViewport(vp);
+  for (const pipeline of pipelines) {
+    pipeline.updateViewport(vp);
+  }
 
   const enc = device.createCommandEncoder();
   const pass = enc.beginRenderPass({
@@ -19,9 +21,11 @@ export function renderFrame(
     }],
   });
 
-  pass.setPipeline(digital.pipeline);
-  pass.setBindGroup(0, digital.bindGroup);
-  pass.draw(4, digital.segmentCount);  // 4 verts × N instances (triangle strip rect)
+  for (const pipeline of pipelines) {
+    pass.setPipeline(pipeline.pipeline);
+    pass.setBindGroup(0, pipeline.bindGroup);
+    pass.draw(4, pipeline.segmentCount);  // 4 verts × N instances (triangle strip rect)
+  }
   pass.end();
 
   device.queue.submit([enc.finish()]);

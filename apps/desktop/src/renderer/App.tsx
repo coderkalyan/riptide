@@ -4,7 +4,7 @@ import { ActiveSignal, ActiveSignalProps } from "./ActiveSignal";
 import { SignalTree, Scope, SignalNode } from "./SignalTree";
 import { DerivedSignals, DerivedSignal } from "./DerivedSignals";
 import { initGPU, resizeCanvas, GPUInitError } from "./gpu/device";
-import { buildDigitalPipeline } from "./gpu/pipelines/digital";
+import { buildMultiBitPipeline, buildSingleBitPipeline } from "./gpu/pipelines/digital";
 import { renderFrame } from "./gpu/frame";
 import { HARDCODED_SEGMENTS } from "./gpu/data";
 
@@ -15,6 +15,7 @@ const ACTIVE_SIGNALS: ActiveSignalProps[] = [
   { name: "busy", value: "0b1", type: "drv", radix: "bin" },
   { name: "done", value: "0b0", type: "bool", radix: "bin" },
 ];
+const SINGLE_BIT_ROWS = new Set([0, 1, 4]);
 
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -29,7 +30,10 @@ export function App() {
 
     initGPU(canvas).then(({ device, ctx, format }) => {
       const gpuCtx = { device, ctx, format };
-      const digital = buildDigitalPipeline(gpuCtx, HARDCODED_SEGMENTS);
+      const singleBitSegments = HARDCODED_SEGMENTS.filter((segment) => SINGLE_BIT_ROWS.has(segment.row));
+      const multiBitSegments = HARDCODED_SEGMENTS.filter((segment) => !SINGLE_BIT_ROWS.has(segment.row));
+      const multiBit = buildMultiBitPipeline(gpuCtx, multiBitSegments);
+      const singleBit = buildSingleBitPipeline(gpuCtx, singleBitSegments);
 
       const ro = new ResizeObserver(() => resizeCanvas(canvas, device, ctx, format));
       ro.observe(canvas);
@@ -58,7 +62,7 @@ export function App() {
           row_height: rowHeightCSS,
           dpr,
         };
-        renderFrame(gpuCtx, digital, vp);
+        renderFrame(gpuCtx, [multiBit, singleBit], vp);
         raf = requestAnimationFrame(frame);
       };
       raf = requestAnimationFrame(frame);

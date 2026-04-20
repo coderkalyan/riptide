@@ -1,5 +1,5 @@
 import { createContext, useContext, ReactNode } from "react";
-import { Box, ChevronRight, ChevronDown, Clock, Minus, Layers, LayoutGrid, Plus, Equal } from "lucide-react";
+import { Box, ChevronRight, ChevronDown, Clock, Minus, Layers, LayoutGrid, Plus, Equal, Activity } from "lucide-react";
 
 const DepthContext = createContext(0);
 
@@ -40,8 +40,8 @@ export type SignalIconKind = "clk" | "bus" | "bus2" | "state" | "drv" | "";
 
 const KIND_ICON: Record<SignalIconKind, ReactNode> = {
   clk: <Clock size={12} />,
-  bus: <Layers size={12} />,
-  bus2: <Layers size={12} />,
+  bus: <Activity size={12} />,
+  bus2: <Activity size={12} />,
   state: <LayoutGrid size={12} />,
   drv: <Equal size={12} />,
   "": <Minus size={12} />,

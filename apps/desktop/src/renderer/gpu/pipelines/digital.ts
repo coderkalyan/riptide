@@ -3,8 +3,9 @@ import { Segment, Viewport, packSegments, packViewport } from "../data";
 import WGSL from "./digital.wgsl";
 
 export const LINE_PX = 2.5;
+type ShaderVariant = "multi" | "single";
 
-export interface DigitalPipeline {
+export interface SignalPipeline {
   pipeline: GPURenderPipeline;
   uniformBuf: GPUBuffer;
   segmentBuf: GPUBuffer;
@@ -13,11 +14,17 @@ export interface DigitalPipeline {
   updateViewport(vp: Viewport): void;
 }
 
-export function buildDigitalPipeline(
+export type MultiBitPipeline = SignalPipeline;
+export type SingleBitPipeline = SignalPipeline;
+
+function buildVariantPipeline(
   { device, format }: GPUContext,
   segments: Segment[],
-): DigitalPipeline {
+  variant: ShaderVariant,
+): SignalPipeline {
   const module = device.createShaderModule({ code: WGSL });
+  const vertexEntryPoint = variant === "single" ? "vs_single" : "vs_multi";
+  const fragmentEntryPoint = variant === "single" ? "fs_single" : "fs_multi";
 
   const bgl = device.createBindGroupLayout({
     entries: [
@@ -28,10 +35,10 @@ export function buildDigitalPipeline(
 
   const pipeline = device.createRenderPipeline({
     layout: device.createPipelineLayout({ bindGroupLayouts: [bgl] }),
-    vertex: { module, entryPoint: "vs" },
+    vertex: { module, entryPoint: vertexEntryPoint },
     fragment: {
       module,
-      entryPoint: "fs",
+      entryPoint: fragmentEntryPoint,
       targets: [{
         format,
         blend: {
@@ -62,4 +69,18 @@ export function buildDigitalPipeline(
     segmentCount: segments.length,
     updateViewport: (vp: Viewport) => { device.queue.writeBuffer(uniformBuf, 0, packViewport(vp)); },
   };
+}
+
+export function buildMultiBitPipeline(
+  gpuCtx: GPUContext,
+  segments: Segment[],
+): MultiBitPipeline {
+  return buildVariantPipeline(gpuCtx, segments, "multi");
+}
+
+export function buildSingleBitPipeline(
+  gpuCtx: GPUContext,
+  segments: Segment[],
+): SingleBitPipeline {
+  return buildVariantPipeline(gpuCtx, segments, "single");
 }
