@@ -5,16 +5,6 @@ struct Viewport {
     height: f32,
     row_height: f32,
     dpr: f32,
-    /*
-    t0: f32,
-    t1: f32,
-    width: f32,
-    height: f32,
-    row_height: f32,
-    row_padding: f32,
-    offset_y: f32,
-    line_px: f32,
-    */
 }
 
 struct Segment {
@@ -36,6 +26,22 @@ struct VertexOutput {
     @location(2) @interpolate(flat) flags: u32,
 }
 
+fn sdf(point: vec2f, half_size: vec2f, radius: f32) -> f32 {
+    let q = abs(point) - half_size + radius;
+    return length(max(q, vec2f(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - radius;
+}
+
+fn hatch(pill_local_px: vec2f) -> f32 {
+    let hatch_spacing_px = 6.0 * viewport.dpr;
+    let hatch_thickness = 0.5;
+
+    let hatch_coord = (pill_local_px.x + pill_local_px.y) / hatch_spacing_px;
+    let stripe = abs(fract(hatch_coord) - 0.5) * 2.0;
+    let aa = fwidth(stripe);
+    let stripe_mask = 1.0 - smoothstep(hatch_thickness - aa, hatch_thickness + aa, stripe);
+    return stripe_mask;
+}
+
 @vertex
 fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VertexOutput {
     let segment = segments[ii];
@@ -49,7 +55,7 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> Verte
     var pixel_bounds = vec2f(local_ticks) / viewport.ticks_per_pixel;
 
     // Apply the inset gap for pills.
-    let gap_px = 4.0;
+    let gap_px = 8.0;
     pixel_bounds += vec2f(gap_px * 0.5, -gap_px * 0.5);
 
     // Compute the pill's center and half-size in pixels.
@@ -71,6 +77,25 @@ fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> Verte
 
 @fragment
 fn fs(in: VertexOutput) -> @location(0) vec4f {
-    let accent = vec3f(0.651, 0.820, 0.537);
-    return vec4f(accent, 1.0);
+    let radius = 2.0 * viewport.dpr;
+    let border_width = 0.0; // 1.5 * viewport.dpr;
+
+    // Calculate masks for rounded corner, edge, fill based on SDF.
+    let d_px = sdf(in.pill_local_px, in.half_size_px, radius);
+    let aa = fwidth(d_px);
+    let inside_mask = 1.0 - smoothstep(-aa, 0.0, d_px);
+    let border_mask = smoothstep(-border_width - aa, -border_width, d_px) * (1.0 - smoothstep(-aa, 0.0, d_px));
+    let fill_mask = 1.0 - smoothstep(-border_width - aa, -border_width, d_px);
+
+    // Calculate cross hatch shading.
+    // let hatch_color = vec4f(1.0, 1.0, 1.0, 1.0);
+    // let accent = vec4f(0.651, 0.820, 0.537, 1.0);
+    // let base_color = vec4f(0.651, 0.820, 0.537, 0.7);
+    let stripe_mask = hatch(in.pill_local_px);
+    let fill = mix(base_color, hatch_color, stripe_mask);
+
+    // let fill = vec4f(0.651, 0.820, 0.537, 0.7);
+    let final_color = accent * border_mask + fill * fill_mask;
+    let final_alpha = border_mask + fill.a * fill_mask;
+    return vec4f(final_color.r, final_color.g, final_color.b, final_alpha);
 }
