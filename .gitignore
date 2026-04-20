@@ -5,3 +5,5 @@ out/
 .DS_Store
 .zig-cache/
 zig-out/
+.mcp.json
+.preview/
