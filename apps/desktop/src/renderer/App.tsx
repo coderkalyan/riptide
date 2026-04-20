@@ -6,17 +6,67 @@ import { DerivedSignals, DerivedSignal } from "./DerivedSignals";
 import { initGPU, resizeCanvas, GPUInitError } from "./gpu/device";
 import { buildMultiBitPipeline, buildSingleBitPipeline } from "./gpu/pipelines/digital";
 import { renderFrame } from "./gpu/frame";
-import { HARDCODED_SEGMENTS } from "./gpu/data";
+import {
+  MOCK_END_TICKS,
+  MOCK_MULTI_BIT_SEGMENTS,
+  MOCK_SINGLE_BIT_SEGMENTS,
+  type Segment,
+} from "./gpu/data";
 
-const ACTIVE_SIGNALS: ActiveSignalProps[] = [
-  { name: "rst_n", value: "0b1", type: "bool", radix: "bin", pinned: true },
-  { name: "irq", value: "0b0", type: "bool", radix: "bin" },
-  { name: "data_valid", value: "0b1", type: "drv", radix: "bin", selected: true },
-  { name: "busy", value: "0b1", type: "drv", radix: "bin" },
-  { name: "done", value: "0b0", type: "bool", radix: "bin" },
+const CURSOR_TICKS = 32.4;
+const MARKER_TICKS = 19.6;
+const ALL_SEGMENTS = [...MOCK_SINGLE_BIT_SEGMENTS, ...MOCK_MULTI_BIT_SEGMENTS];
+
+interface SignalDef {
+  name: string;
+  type: ActiveSignalProps["type"];
+  radix: string;
+  row: number;
+  bitWidth: number;
+  pinned?: boolean;
+  selected?: boolean;
+}
+
+const ACTIVE_SIGNAL_DEFS: SignalDef[] = [
+  { name: "single_clk_posedge", type: "clk", radix: "bin", row: 0, bitWidth: 1, pinned: true },
+  { name: "single_data_mix_a", type: "bool", radix: "bin", row: 1, bitWidth: 1 },
+  { name: "single_data_mix_b", type: "bool", radix: "bin", row: 2, bitWidth: 1 },
+  { name: "single_data_mix_c", type: "bool", radix: "bin", row: 3, bitWidth: 1 },
+  { name: "multi_data_2b", type: "drv", radix: "bin", row: 4, bitWidth: 2, selected: true },
+  { name: "multi_data_4b", type: "drv", radix: "bin", row: 5, bitWidth: 4 },
+  { name: "multi_data_8b", type: "drv", radix: "bin", row: 6, bitWidth: 8 },
+  { name: "multi_data_12b", type: "drv", radix: "bin", row: 7, bitWidth: 12 },
 ];
-const SINGLE_BIT_ROWS = new Set([0, 1, 4]);
 
+function findSegmentAtTick(row: number, tick: number): Segment | undefined {
+  return ALL_SEGMENTS.find((segment) => {
+    const segmentRow = segment.rowFlags & 0xffff;
+    return segmentRow === row && segment.tStart <= tick && tick < segment.tEnd;
+  });
+}
+
+function formatSegmentValue(segment: Segment | undefined, bitWidth: number): string {
+  if (!segment) return "-";
+  const chars: string[] = [];
+  for (let bit = bitWidth - 1; bit >= 0; bit--) {
+    const l = (segment.valueLsb >> bit) & 1;
+    const m = (segment.valueMsb >> bit) & 1;
+    if (m === 0 && l === 0) chars.push("0");
+    else if (m === 0 && l === 1) chars.push("1");
+    else if (m === 1 && l === 0) chars.push("x");
+    else chars.push("z");
+  }
+  return bitWidth === 1 ? chars[0] : `0b${chars.join("")}`;
+}
+
+const ACTIVE_SIGNALS: ActiveSignalProps[] = ACTIVE_SIGNAL_DEFS.map((def) => ({
+  name: def.name,
+  type: def.type,
+  radix: def.radix,
+  pinned: def.pinned,
+  selected: def.selected,
+  value: formatSegmentValue(findSegmentAtTick(def.row, CURSOR_TICKS), def.bitWidth),
+}));
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const signalsRef = useRef<HTMLDivElement>(null);
@@ -30,10 +80,8 @@ export function App() {
 
     initGPU(canvas).then(({ device, ctx, format }) => {
       const gpuCtx = { device, ctx, format };
-      const singleBitSegments = HARDCODED_SEGMENTS.filter((segment) => SINGLE_BIT_ROWS.has(segment.row));
-      const multiBitSegments = HARDCODED_SEGMENTS.filter((segment) => !SINGLE_BIT_ROWS.has(segment.row));
-      const multiBit = buildMultiBitPipeline(gpuCtx, multiBitSegments);
-      const singleBit = buildSingleBitPipeline(gpuCtx, singleBitSegments);
+      const multiBit = buildMultiBitPipeline(gpuCtx, MOCK_MULTI_BIT_SEGMENTS);
+      const singleBit = buildSingleBitPipeline(gpuCtx, MOCK_SINGLE_BIT_SEGMENTS);
 
       const ro = new ResizeObserver(() => resizeCanvas(canvas, device, ctx, format));
       ro.observe(canvas);
@@ -55,7 +103,7 @@ export function App() {
           : 22;
 
         const vp = {
-          ticks_per_pixel: 100.0 / canvasRect.width,
+          ticks_per_pixel: MOCK_END_TICKS / canvasRect.width,
           start_ticks: 0,
           width: canvasRect.width,
           height: canvasRect.height,
@@ -175,7 +223,7 @@ export function App() {
               <span className="btn icon"><Plus size={14} /></span>
             </div>
             <span className="sp" style={{ flex: 1 }} />
-            <span className="hint mono">1 ns / 14 px · 0 – 100 ns</span>
+            <span className="hint mono">1 ns / 14 px · 0 – {MOCK_END_TICKS} ns</span>
             <span className="btn icon ghost">⚙</span>
           </div>
           <div className="col-sub">
@@ -197,14 +245,14 @@ export function App() {
 
           <div className="wv-canvas">
             <div className="ruler">
-              {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100].map((t) => (
+              {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90].map((t) => (
                 <span key={t}>
-                  <div className="tk major" style={{ left: `${t}%` }} />
-                  <div className="lb mono" style={{ left: `${t}%` }}>{t} ns</div>
+                  <div className="tk major" style={{ left: `${(t / MOCK_END_TICKS) * 100}%` }} />
+                  <div className="lb mono" style={{ left: `${(t / MOCK_END_TICKS) * 100}%` }}>{t} ns</div>
                 </span>
               ))}
-              <div className="cursor" style={{ left: "32.4%" }}><div className="flag">32.400 ns</div></div>
-              <div className="marker" style={{ left: "19.6%" }}><div className="flag">M1 · 19.600 ns</div></div>
+              <div className="cursor" style={{ left: `${(CURSOR_TICKS / MOCK_END_TICKS) * 100}%` }}><div className="flag">{CURSOR_TICKS.toFixed(3)} ns</div></div>
+              <div className="marker" style={{ left: `${(MARKER_TICKS / MOCK_END_TICKS) * 100}%` }}><div className="flag">M1 · {MARKER_TICKS.toFixed(3)} ns</div></div>
             </div>
             <div className="gpu-host">
               <canvas id="gpu" ref={canvasRef} />
@@ -215,13 +263,13 @@ export function App() {
 
       <div className="status">
         {/* <span className="dotted"><span className="dot" />sim ready</span> */}
-        <span>cursor <b>32.400 ns</b></span>
-        <span>M1 <b>19.600 ns</b></span>
-        <span>Δ <b>12.800 ns</b></span>
+        <span>cursor <b>{CURSOR_TICKS.toFixed(3)} ns</b></span>
+        <span>M1 <b>{MARKER_TICKS.toFixed(3)} ns</b></span>
+        <span>Δ <b>{(CURSOR_TICKS - MARKER_TICKS).toFixed(3)} ns</b></span>
         <span>zoom <b>1 ns / 14 px</b></span>
         <span className="sp" />
         <span>147 signals</span>
-        <span>9 active</span>
+        <span>{ACTIVE_SIGNALS.length} active</span>
         <span>2 derived</span>
         <span>top / keysched</span>
       </div>
