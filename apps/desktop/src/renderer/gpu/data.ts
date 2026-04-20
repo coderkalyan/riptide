@@ -1,8 +1,9 @@
 export interface Segment {
-  tStart: number;  // nanoseconds
+  tStart: number;  // nanoseconds (integer)
   tEnd: number;
   value: number;   // 0 or 1 for digital
   row: number;     // 0-based row index
+  flags: number;   // packed flags u32 (reserved, set to 0)
 }
 
 // Viewport describing the visible time window and canvas dimensions.
@@ -97,17 +98,18 @@ export const DEFAULT_VIEWPORT: Viewport = {
 
 // ---- GPU packing -------------------------------------------------------
 // Layout: each segment = 4 × f32 = 16 bytes
-//   [0] tStart  [1] tEnd  [2] value  [3] row
+//   [0] tStart  [1] tEnd  [2] value  [3] row  [4] flags   (all u32)
 // Matches the storage buffer struct in the WGSL shader.
 
-export function packSegments(segs: Segment[]): Float32Array {
-  const buf = new Float32Array(segs.length * 4);
+export function packSegments(segs: Segment[]): Uint32Array {
+  const buf = new Uint32Array(segs.length * 5);
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i];
-    buf[i * 4 + 0] = s.tStart;
-    buf[i * 4 + 1] = s.tEnd;
-    buf[i * 4 + 2] = s.value;
-    buf[i * 4 + 3] = s.row;
+    buf[i * 5 + 0] = s.tStart;
+    buf[i * 5 + 1] = s.tEnd;
+    buf[i * 5 + 2] = s.value;
+    buf[i * 5 + 3] = s.row;
+    buf[i * 5 + 4] = s.flags;
   }
   return buf;
 }
