@@ -159,7 +159,8 @@ fn fs_single(in: VertexData) -> @location(0) vec4f {
 
 @vertex
 fn vs_multi(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VertexData {
-    let gap_px = 2.0 * viewport.dpr;
+    let xgap_px = 1.0 * viewport.dpr;
+    let ygap_px = 2.0 * viewport.dpr;
 
     let segment = segments[ii];
     let row = segment.row_flags & 0xffffu;
@@ -176,11 +177,11 @@ fn vs_multi(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     var pixel_bounds = vec2f(local_ticks) / viewport.ticks_per_pixel;
 
     // Apply the inset gap for pills.
-    pixel_bounds += vec2f(gap_px * 0.5, -gap_px * 0.5);
+    pixel_bounds += vec2f(xgap_px * 0.5, -xgap_px * 0.5);
 
     // Compute the pill's center and half-size in pixels.
     let center_px = vec2f((pixel_bounds[0] + pixel_bounds[1]) * 0.5, viewport.row_height * (f32(row) + 0.5));
-    let half_size_px = vec2f((pixel_bounds[1] - pixel_bounds[0]) * 0.5, (viewport.row_height - gap_px) * 0.5);
+    let half_size_px = vec2f((pixel_bounds[1] - pixel_bounds[0]) * 0.5, (viewport.row_height - ygap_px) * 0.5);
 
     // Compute the vertex position in pixel space.
     let corner = vec2f(corner_x, corner_y);

@@ -24,14 +24,6 @@ export interface Viewport {
   row_height: number;
   // devicePixelRatio for HiDPI (f32).
   dpr: number;
-
-  // t0: number;           // ns — left edge
-  // t1: number;           // ns — right edge
-  // width: number;        // canvas pixels (physical, post-DPR)
-  // height: number;
-  // rowPadding: number;   // vertical inset inside each row (physical)
-  // offsetY: number;      // y of row 0 from canvas top (physical)
-  // linePx: number;       // signal line thickness in physical pixels
 }
 
 // ---- hardcoded signals ------------------------------------------------
