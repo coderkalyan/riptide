@@ -33,11 +33,11 @@ fn sdf(point: vec2f, half_size: vec2f, radius: f32) -> f32 {
     return length(max(q, vec2f(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - radius;
 }
 
-fn hatch(pill_local_px: vec2f) -> f32 {
-    let hatch_spacing_px = 4.0 * viewport.dpr;
-    let hatch_thickness = 0.5;
+fn hatch(pill_local_px: vec2f, dir: f32, hatch_spacing: f32) -> f32 {
+    let hatch_spacing_px = hatch_spacing * viewport.dpr;
+    let hatch_thickness = 1.0 / 3.0; // 0.5;
 
-    let hatch_coord = (pill_local_px.x + pill_local_px.y) / hatch_spacing_px;
+    let hatch_coord = (pill_local_px.x + pill_local_px.y * dir) / hatch_spacing_px;
     let stripe = abs(fract(hatch_coord) - 0.5) * 2.0;
     let aa = fwidth(stripe);
     let stripe_mask = 1.0 - smoothstep(hatch_thickness - aa, hatch_thickness + aa, stripe);
@@ -55,16 +55,18 @@ struct VertexData {
     // [ 4] = draw line high
     // [ 5] = enable crosshatch
     // [ 6] = red/gray crosshatch color
+    // [ 7] = enable line or border
     @location(2) @interpolate(flat) flags: u32,
 }
 
 @vertex
 fn vs_single(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VertexData {
-    let gap_px = 4.0 * viewport.dpr;
+    let gap_px = 2.0 * viewport.dpr;
 
     let segment = segments[ii];
     let row = segment.row_flags & 0xffffu;
-    let draw_line_high = (segment.value_msb | segment.value_lsb) != 0u;
+    let draw_line = segment.value_msb == 0u;
+    let draw_line_high = segment.value_lsb != 0u;
     let enable_crosshatch = (segment.value_msb) != 0u;
     let crosshatch_color = (segment.value_lsb) != 0u;
 
@@ -96,6 +98,7 @@ fn vs_single(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -
     flags |= u32(draw_line_high) << 4u;
     flags |= u32(enable_crosshatch) << 5u;
     flags |= u32(crosshatch_color) << 6u;
+    flags |= u32(draw_line) << 7u;
 
     return VertexData(vec4f(clip_x, clip_y, 0.0, 1.0), vertex_local_px, half_size_px, flags);
 }
@@ -107,13 +110,16 @@ fn fs_single(in: VertexData) -> @location(0) vec4f {
     let hi_color = vec4f(primary_color.rgb, primary_color.a * 0.7);
     let lo_color = vec4f(primary_color.rgb, primary_color.a * 0.2);
     let x_color = vec4f(0.9608, 0.4471, 0.4471, 1.0);
-    let z_color = vec4f(0.47, 0.47, 0.47, 1.0);
+    // let z_color = vec4f(0.47, 0.47, 0.47, 1.0);
+    // let z_color = vec4f(0.898, 0.784, 0.565, 1.0);
+    let z_color = vec4f(1.0, 0.863, 0.0, 1.0);
 
     let enable_fill = (in.flags & (1u << 0u)) != 0u;
     let draw_edge = (in.flags & (1u << 1u)) != 0u;
     let draw_line_high = (in.flags & (1u << 4u)) != 0u;
     let enable_crosshatch = (in.flags & (1u << 5u)) != 0u;
     let crosshatch_color = (in.flags & (1u << 6u)) != 0u;
+    let draw_line = (in.flags & (1u << 7u)) != 0u;
 
     // Horizontal line mask.
     let line_lo_px = in.half_size_px.y - (line_thickness_px * 0.5);
@@ -124,23 +130,28 @@ fn fs_single(in: VertexData) -> @location(0) vec4f {
     let line_mask = 1.0 - smoothstep(line_thickness_px * 0.5 - aa_y, line_thickness_px * 0.5 + aa_y, dist_y);
 
     // Vertical edge mask.
-    let edge_x = in.half_size_px.x - (line_thickness_px * 0.5);
-    let dist_x = abs(in.pill_local_px.x - edge_x);
-    let aa_x = fwidth(dist_x);
-    let edge_mask_raw = 1.0 - smoothstep(line_thickness_px * 0.5 - aa_x, line_thickness_px * 0.5 + aa_x, dist_x);
+    let edge_left_x = in.half_size_px.x - line_thickness_px;
+    let edge_right_x = in.half_size_px.x;
+    let aa_x = fwidth(in.pill_local_px.x - edge_left_x);
+    let edge_left_mask = smoothstep(-aa_x, aa_x, in.pill_local_px.x - edge_left_x);
+    let edge_right_mask = select(0.0, 1.0, in.pill_local_px.x <= edge_right_x);
+    let edge_mask_raw = edge_left_mask * edge_right_mask;
     let edge_mask = select(0.0, edge_mask_raw, draw_edge);
-    let stroke_mask = max(line_mask, edge_mask);
+    let stroke_mask = max(line_mask * f32(draw_line), edge_mask);
 
     // Calculate shading.
     let hatch_primary = select(x_color, z_color, crosshatch_color);
     let line_color = primary_color; // select(primary_color, hatch_primary, enable_crosshatch);
     let shade_color = select(lo_color, hi_color, draw_line_high);
 
-    let stripe_mask = hatch(in.pill_local_px);
+    let crosshatch_dir = f32(true) * 2.0 - 1.0;
+    let hatch_spacing = 4.0; // 2.0 + f32(!crosshatch_color) * 2.0;
+    let stripe_mask = hatch(in.pill_local_px, crosshatch_dir, hatch_spacing);
     let hatch_alpha = hatch_primary.a * stripe_mask;
     let hatch_color = vec4f(hatch_primary.rgb, hatch_alpha);
     let fill_color = select(shade_color, hatch_color, enable_crosshatch);
-    let fill = vec4f(fill_color.rgb, fill_color.a * f32(enable_fill));
+    let fill_alpha = select(0.0, fill_color.a, enable_fill);
+    let fill = vec4f(fill_color.rgb, fill_alpha);
 
     let color = mix(fill, line_color, stroke_mask);
     return color;
@@ -152,6 +163,7 @@ fn vs_multi(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
 
     let segment = segments[ii];
     let row = segment.row_flags & 0xffffu;
+    let draw_line = segment.value_msb == 0u;
     let enable_crosshatch = (segment.value_msb) != 0u;
     let crosshatch_color = (segment.value_lsb) != 0u;
 
@@ -185,6 +197,7 @@ fn vs_multi(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     flags |= (segment.row_flags >> 16u) & 0xfu;
     flags |= u32(enable_crosshatch) << 5u;
     flags |= u32(crosshatch_color) << 6u;
+    flags |= u32(draw_line) << 7u;
 
     return VertexData(vec4f(clip_x, clip_y, 0.0, 1.0), vertex_local_px, half_size_px, flags);
 }
@@ -209,15 +222,18 @@ fn fs_multi(in: VertexData) -> @location(0) vec4f {
     let fill_mask = 1.0 - smoothstep(-border_width - aa, -border_width, d_px);
 
     // Calculate shading.
-    let line_color = primary_color;
+    let hatch_primary = select(x_color, z_color, crosshatch_color);
+    let line_color = select(primary_color, hatch_primary, enable_crosshatch);
     let shade_color = vec4f(line_color.rgb, line_color.a * 0.7);
 
-    let stripe_mask = hatch(in.pill_local_px);
-    let hatch_primary = select(x_color, z_color, crosshatch_color);
+    let crosshatch_dir = f32(true) * 2.0 - 1.0;
+    let hatch_spacing = 4.0; // 2.0 + f32(!crosshatch_color) * 2.0;
+    let stripe_mask = hatch(in.pill_local_px, crosshatch_dir, hatch_spacing);
     let hatch_alpha = hatch_primary.a * stripe_mask;
     let hatch_color = vec4f(hatch_primary.rgb, hatch_alpha);
     let fill_color = select(shade_color, hatch_color, enable_crosshatch);
-    let fill = vec4f(fill_color.rgb, fill_color.a * f32(enable_fill));
+    let fill_alpha = select(0.0, fill_color.a, enable_fill);
+    let fill = vec4f(fill_color.rgb, fill_alpha);
 
     let final_color = line_color * border_mask + fill * fill_mask;
     let final_alpha = border_mask + fill_color.a * fill_mask;

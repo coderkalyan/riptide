@@ -84,14 +84,14 @@ function buildSegmentsFromStates(
   shaded: boolean,
   opts?: {
     clockEdges?: boolean;
-    suppressHighToHighEdges?: boolean;
+    edgeOnlyBinaryTransitions?: boolean;
   },
 ): Segment[] {
   if (states.length !== segmentUnits.length) {
     throw new Error(`states/segmentUnits length mismatch for row ${row}`);
   }
   const clockEdges = !!opts?.clockEdges;
-  const suppressHighToHighEdges = !!opts?.suppressHighToHighEdges;
+  const edgeOnlyBinaryTransitions = !!opts?.edgeOnlyBinaryTransitions;
   let tick = 0;
   const segments = states.map((state, index) => {
     const next = states[index + 1];
@@ -101,8 +101,8 @@ function buildSegmentsFromStates(
 
     const risingEdge = clockEdges && state === "0" && next === "1";
     const fallingEdge = false;
-    const isHighToHighTransition = !!next && state !== "0" && next !== "0" && state !== next;
-    const rightEdge = index < states.length - 1 && !(suppressHighToHighEdges && isHighToHighTransition);
+    const isBinaryTransition = !!next && ((state === "0" && next === "1") || (state === "1" && next === "0"));
+    const rightEdge = index < states.length - 1 && (!edgeOnlyBinaryTransitions || isBinaryTransition);
     return {
       tStart: start,
       tEnd: end,
@@ -130,10 +130,10 @@ const DURS_C = [1, 1, 2, 1, 2, 1, 1, 2, 1, 2, 1, 1, 2];
 const DURS_CLOCK = Array.from({ length: CLOCK_SEQUENCE.length }, () => 1);
 
 export const MOCK_SINGLE_BIT_SEGMENTS: Segment[] = [
-  ...buildSegmentsFromStates(0, CLOCK_SEQUENCE, 1, DURS_CLOCK, false, { clockEdges: true }), // clock (top row)
-  ...buildSegmentsFromStates(1, ALL_TRANSITIONS_SINGLE, 1, DURS_A, true, { suppressHighToHighEdges: true }),
-  ...buildSegmentsFromStates(2, ALL_TRANSITIONS_SINGLE, 1, DURS_B, true, { suppressHighToHighEdges: true }),
-  ...buildSegmentsFromStates(3, ALL_TRANSITIONS_SINGLE, 1, DURS_C, true, { suppressHighToHighEdges: true }),
+  ...buildSegmentsFromStates(0, CLOCK_SEQUENCE, 1, DURS_CLOCK, false, { clockEdges: true, edgeOnlyBinaryTransitions: true }), // clock (top row)
+  ...buildSegmentsFromStates(1, ALL_TRANSITIONS_SINGLE, 1, DURS_A, true, { edgeOnlyBinaryTransitions: true }),
+  ...buildSegmentsFromStates(2, ALL_TRANSITIONS_SINGLE, 1, DURS_B, true, { edgeOnlyBinaryTransitions: true }),
+  ...buildSegmentsFromStates(3, ALL_TRANSITIONS_SINGLE, 1, DURS_C, true, { edgeOnlyBinaryTransitions: true }),
 ];
 
 export const MOCK_MULTI_BIT_SEGMENTS: Segment[] = [
