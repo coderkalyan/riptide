@@ -10,12 +10,13 @@ import {
   MOCK_END_TICKS,
   MOCK_MULTI_BIT_SEGMENTS,
   MOCK_SINGLE_BIT_SEGMENTS,
+  MOCK_VALID_DATA_SEGMENTS,
   type Segment,
 } from "./gpu/data";
 
 const CURSOR_TICKS = 32.4;
 const MARKER_TICKS = 19.6;
-const ALL_SEGMENTS = [...MOCK_SINGLE_BIT_SEGMENTS, ...MOCK_MULTI_BIT_SEGMENTS];
+const ALL_SEGMENTS = [...MOCK_SINGLE_BIT_SEGMENTS, ...MOCK_MULTI_BIT_SEGMENTS, ...MOCK_VALID_DATA_SEGMENTS];
 
 interface SignalDef {
   name: string;
@@ -36,6 +37,9 @@ const ACTIVE_SIGNAL_DEFS: SignalDef[] = [
   { name: "multi_data_4b", type: "drv", radix: "bin", row: 5, bitWidth: 4 },
   { name: "multi_data_8b", type: "drv", radix: "bin", row: 6, bitWidth: 8 },
   { name: "multi_data_12b", type: "drv", radix: "bin", row: 7, bitWidth: 12 },
+  { name: "valid", type: "bool", radix: "bin", row: 8, bitWidth: 1 },
+  { name: "data[7:0]", type: "drv", radix: "hex", row: 9, bitWidth: 8 },
+  { name: "bit_muted", type: "bool", radix: "bin", row: 10, bitWidth: 1 },
 ];
 
 function findSegmentAtTick(row: number, tick: number): Segment | undefined {
@@ -80,8 +84,10 @@ export function App() {
 
     initGPU(canvas).then(({ device, ctx, format }) => {
       const gpuCtx = { device, ctx, format };
-      const multiBit = buildMultiBitPipeline(gpuCtx, MOCK_MULTI_BIT_SEGMENTS);
-      const singleBit = buildSingleBitPipeline(gpuCtx, MOCK_SINGLE_BIT_SEGMENTS);
+      const singleBitVD = MOCK_VALID_DATA_SEGMENTS.filter((s) => { const r = s.rowFlags & 0xffff; return r === 8 || r === 10; });
+      const multiBitVD = MOCK_VALID_DATA_SEGMENTS.filter((s) => (s.rowFlags & 0xffff) === 9);
+      const multiBit = buildMultiBitPipeline(gpuCtx, [...MOCK_MULTI_BIT_SEGMENTS, ...multiBitVD]);
+      const singleBit = buildSingleBitPipeline(gpuCtx, [...MOCK_SINGLE_BIT_SEGMENTS, ...singleBitVD]);
 
       const ro = new ResizeObserver(() => resizeCanvas(canvas, device, ctx, format));
       ro.observe(canvas);
