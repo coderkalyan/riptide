@@ -1,5 +1,5 @@
 import { GPUContext } from "./device";
-import { SignalPipeline } from "./pipelines/digital";
+import { SignalPipeline } from "./digital";
 import { Viewport } from "./data";
 
 export function renderFrame(

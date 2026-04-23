@@ -18,7 +18,6 @@ export function DerivedSignal({ name, expr }: DerivedSignalProps) {
         <span className="lbl">{name}</span>
         <span className="kebab"><Ellipsis size={12} /></span>
       </div>
-      {/* <div className="d-expr mono" title={expr}>{expr}</div> */}
     </div>
   );
 }

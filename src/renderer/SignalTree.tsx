@@ -1,72 +1,87 @@
-import { createContext, useContext, ReactNode } from "react";
-import { Box, ChevronRight, ChevronDown, Clock, Minus, Layers, LayoutGrid, Plus, Equal, Activity } from "lucide-react";
+import { useState } from "react";
+import { Activity, ChevronDown, ChevronRight, Package, Plus } from "lucide-react";
+import type { Hierarchy, NodeId, Signal } from "./hier/types";
+import { getScope } from "./hier/hierarchy";
 
-const DepthContext = createContext(0);
-
-export function SignalTree({ children }: { children: ReactNode }) {
-  return <div className="tree">{children}</div>;
+export function signalIconKind(sig: Signal): "enum" | "bus" | "scalar" {
+  if (sig.enumTypeId != null) return "enum";
+  if (sig.bitWidth > 1) return "bus";
+  return "scalar";
 }
 
-export interface ScopeProps {
-  name: string;
-  badge?: string;
-  expanded?: boolean;
-  children?: ReactNode;
-}
+export function SignalTreeView({
+  hierarchy,
+  initialExpanded,
+}: {
+  hierarchy: Hierarchy;
+  initialExpanded: Set<NodeId>;
+}) {
+  const [expanded, setExpanded] = useState<Set<NodeId>>(initialExpanded);
+  const toggle = (id: NodeId) => {
+    const next = new Set(expanded);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setExpanded(next);
+  };
 
-export function Scope({ name, badge, expanded, children }: ScopeProps) {
-  const depth = useContext(DepthContext);
-  const cls = ["t-row", depth > 0 ? `indent-${depth}` : ""].filter(Boolean).join(" ");
   return (
-    <>
-      <div className={cls}>
-        <span className="chev">
-          {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
-        </span>
-        <span className="icon module"><Box size={12} /></span>
-        <span className="lbl">{name}</span>
-        {/* {badge && <span className="count">{badge}</span>} */}
-      </div>
-      {expanded && (
-        <DepthContext.Provider value={depth + 1}>
-          {children}
-        </DepthContext.Provider>
-      )}
-    </>
-  );
-}
-
-export type SignalIconKind = "clk" | "bus" | "bus2" | "state" | "drv" | "";
-
-const KIND_ICON: Record<SignalIconKind, ReactNode> = {
-  clk: <Clock size={12} />,
-  bus: <Activity size={12} />,
-  bus2: <Activity size={12} />,
-  state: <LayoutGrid size={12} />,
-  drv: <Equal size={12} />,
-  "": <Minus size={12} />,
-};
-
-export interface SignalNodeProps {
-  name: string;
-  iconKind?: SignalIconKind;
-  count?: string;
-  plus?: boolean;
-  selected?: boolean;
-}
-
-export function SignalNode({ name, iconKind = "", count, plus, selected }: SignalNodeProps) {
-  const depth = useContext(DepthContext);
-  const cls = ["t-row", depth > 0 ? `indent-${depth}` : "", selected ? "sel" : ""]
-    .filter(Boolean)
-    .join(" ");
-  return (
-    <div className={cls}>
-      <span className="chev" />
-      <span className={"icon" + (iconKind ? ` ${iconKind}` : "")}>{KIND_ICON[iconKind]}</span>
-      <span className="lbl">{name}</span>
-      {/* {count && <span className="count">{count}</span>} */}
-      {plus && <span className="plus"><Plus size={12} /></span>}
+    <div className="tree">
+      {hierarchy.rootIds.map((id) => (
+        <TreeNode key={id} id={id} depth={0} hierarchy={hierarchy} expanded={expanded} toggle={toggle} />
+      ))}
     </div>
   );
 }
+
+function TreeNode({
+  id,
+  depth,
+  hierarchy,
+  expanded,
+  toggle,
+}: {
+  id: NodeId;
+  depth: number;
+  hierarchy: Hierarchy;
+  expanded: Set<NodeId>;
+  toggle: (id: NodeId) => void;
+}) {
+  const node = hierarchy.nodes.get(id)!;
+  const indent = depth > 0 ? `indent-${depth}` : "";
+
+  if (node.kind === "scope") {
+    const isOpen = expanded.has(id);
+    return (
+      <>
+        <div className={`t-row ${indent}`.trim()} onClick={() => toggle(id)}>
+          <span className="chev">{isOpen ? <ChevronDown size={10} /> : <ChevronRight size={10} />}</span>
+          <span className="icon module"><Package size={12} /></span>
+          <span className="lbl">{node.name}</span>
+        </div>
+        {isOpen && node.children.map((childId) => (
+          <TreeNode
+            key={childId}
+            id={childId}
+            depth={depth + 1}
+            hierarchy={hierarchy}
+            expanded={expanded}
+            toggle={toggle}
+          />
+        ))}
+      </>
+    );
+  }
+
+  const kind = signalIconKind(node);
+  return (
+    <div className={`t-row ${indent}`.trim()}>
+      <span className="chev" />
+      <span className={`icon ${kind}`}><Activity size={12} /></span>
+      <span className="lbl">{node.name}</span>
+      <span className="plus"><Plus size={12} /></span>
+    </div>
+  );
+}
+
+// Re-export so App.tsx can traverse from hierarchy when needed.
+export { getScope };

@@ -1,8 +1,7 @@
-import { GPUContext } from "../device";
-import { Segment, Viewport, packSegments, packViewport } from "../data";
+import { GPUContext } from "./device";
+import { Segment, Viewport, packSegments, packViewport } from "./data";
 import WGSL from "./digital.wgsl";
 
-export const LINE_PX = 2.5;
 type ShaderVariant = "multi" | "single";
 
 export interface SignalPipeline {
@@ -13,9 +12,6 @@ export interface SignalPipeline {
   segmentCount: number;
   updateViewport(vp: Viewport): void;
 }
-
-export type MultiBitPipeline = SignalPipeline;
-export type SingleBitPipeline = SignalPipeline;
 
 function buildVariantPipeline(
   { device, format }: GPUContext,
@@ -74,13 +70,13 @@ function buildVariantPipeline(
 export function buildMultiBitPipeline(
   gpuCtx: GPUContext,
   segments: Segment[],
-): MultiBitPipeline {
+): SignalPipeline {
   return buildVariantPipeline(gpuCtx, segments, "multi");
 }
 
 export function buildSingleBitPipeline(
   gpuCtx: GPUContext,
   segments: Segment[],
-): SingleBitPipeline {
+): SignalPipeline {
   return buildVariantPipeline(gpuCtx, segments, "single");
 }

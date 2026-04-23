@@ -1,29 +1,31 @@
-import { Activity, Clock, Ellipsis, Equal } from "lucide-react";
+import { Activity, Ellipsis, LayoutGrid, Minus } from "lucide-react";
 
-export type SignalType = "clk" | "bool" | "bus" | "enum" | "drv";
+export type SignalKind = "enum" | "bus" | "scalar";
 
 export interface ActiveSignalProps {
   name: string;
   value: string;
-  type: SignalType;
+  kind: SignalKind;
   radix: string;
   pinned?: boolean;
   selected?: boolean;
   nested?: boolean;
 }
 
+const ICON = {
+  enum: <LayoutGrid size={12} />,
+  bus: <Activity size={12} />,
+  scalar: <Minus size={12} />,
+} as const;
+
 export function ActiveSignal(props: ActiveSignalProps) {
   const cls = ["s-row", props.selected ? "sel" : "", props.nested ? "nested" : ""]
     .filter(Boolean)
     .join(" ");
-  const isDrv = props.type === "drv";
-  const isClk = props.type === "clk";
   return (
     <div className={cls}>
       <span className={"pin" + (props.pinned ? " on" : "")}>●</span>
-      <span className={"s-icon " + props.type}>
-        {isDrv ? <Equal size={12} /> : isClk ? <Clock size={12} /> : <Activity size={12} />}
-      </span>
+      <span className={"s-icon " + props.kind}>{ICON[props.kind]}</span>
       <span className="n">{props.name}</span>
       <span className="v">{props.value}</span>
       <span className="kebab"><Ellipsis size={12} /></span>
