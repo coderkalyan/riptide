@@ -4,10 +4,11 @@
   "private": true,
   "main": "dist/main/index.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json && mkdir -p dist/renderer && esbuild src/renderer/index.tsx --bundle --outfile=dist/renderer/index.js --format=iife --target=es2022 --loader:.tsx=tsx --loader:.wgsl=text --jsx=automatic && cp src/renderer/index.html dist/renderer/index.html",
+    "wgsl-check": "node scripts/wgsl-check.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
+    "build": "pnpm wgsl-check && tsc -p tsconfig.json && mkdir -p dist/renderer && esbuild src/renderer/index.tsx --bundle --outfile=dist/renderer/index.js --format=iife --target=es2022 --loader:.tsx=tsx --loader:.wgsl=text --jsx=automatic && cp src/renderer/index.html dist/renderer/index.html",
     "dev": "pnpm build && electron .",
-    "dev:ui": "node scripts/dev-ui.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json --noEmit"
+    "dev:ui": "pnpm wgsl-check && node scripts/dev-ui.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

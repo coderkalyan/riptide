@@ -176,18 +176,6 @@ export const HARDCODED_SEGMENTS: Segment[] = [
   ...MOCK_VALID_DATA_SEGMENTS,
 ];
 
-// Only the time range is static — geometry fields are filled in per-frame
-// from DOM measurements in App.tsx.
-// export const DEFAULT_VIEWPORT: Viewport = {
-// t0: 0, t1: 100,
-// width: 800,
-// height: 400,
-// rowHeight: 28,
-// rowPadding: 4,
-// offsetY: 0,
-// linePx: 2.5,
-// };
-
 // ---- GPU packing -------------------------------------------------------
 // Layout: each segment = 5 × u32 = 20 bytes
 //   [0] tStart  [1] tEnd  [2] valueLsb  [3] valueMsb  [4] rowFlags
@@ -219,9 +207,5 @@ export function packViewport(vp: Viewport): Float32Array {
 
     // Padding.
     0.0,
-    // vp.t0, vp.t1,
-    // vp.width, vp.height,
-    // vp.rowHeight, vp.rowPadding,
-    // vp.offsetY, vp.linePx,
   ]);
 }
