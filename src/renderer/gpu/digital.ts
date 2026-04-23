@@ -16,6 +16,7 @@ export interface SignalPipeline {
 function buildVariantPipeline(
   { device, format }: GPUContext,
   segments: Segment[],
+  colorBuf: GPUBuffer,
   variant: ShaderVariant,
 ): SignalPipeline {
   const module = device.createShaderModule({ code: WGSL });
@@ -26,6 +27,7 @@ function buildVariantPipeline(
     entries: [
       { binding: 0, visibility: GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
       { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
+      { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
     ],
   });
 
@@ -57,6 +59,7 @@ function buildVariantPipeline(
     entries: [
       { binding: 0, resource: { buffer: uniformBuf } },
       { binding: 1, resource: { buffer: segmentBuf } },
+      { binding: 2, resource: { buffer: colorBuf } },
     ],
   });
 
@@ -70,13 +73,15 @@ function buildVariantPipeline(
 export function buildMultiBitPipeline(
   gpuCtx: GPUContext,
   segments: Segment[],
+  colorBuf: GPUBuffer,
 ): SignalPipeline {
-  return buildVariantPipeline(gpuCtx, segments, "multi");
+  return buildVariantPipeline(gpuCtx, segments, colorBuf, "multi");
 }
 
 export function buildSingleBitPipeline(
   gpuCtx: GPUContext,
   segments: Segment[],
+  colorBuf: GPUBuffer,
 ): SignalPipeline {
-  return buildVariantPipeline(gpuCtx, segments, "single");
+  return buildVariantPipeline(gpuCtx, segments, colorBuf, "single");
 }

@@ -1,11 +1,13 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Flag, Maximize, MessageSquare, Minus, PanelLeftClose, Plus, SplitSquareHorizontal, X } from "lucide-react";
 import { ActiveSignal, type ActiveSignalKind } from "./ActiveSignal";
+import { ColorPicker } from "./ColorPicker";
 import { SignalTreeView } from "./SignalTree";
 import { DerivedSignals, DerivedSignal } from "./DerivedSignals";
 import { initGPU, resizeCanvas, GPUInitError } from "./gpu/device";
 import { buildMultiBitPipeline, buildSingleBitPipeline } from "./gpu/digital";
 import { renderFrame } from "./gpu/frame";
+import { createColorBuffer, writeRowColors } from "./gpu/colors";
 import { MOCK_END_TICKS, type Segment } from "./gpu/data";
 import { MOCK_SCENE, type ActiveSignalRef, type Radix } from "./hier/mock";
 import { getSignal } from "./hier/hierarchy";
@@ -65,6 +67,10 @@ const MULTI_BIT_SEGMENTS = MOCK_SCENE.segments.filter((s) => {
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const signalsRef = useRef<HTMLDivElement>(null);
+  const gpuRef = useRef<{ device: GPUDevice; colorBuf: GPUBuffer } | null>(null);
+
+  const [activeSignals, setActiveSignals] = useState<ActiveSignalRef[]>(MOCK_SCENE.activeSignals);
+  const [picker, setPicker] = useState<{ row: number; anchorRect: DOMRect } | null>(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -75,8 +81,11 @@ export function App() {
 
     initGPU(canvas).then(({ device, ctx, format }) => {
       const gpuCtx = { device, ctx, format };
-      const multiBit = buildMultiBitPipeline(gpuCtx, MULTI_BIT_SEGMENTS);
-      const singleBit = buildSingleBitPipeline(gpuCtx, SINGLE_BIT_SEGMENTS);
+      const colorBuf = createColorBuffer(device);
+      writeRowColors(device, colorBuf, MOCK_SCENE.activeSignals);
+      gpuRef.current = { device, colorBuf };
+      const multiBit = buildMultiBitPipeline(gpuCtx, MULTI_BIT_SEGMENTS, colorBuf);
+      const singleBit = buildSingleBitPipeline(gpuCtx, SINGLE_BIT_SEGMENTS, colorBuf);
 
       const ro = new ResizeObserver(() => resizeCanvas(canvas, device, ctx, format));
       ro.observe(canvas);
@@ -120,6 +129,15 @@ export function App() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  useEffect(() => {
+    const gpu = gpuRef.current;
+    if (gpu) writeRowColors(gpu.device, gpu.colorBuf, activeSignals);
+  }, [activeSignals]);
+
+  const handleColorChange = (row: number, color: string) => {
+    setActiveSignals((refs) => refs.map((r) => (r.row === row ? { ...r, color } : r)));
+  };
+
   return (
     <div className="app">
       <div className="titlebar">
@@ -153,7 +171,7 @@ export function App() {
             <span className="btn sm icon primary" title="add"><Plus size={14} /></span>
           </div>
           <DerivedSignals>
-            {MOCK_SCENE.activeSignals
+            {activeSignals
               .filter((r) => r.derivedExpr)
               .map((r, i) => {
                 const sig = getSignal(MOCK_SCENE.hierarchy, r.signalId);
@@ -163,7 +181,7 @@ export function App() {
         </div>
 
         <div className="col">
-          <div className="col-head"><h3>Active Signals</h3><span className="hint">{MOCK_SCENE.activeSignals.length} active</span></div>
+          <div className="col-head"><h3>Active Signals</h3><span className="hint">{activeSignals.length} active</span></div>
           <div className="col-sub">
             <input className="search" placeholder="filter active signals" />
           </div>
@@ -175,7 +193,7 @@ export function App() {
             <span />
           </div>
           <div className="signals" ref={signalsRef}>
-            {MOCK_SCENE.activeSignals.map((ref, i) => {
+            {activeSignals.map((ref, i) => {
               const sig = getSignal(MOCK_SCENE.hierarchy, ref.signalId);
               return (
                 <ActiveSignal
@@ -183,9 +201,11 @@ export function App() {
                   name={sig.name}
                   kind={activeSignalKind(ref)}
                   radix={ref.radix}
+                  color={ref.color}
                   pinned={ref.pinned}
                   selected={ref.selected}
                   value={formatSegmentValue(findSegmentAtTick(ref.row, CURSOR_TICKS), sig.bitWidth, ref.radix)}
+                  onPinClick={(e) => setPicker({ row: ref.row, anchorRect: (e.currentTarget as HTMLElement).getBoundingClientRect() })}
                 />
               );
             })}
@@ -256,10 +276,19 @@ export function App() {
         <span>zoom <b>1 ns / 14 px</b></span>
         <span className="sp" />
         <span>147 signals</span>
-        <span>{MOCK_SCENE.activeSignals.length} active</span>
-        <span>{MOCK_SCENE.activeSignals.filter((r) => r.derivedExpr).length} derived</span>
+        <span>{activeSignals.length} active</span>
+        <span>{activeSignals.filter((r) => r.derivedExpr).length} derived</span>
         <span>top / keysched</span>
       </div>
+
+      {picker && (
+        <ColorPicker
+          color={activeSignals.find((r) => r.row === picker.row)?.color ?? "#000000"}
+          onChange={(c) => handleColorChange(picker.row, c)}
+          onClose={() => setPicker(null)}
+          anchorRect={picker.anchorRect}
+        />
+      )}
     </div>
   );
 }

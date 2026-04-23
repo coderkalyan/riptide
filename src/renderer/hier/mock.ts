@@ -17,6 +17,7 @@ export interface ActiveSignalRef {
   signalId: NodeId;
   row: number;
   radix: Radix;
+  color: string;           // CSS hex, e.g. "#72F5DF"
   pinned?: boolean;
   selected?: boolean;
   role?: ActiveRole;
@@ -124,20 +125,20 @@ function buildMock(): MockScene {
   b.closeScope();
 
   const activeSignals: ActiveSignalRef[] = [
-    { signalId: clk_id,        row: 0,  radix: "bin", role: "clock", pinned: true },
-    { signalId: rst_id,        row: 1,  radix: "bin", role: "reset" },
-    { signalId: state_id,      row: 2,  radix: "dec", selected: true },
-    { signalId: cycle_id,      row: 3,  radix: "dec" },
-    { signalId: in_valid_id,   row: 4,  radix: "bin", role: "valid" },
-    { signalId: in_data_id,    row: 5,  radix: "hex" },
-    { signalId: in_addr_id,    row: 6,  radix: "hex" },
-    { signalId: out_valid_id,  row: 7,  radix: "bin", role: "valid" },
-    { signalId: out_data_id,   row: 8,  radix: "hex" },
-    { signalId: fifo_level_id, row: 9,  radix: "dec" },
-    { signalId: fifo_empty_id, row: 10, radix: "bin" },
-    { signalId: dbus_id,       row: 11, radix: "hex" },
-    { signalId: busy_id,       row: 12, radix: "bin", derivedExpr: "in_valid | out_valid" },
-    { signalId: done_id,       row: 13, radix: "bin", derivedExpr: "state == DONE" },
+    { signalId: clk_id,        row: 0,  radix: "bin", role: "clock", pinned: true, color: "#72F5DF" },
+    { signalId: rst_id,        row: 1,  radix: "bin", role: "reset",                color: "#F06B5B" },
+    { signalId: state_id,      row: 2,  radix: "dec", selected: true,               color: "#E6B14E" },
+    { signalId: cycle_id,      row: 3,  radix: "dec",                               color: "#B48CFF" },
+    { signalId: in_valid_id,   row: 4,  radix: "bin", role: "valid",                color: "#57C88A" },
+    { signalId: in_data_id,    row: 5,  radix: "hex",                               color: "#727BF5" },
+    { signalId: in_addr_id,    row: 6,  radix: "hex",                               color: "#4FD2BD" },
+    { signalId: out_valid_id,  row: 7,  radix: "bin", role: "valid",                color: "#57C88A" },
+    { signalId: out_data_id,   row: 8,  radix: "hex",                               color: "#B48CFF" },
+    { signalId: fifo_level_id, row: 9,  radix: "dec",                               color: "#72F5B4" },
+    { signalId: fifo_empty_id, row: 10, radix: "bin",                               color: "#E6B14E" },
+    { signalId: dbus_id,       row: 11, radix: "hex",                               color: "#E86A5A" },
+    { signalId: busy_id,       row: 12, radix: "bin", derivedExpr: "in_valid | out_valid", color: "#F4A698" },
+    { signalId: done_id,       row: 13, radix: "bin", derivedExpr: "state == DONE",       color: "#F4A698" },
   ];
 
   const segments: Segment[] = [

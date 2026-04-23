@@ -201,8 +201,30 @@
         }
         .s-row:hover { background: var(--panel-2); }
         .s-row.sel { background: var(--accent-soft); }
-        .pin { text-align:center; color: var(--muted); font-size: 10px; cursor: default; }
-        .pin.on { color: var(--accent); }
+        .pin {
+            width: 10px; height: 10px; border-radius: 50%;
+            display: inline-block; cursor: pointer; flex-shrink: 0;
+            background: var(--muted);
+        }
+
+        .color-picker {
+            position: fixed; z-index: 1000;
+            background: var(--panel-2);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+            display: flex; flex-direction: column; gap: 6px;
+        }
+        .color-picker .swatches { display: grid; grid-template-columns: repeat(5, 16px); gap: 4px; }
+        .color-picker .sw { width: 16px; height: 16px; border-radius: 50%; cursor: pointer; }
+        .color-picker .sw:hover { transform: scale(1.15); }
+        .color-picker .sw.on { box-shadow: 0 0 0 2px var(--text-2); }
+        .color-picker input[type="color"] {
+            width: 100%; height: 22px; padding: 0;
+            border: 1px solid var(--border); border-radius: 4px;
+            background: none; cursor: pointer;
+        }
         .s-icon { display:inline-flex; align-items:center; justify-content:center; color: var(--text-2); }
         .s-icon.clock    { color: var(--clk); }
         .s-icon.reset    { color: var(--hot); }

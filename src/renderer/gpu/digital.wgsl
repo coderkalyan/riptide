@@ -29,6 +29,7 @@ struct Segment {
 
 @group(0) @binding(0) var<uniform> viewport: Viewport;
 @group(0) @binding(1) var<storage, read> segments: array<Segment>;
+@group(0) @binding(2) var<storage, read> row_colors: array<vec4<f32>>;
 
 fn sdf(point: vec2f, half_size: vec2f, radius: f32) -> f32 {
     let q = abs(point) - half_size + radius;
@@ -61,6 +62,7 @@ struct VertexData {
     // [11] = enable line or border
     // [12] = highlight segment (e.g. for selected row)
     @location(2) @interpolate(flat) flags: u32,
+    @location(3) @interpolate(flat) primary_color: vec4f,
 }
 
 @vertex
@@ -106,20 +108,20 @@ fn vs_single(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -
     flags |= u32(draw_line) << 11u;
     flags |= u32(highlight) << 12u;
 
-    return VertexData(vec4f(clip_x, clip_y, 0.0, 1.0), vertex_local_px, half_size_px, flags);
+    return VertexData(vec4f(clip_x, clip_y, 0.0, 1.0), vertex_local_px, half_size_px, flags, row_colors[row]);
 }
 
 @fragment
 fn fs_single(in: VertexData) -> @location(0) vec4f {
     let line_thickness_px = 1.0 * viewport.dpr;
-    let primary_color = vec4f(0.651, 0.820, 0.537, 1.0);
+    let primary_color = in.primary_color;
     // let hi_color = vec4f(primary_color.rgb, primary_color.a * 0.7);
     // let lo_color = vec4f(primary_color.rgb, primary_color.a * 0.2);
     let hi_alpha = 0.7;
     let lo_alpha = 0.2;
     let x_color = vec4f(0.9608, 0.4471, 0.4471, 1.0);
     let z_color = vec4f(1.0, 0.863, 0.0, 1.0);
-    let mute_color = vec4f(0.47, 0.47, 0.47, 1.0);
+    let mute_color = vec4f(0.47, 0.47, 0.47, 0.6);
 
     let enable_fill = (in.flags & (1u << 0u)) != 0u;
     let draw_edge = (in.flags & (1u << 1u)) != 0u;
@@ -214,17 +216,17 @@ fn vs_multi(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     flags |= u32(draw_line) << 10u;
     flags |= u32(highlight) << 12u;
 
-    return VertexData(vec4f(clip_x, clip_y, 0.0, 1.0), vertex_local_px, half_size_px, flags);
+    return VertexData(vec4f(clip_x, clip_y, 0.0, 1.0), vertex_local_px, half_size_px, flags, row_colors[row]);
 }
 
 @fragment
 fn fs_multi(in: VertexData) -> @location(0) vec4f {
     let radius = 2.0 * viewport.dpr;
     let border_width = 1.0 * viewport.dpr;
-    let primary_color = vec4f(0.447, 0.482, 0.961, 1.0);
+    let primary_color = in.primary_color;
     let x_color = vec4f(0.9608, 0.4471, 0.4471, 1.0);
     let z_color = vec4f(1.0, 0.863, 0.0, 1.0);
-    let mute_color = vec4f(0.47, 0.47, 0.47, 1.0);
+    let mute_color = vec4f(0.47, 0.47, 0.47, 0.6);
 
     let enable_fill = (in.flags & (1u << 0u)) != 0u;
     let mute = (in.flags & (1u << 4u)) != 0u;
