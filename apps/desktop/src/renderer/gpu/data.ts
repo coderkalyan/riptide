@@ -181,8 +181,8 @@ export const HARDCODED_SEGMENTS: Segment[] = [
 //   [0] tStart  [1] tEnd  [2] valueLsb  [3] valueMsb  [4] rowFlags
 // Matches the storage buffer struct in the WGSL shader.
 
-export function packSegments(segs: Segment[]): Uint32Array {
-  const buf = new Uint32Array(segs.length * 5);
+export function packSegments(segs: Segment[]): Uint32Array<ArrayBuffer> {
+  const buf = new Uint32Array(new ArrayBuffer(segs.length * 5 * 4));
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i];
     buf[i * 5 + 0] = s.tStart;
@@ -195,7 +195,7 @@ export function packSegments(segs: Segment[]): Uint32Array {
 }
 
 // Viewport packed as (6 + 2) × f32 = 32 bytes (multiple of 16, required by WebGPU).
-export function packViewport(vp: Viewport): Float32Array {
+export function packViewport(vp: Viewport): Float32Array<ArrayBuffer> {
   return new Float32Array([
     vp.ticks_per_pixel,
     vp.start_ticks,
