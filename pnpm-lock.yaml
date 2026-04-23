@@ -6,9 +6,7 @@ settings:
 
 importers:
 
-  .: {}
-
-  apps/desktop:
+  .:
     dependencies:
       lucide-react:
         specifier: 1.8.0
@@ -34,7 +32,7 @@ importers:
         version: 0.1.69
       electron:
         specifier: ^41.0.0
-        version: 41.2.1
+        version: 41.3.0
       esbuild:
         specifier: ^0.28.0
         version: 0.28.0
@@ -293,8 +291,8 @@ packages:
   detect-node@2.1.0:
     resolution: {integrity: sha512-T0NIuQpnTvFDATNuHN5roPwSBG83rFsuO+MXXH9/3N1eFbn4wcPjttvjMLEPWJ0RGUYgQE7cGgS3tNxbqCGM7g==}
 
-  electron@41.2.1:
-    resolution: {integrity: sha512-teeRThiYGTPKf/2yOW7zZA1bhb91KEQ4yLBPOg7GxpmnkLFLugKgQaAKOrCgdzwsXh/5mFIfmkm+4+wACJKwaA==}
+  electron@41.3.0:
+    resolution: {integrity: sha512-2Q5aeocmFdeheZGDUTrAvSR3t+n0c3d104AJWWEnt7syJU0tE4VdibMYaPtQ47QuXSoUf0/xSsfUUvu/uSXIfg==}
     engines: {node: '>= 12.20.55'}
     hasBin: true
 
@@ -695,7 +693,7 @@ snapshots:
   detect-node@2.1.0:
     optional: true
 
-  electron@41.2.1:
+  electron@41.3.0:
     dependencies:
       '@electron/get': 2.0.3
       '@types/node': 24.12.2
