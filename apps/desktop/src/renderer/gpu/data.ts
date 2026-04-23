@@ -165,9 +165,9 @@ const VD_DATA_8B: LogicState[] = ["x", "0", "z", "1", "x", "z", "1", "x", "z", "
 const VD_BIT_1B: LogicState[] = ["1", "0", "1", "0", "1", "0", "1", "0", "1", "0"];
 
 export const MOCK_VALID_DATA_SEGMENTS: Segment[] = [
-  ...buildSegmentsFromStates(8,  VD_VALID,   1, VD_DURS, false, { edgeOnlyBinaryTransitions: true }),
-  ...buildSegmentsFromStates(9,  VD_DATA_8B, 8, VD_DURS, true,  { muteMask: VD_MUTE }),
-  ...buildSegmentsFromStates(10, VD_BIT_1B,  1, VD_DURS, false, { edgeOnlyBinaryTransitions: true, muteMask: VD_MUTE }),
+  ...buildSegmentsFromStates(8, VD_VALID, 1, VD_DURS, true, { edgeOnlyBinaryTransitions: true }),
+  ...buildSegmentsFromStates(9, VD_DATA_8B, 8, VD_DURS, true, { muteMask: VD_MUTE }),
+  ...buildSegmentsFromStates(10, VD_BIT_1B, 1, VD_DURS, true, { edgeOnlyBinaryTransitions: true, muteMask: VD_MUTE }),
 ];
 
 export const HARDCODED_SEGMENTS: Segment[] = [

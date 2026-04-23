@@ -32,13 +32,13 @@ const ACTIVE_SIGNAL_DEFS: SignalDef[] = [
   { name: "single_clk_posedge", type: "clk", radix: "bin", row: 0, bitWidth: 1, pinned: true },
   { name: "single_data_mix_a", type: "bool", radix: "bin", row: 1, bitWidth: 1 },
   { name: "single_data_mix_b", type: "bool", radix: "bin", row: 2, bitWidth: 1 },
-  { name: "single_data_mix_c", type: "bool", radix: "bin", row: 3, bitWidth: 1 },
-  { name: "multi_data_2b", type: "drv", radix: "bin", row: 4, bitWidth: 2, selected: true },
-  { name: "multi_data_4b", type: "drv", radix: "bin", row: 5, bitWidth: 4 },
-  { name: "multi_data_8b", type: "drv", radix: "bin", row: 6, bitWidth: 8 },
+  { name: "single_data_mix_c", type: "drv", radix: "bin", row: 3, bitWidth: 1 },
+  { name: "multi_data_2b", type: "bool", radix: "bin", row: 4, bitWidth: 2, selected: true },
+  { name: "multi_data_4b", type: "bool", radix: "bin", row: 5, bitWidth: 4 },
+  { name: "multi_data_8b", type: "bool", radix: "bin", row: 6, bitWidth: 8 },
   { name: "multi_data_12b", type: "drv", radix: "bin", row: 7, bitWidth: 12 },
   { name: "valid", type: "bool", radix: "bin", row: 8, bitWidth: 1 },
-  { name: "data[7:0]", type: "drv", radix: "hex", row: 9, bitWidth: 8 },
+  { name: "data[7:0]", type: "bool", radix: "hex", row: 9, bitWidth: 8 },
   { name: "bit_muted", type: "bool", radix: "bin", row: 10, bitWidth: 1 },
 ];
 
@@ -115,6 +115,7 @@ export function App() {
           height: canvasRect.height,
           row_height: rowHeightCSS,
           dpr,
+          selected_row: 4,
         };
         renderFrame(gpuCtx, [multiBit, singleBit], vp);
         raf = requestAnimationFrame(frame);

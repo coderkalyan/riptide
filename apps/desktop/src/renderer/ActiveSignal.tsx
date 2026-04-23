@@ -1,4 +1,4 @@
-import { Activity, Ellipsis, Equal } from "lucide-react";
+import { Activity, Clock, Ellipsis, Equal } from "lucide-react";
 
 export type SignalType = "clk" | "bool" | "bus" | "enum" | "drv";
 
@@ -17,11 +17,12 @@ export function ActiveSignal(props: ActiveSignalProps) {
     .filter(Boolean)
     .join(" ");
   const isDrv = props.type === "drv";
+  const isClk = props.type === "clk";
   return (
     <div className={cls}>
       <span className={"pin" + (props.pinned ? " on" : "")}>●</span>
       <span className={"s-icon " + props.type}>
-        {isDrv ? <Equal size={12} /> : <Activity size={12} />}
+        {isDrv ? <Equal size={12} /> : isClk ? <Clock size={12} /> : <Activity size={12} />}
       </span>
       <span className="n">{props.name}</span>
       <span className="v">{props.value}</span>
