@@ -1,11 +1,11 @@
-import { Activity, Ellipsis, LayoutGrid, Minus } from "lucide-react";
+import { Activity, CircleCheck, Clock, Ellipsis, Equal, RotateCcw } from "lucide-react";
 
-export type SignalKind = "enum" | "bus" | "scalar";
+export type ActiveSignalKind = "clock" | "reset" | "valid" | "derived" | "signal";
 
 export interface ActiveSignalProps {
   name: string;
   value: string;
-  kind: SignalKind;
+  kind: ActiveSignalKind;
   radix: string;
   pinned?: boolean;
   selected?: boolean;
@@ -13,9 +13,11 @@ export interface ActiveSignalProps {
 }
 
 const ICON = {
-  enum: <LayoutGrid size={12} />,
-  bus: <Activity size={12} />,
-  scalar: <Minus size={12} />,
+  clock: <Clock size={12} />,
+  reset: <RotateCcw size={12} />,
+  valid: <CircleCheck size={12} />,
+  derived: <Equal size={12} />,
+  signal: <Activity size={12} />,
 } as const;
 
 export function ActiveSignal(props: ActiveSignalProps) {

@@ -1,19 +1,59 @@
 import { HierarchyBuilder } from "./hierarchy";
 import type { Hierarchy, NodeId } from "./types";
+import {
+  buildClockSegments,
+  buildDataSignal,
+  buildSegments,
+  MOCK_END_TICKS,
+  type SegValue,
+  type Segment,
+} from "../gpu/data";
+
+export type Radix = "bin" | "hex" | "dec";
+
+export type ActiveRole = "clock" | "reset" | "valid";
 
 export interface ActiveSignalRef {
   signalId: NodeId;
   row: number;
-  radix: "bin" | "hex" | "dec";
+  radix: Radix;
   pinned?: boolean;
   selected?: boolean;
+  role?: ActiveRole;
+  derivedExpr?: string;
 }
 
 export interface MockScene {
   hierarchy: Hierarchy;
   activeSignals: ActiveSignalRef[];
   initialExpanded: Set<NodeId>;
+  segments: Segment[];
 }
+
+// ---- waveform values per cycle (10 cycles) -----------------------------
+// Values align to rising clock edges. Index 0 = pre-first-rising-edge (X for
+// uninitialized regs). rst asserted high for cycles 0-1, deasserts at edge 2.
+
+// Values are per rising-edge cycle; index 0 = pre-first-rising-edge.
+// Reset is asynchronously deasserted at the first falling edge (tick 10), so
+// registers stay X through cycles 0 and 1 and only become clean at cycle 2.
+const V_STATE:       SegValue[] = [  "x",  "x",    0,      0,      1,          2,          2,          3,          4,     0]; // IDLE/LOAD/COMP/STORE/DONE
+const V_CYCLE:       SegValue[] = [  "x",  "x",    0,      1,      2,          3,          4,          5,          6,     7];
+const V_IN_VALID:    SegValue[] = [    0,    0,    0,      1,      1,          0,          1,          1,          0,     0];
+const V_IN_DATA:     SegValue[] = [  "x",  "x",  "x",   0xA3,   0xA3,        "x",       0xB7,       0xB7,        "x",   "x"];
+const V_IN_ADDR:     SegValue[] = [  "x",  "x",  "x", 0x1000, 0x1004,        "x",     0x1008,     0x100C,        "x",   "x"];
+const V_OUT_VALID:   SegValue[] = [    0,    0,    0,      0,      0,          1,          1,          1,          1,     0];
+const V_OUT_DATA:    SegValue[] = [  "x",  "x",  "x",    "x",    "x", 0xDEADBEEF, 0xDEADBEEF, 0xCAFEB0BA, 0xCAFEB0BA,   "x"];
+const V_FIFO_LEVEL:  SegValue[] = [  "x",  "x",    0,      1,      2,          2,          2,          1,          0,     0];
+const V_FIFO_EMPTY:  SegValue[] = [  "x",  "x",    1,      0,      0,          0,          0,          0,          1,     1];
+const V_DBUS:        SegValue[] = [  "x",  "x",  "z",   0x55,   0x55,        "z",       0xF0,       0xF0,        "z",   "z"];
+const V_BUSY:        SegValue[] = [    0,    0,    0,      1,      1,          1,          1,          1,          1,     0];
+const V_DONE:        SegValue[] = [    0,    0,    0,      0,      0,          0,          0,          0,          1,     0];
+
+const MUTE_IN = V_IN_VALID.map((v) => v !== 1);
+const MUTE_OUT = V_OUT_VALID.map((v) => v !== 1);
+
+// ---- scene --------------------------------------------------------------
 
 function buildMock(): MockScene {
   const b = new HierarchyBuilder().setFormat("fst").setTimescale({ value: 1, unit: "ns" });
@@ -22,14 +62,18 @@ function buildMock(): MockScene {
   const h = () => `!${(handleCounter++).toString(36)}`;
   const wire = (name: string, bitWidth: number, extra?: { enumTypeId?: number }) =>
     b.addSignal({ name, varType: "vcd_wire", bitWidth, handle: h(), direction: "implicit", ...extra });
+  const reg = (name: string, bitWidth: number, extra?: { enumTypeId?: number }) =>
+    b.addSignal({ name, varType: "vcd_reg", bitWidth, handle: h(), direction: "implicit", ...extra });
 
   b.addEnumType({
     id: 1,
     name: "state_t",
     members: [
-      { raw: "00", label: "IDLE" },
-      { raw: "01", label: "SEND" },
-      { raw: "10", label: "RECV" },
+      { raw: "000", label: "IDLE" },
+      { raw: "001", label: "LOAD" },
+      { raw: "010", label: "COMPUTE" },
+      { raw: "011", label: "STORE" },
+      { raw: "100", label: "DONE" },
     ],
   });
 
@@ -38,6 +82,7 @@ function buildMock(): MockScene {
   b.openScope("des", "module"); b.closeScope();
 
   const keysched = b.openScope("keysched", "module"); expanded.push(keysched);
+  // Navigation signals (hierarchy-only, no waveform data).
   wire("clk", 1);
   wire("rst_n", 1);
   wire("c[10:0]", 11);
@@ -49,20 +94,20 @@ function buildMock(): MockScene {
   b.openScope("fsm", "module"); b.closeScope();
   b.openScope("xbar", "module"); b.closeScope();
 
+  // Rendered mock signals live under a dedicated sub-scope.
   const waves = b.openScope("waves", "module"); expanded.push(waves);
-  const ids = {
-    single_clk_posedge: wire("single_clk_posedge", 1),
-    single_data_mix_a: wire("single_data_mix_a", 1),
-    single_data_mix_b: wire("single_data_mix_b", 1),
-    single_data_mix_c: wire("single_data_mix_c", 1),
-    multi_data_2b: wire("multi_data_2b", 2),
-    multi_data_4b: wire("multi_data_4b", 4),
-    multi_data_8b: wire("multi_data_8b", 8),
-    multi_data_12b: wire("multi_data_12b", 12),
-    valid: wire("valid", 1),
-    data_7_0: wire("data[7:0]", 8),
-    bit_muted: wire("bit_muted", 1),
-  };
+  const clk_id         = wire("clk", 1);
+  const rst_id         = reg("rst", 1);
+  const state_id       = reg("state[2:0]", 3, { enumTypeId: 1 });
+  const cycle_id       = reg("cycle_count[7:0]", 8);
+  const in_valid_id    = reg("in_valid", 1);
+  const in_data_id     = reg("in_data[7:0]", 8);
+  const in_addr_id     = reg("in_addr[15:0]", 16);
+  const out_valid_id   = reg("out_valid", 1);
+  const out_data_id    = reg("out_data[31:0]", 32);
+  const fifo_level_id  = reg("fifo_level[3:0]", 4);
+  const fifo_empty_id  = wire("fifo_empty", 1);
+  const dbus_id        = wire("dbus[7:0]", 8);
   b.closeScope(); // waves
 
   b.closeScope(); // keysched
@@ -70,27 +115,57 @@ function buildMock(): MockScene {
   b.openScope("mem_ctrl", "module"); b.closeScope();
   b.openScope("dma", "module"); b.closeScope();
   b.openScope("uart", "module"); b.closeScope();
-
   b.closeScope(); // top
 
+  // User-derived signals in their own root scope.
+  const derived = b.openScope("derived", "package"); expanded.push(derived);
+  const busy_id = wire("busy", 1);
+  const done_id = wire("done", 1);
+  b.closeScope();
+
   const activeSignals: ActiveSignalRef[] = [
-    { signalId: ids.single_clk_posedge, row: 0, radix: "bin", pinned: true },
-    { signalId: ids.single_data_mix_a, row: 1, radix: "bin" },
-    { signalId: ids.single_data_mix_b, row: 2, radix: "bin" },
-    { signalId: ids.single_data_mix_c, row: 3, radix: "bin" },
-    { signalId: ids.multi_data_2b, row: 4, radix: "bin", selected: true },
-    { signalId: ids.multi_data_4b, row: 5, radix: "bin" },
-    { signalId: ids.multi_data_8b, row: 6, radix: "bin" },
-    { signalId: ids.multi_data_12b, row: 7, radix: "bin" },
-    { signalId: ids.valid, row: 8, radix: "bin" },
-    { signalId: ids.data_7_0, row: 9, radix: "hex" },
-    { signalId: ids.bit_muted, row: 10, radix: "bin" },
+    { signalId: clk_id,        row: 0,  radix: "bin", role: "clock", pinned: true },
+    { signalId: rst_id,        row: 1,  radix: "bin", role: "reset" },
+    { signalId: state_id,      row: 2,  radix: "dec", selected: true },
+    { signalId: cycle_id,      row: 3,  radix: "dec" },
+    { signalId: in_valid_id,   row: 4,  radix: "bin", role: "valid" },
+    { signalId: in_data_id,    row: 5,  radix: "hex" },
+    { signalId: in_addr_id,    row: 6,  radix: "hex" },
+    { signalId: out_valid_id,  row: 7,  radix: "bin", role: "valid" },
+    { signalId: out_data_id,   row: 8,  radix: "hex" },
+    { signalId: fifo_level_id, row: 9,  radix: "dec" },
+    { signalId: fifo_empty_id, row: 10, radix: "bin" },
+    { signalId: dbus_id,       row: 11, radix: "hex" },
+    { signalId: busy_id,       row: 12, radix: "bin", derivedExpr: "in_valid | out_valid" },
+    { signalId: done_id,       row: 13, radix: "bin", derivedExpr: "state == DONE" },
+  ];
+
+  const segments: Segment[] = [
+    ...buildClockSegments(0),
+    // rst: high from 0, deasserts at the first clock falling edge (tick 10).
+    ...buildSegments(1, 1, [
+      { tStart: 0,  tEnd: 10, value: 1 },
+      { tStart: 10, tEnd: MOCK_END_TICKS, value: 0 },
+    ]),
+    ...buildDataSignal({ row: 2,  bitWidth: 3,  values: V_STATE }),
+    ...buildDataSignal({ row: 3,  bitWidth: 8,  values: V_CYCLE }),
+    ...buildDataSignal({ row: 4,  bitWidth: 1,  values: V_IN_VALID }),
+    ...buildDataSignal({ row: 5,  bitWidth: 8,  values: V_IN_DATA,    muted: MUTE_IN }),
+    ...buildDataSignal({ row: 6,  bitWidth: 16, values: V_IN_ADDR,    muted: MUTE_IN }),
+    ...buildDataSignal({ row: 7,  bitWidth: 1,  values: V_OUT_VALID }),
+    ...buildDataSignal({ row: 8,  bitWidth: 32, values: V_OUT_DATA,   muted: MUTE_OUT }),
+    ...buildDataSignal({ row: 9,  bitWidth: 4,  values: V_FIFO_LEVEL }),
+    ...buildDataSignal({ row: 10, bitWidth: 1,  values: V_FIFO_EMPTY }),
+    ...buildDataSignal({ row: 11, bitWidth: 8,  values: V_DBUS }),
+    ...buildDataSignal({ row: 12, bitWidth: 1,  values: V_BUSY }),
+    ...buildDataSignal({ row: 13, bitWidth: 1,  values: V_DONE }),
   ];
 
   return {
     hierarchy: b.build(),
     activeSignals,
     initialExpanded: new Set(expanded),
+    segments,
   };
 }
 

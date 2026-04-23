@@ -1,45 +1,67 @@
 import { useEffect, useRef } from "react";
 import { ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Flag, Maximize, MessageSquare, Minus, PanelLeftClose, Plus, SplitSquareHorizontal, X } from "lucide-react";
-import { ActiveSignal } from "./ActiveSignal";
-import { SignalTreeView, signalIconKind } from "./SignalTree";
+import { ActiveSignal, type ActiveSignalKind } from "./ActiveSignal";
+import { SignalTreeView } from "./SignalTree";
 import { DerivedSignals, DerivedSignal } from "./DerivedSignals";
 import { initGPU, resizeCanvas, GPUInitError } from "./gpu/device";
 import { buildMultiBitPipeline, buildSingleBitPipeline } from "./gpu/digital";
 import { renderFrame } from "./gpu/frame";
-import {
-  MOCK_END_TICKS,
-  MOCK_MULTI_BIT_SEGMENTS,
-  MOCK_SINGLE_BIT_SEGMENTS,
-  MOCK_VALID_DATA_SEGMENTS,
-  type Segment,
-} from "./gpu/data";
-import { MOCK_SCENE } from "./hier/mock";
+import { MOCK_END_TICKS, type Segment } from "./gpu/data";
+import { MOCK_SCENE, type ActiveSignalRef, type Radix } from "./hier/mock";
 import { getSignal } from "./hier/hierarchy";
+
+function activeSignalKind(ref: ActiveSignalRef): ActiveSignalKind {
+  if (ref.role === "clock") return "clock";
+  if (ref.role === "reset") return "reset";
+  if (ref.role === "valid") return "valid";
+  if (ref.derivedExpr) return "derived";
+  return "signal";
+}
 
 const CURSOR_TICKS = 32.4;
 const MARKER_TICKS = 19.6;
-const ALL_SEGMENTS = [...MOCK_SINGLE_BIT_SEGMENTS, ...MOCK_MULTI_BIT_SEGMENTS, ...MOCK_VALID_DATA_SEGMENTS];
 
 function findSegmentAtTick(row: number, tick: number): Segment | undefined {
-  return ALL_SEGMENTS.find((segment) => {
+  return MOCK_SCENE.segments.find((segment) => {
     const segmentRow = segment.rowFlags & 0xffff;
     return segmentRow === row && segment.tStart <= tick && tick < segment.tEnd;
   });
 }
 
-function formatSegmentValue(segment: Segment | undefined, bitWidth: number): string {
+function formatSegmentValue(segment: Segment | undefined, bitWidth: number, radix: Radix): string {
   if (!segment) return "-";
-  const chars: string[] = [];
-  for (let bit = bitWidth - 1; bit >= 0; bit--) {
-    const l = (segment.valueLsb >> bit) & 1;
-    const m = (segment.valueMsb >> bit) & 1;
-    if (m === 0 && l === 0) chars.push("0");
-    else if (m === 0 && l === 1) chars.push("1");
-    else if (m === 1 && l === 0) chars.push("x");
-    else chars.push("z");
+  const hasX = (segment.valueMsb & ~segment.valueLsb) >>> 0;
+  const hasZ = (segment.valueMsb & segment.valueLsb) >>> 0;
+  // Any X/Z: fall back to per-bit binary (radix can't represent non-2-state).
+  if (hasX || hasZ) {
+    const chars: string[] = [];
+    for (let bit = bitWidth - 1; bit >= 0; bit--) {
+      const l = (segment.valueLsb >>> bit) & 1;
+      const m = (segment.valueMsb >>> bit) & 1;
+      if (m === 0 && l === 0) chars.push("0");
+      else if (m === 0 && l === 1) chars.push("1");
+      else if (m === 1 && l === 0) chars.push("x");
+      else chars.push("z");
+    }
+    return bitWidth === 1 ? chars[0] : `0b${chars.join("")}`;
   }
-  return bitWidth === 1 ? chars[0] : `0b${chars.join("")}`;
+  const val = segment.valueLsb >>> 0;
+  if (bitWidth === 1) return String(val);
+  if (radix === "hex") return `0x${val.toString(16).toUpperCase()}`;
+  if (radix === "dec") return String(val);
+  return `0b${val.toString(2).padStart(bitWidth, "0")}`;
 }
+
+const SINGLE_BIT_SEGMENTS = MOCK_SCENE.segments.filter((s) => {
+  const ref = MOCK_SCENE.activeSignals.find((r) => r.row === (s.rowFlags & 0xffff));
+  if (!ref) return false;
+  return getSignal(MOCK_SCENE.hierarchy, ref.signalId).bitWidth === 1;
+});
+const MULTI_BIT_SEGMENTS = MOCK_SCENE.segments.filter((s) => {
+  const ref = MOCK_SCENE.activeSignals.find((r) => r.row === (s.rowFlags & 0xffff));
+  if (!ref) return false;
+  return getSignal(MOCK_SCENE.hierarchy, ref.signalId).bitWidth > 1;
+});
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const signalsRef = useRef<HTMLDivElement>(null);
@@ -53,10 +75,8 @@ export function App() {
 
     initGPU(canvas).then(({ device, ctx, format }) => {
       const gpuCtx = { device, ctx, format };
-      const singleBitVD = MOCK_VALID_DATA_SEGMENTS.filter((s) => { const r = s.rowFlags & 0xffff; return r === 8 || r === 10; });
-      const multiBitVD = MOCK_VALID_DATA_SEGMENTS.filter((s) => (s.rowFlags & 0xffff) === 9);
-      const multiBit = buildMultiBitPipeline(gpuCtx, [...MOCK_MULTI_BIT_SEGMENTS, ...multiBitVD]);
-      const singleBit = buildSingleBitPipeline(gpuCtx, [...MOCK_SINGLE_BIT_SEGMENTS, ...singleBitVD]);
+      const multiBit = buildMultiBitPipeline(gpuCtx, MULTI_BIT_SEGMENTS);
+      const singleBit = buildSingleBitPipeline(gpuCtx, SINGLE_BIT_SEGMENTS);
 
       const ro = new ResizeObserver(() => resizeCanvas(canvas, device, ctx, format));
       ro.observe(canvas);
@@ -133,10 +153,12 @@ export function App() {
             <span className="btn sm icon primary" title="add"><Plus size={14} /></span>
           </div>
           <DerivedSignals>
-            <DerivedSignal name="busy_any" expr="load1 | load2 | load3" />
-            <DerivedSignal name="state_name" expr="decode(state, IDLE,SEND,RECV)" />
-            <DerivedSignal name="data_valid" expr="state == SEND && clk" />
-            <DerivedSignal name="cafe_match" expr="data[31:0] == 0xCAFEB0BA" />
+            {MOCK_SCENE.activeSignals
+              .filter((r) => r.derivedExpr)
+              .map((r, i) => {
+                const sig = getSignal(MOCK_SCENE.hierarchy, r.signalId);
+                return <DerivedSignal key={i} name={sig.name} expr={r.derivedExpr!} />;
+              })}
           </DerivedSignals>
         </div>
 
@@ -159,11 +181,11 @@ export function App() {
                 <ActiveSignal
                   key={i}
                   name={sig.name}
-                  kind={signalIconKind(sig)}
+                  kind={activeSignalKind(ref)}
                   radix={ref.radix}
                   pinned={ref.pinned}
                   selected={ref.selected}
-                  value={formatSegmentValue(findSegmentAtTick(ref.row, CURSOR_TICKS), sig.bitWidth)}
+                  value={formatSegmentValue(findSegmentAtTick(ref.row, CURSOR_TICKS), sig.bitWidth, ref.radix)}
                 />
               );
             })}
@@ -235,7 +257,7 @@ export function App() {
         <span className="sp" />
         <span>147 signals</span>
         <span>{MOCK_SCENE.activeSignals.length} active</span>
-        <span>2 derived</span>
+        <span>{MOCK_SCENE.activeSignals.filter((r) => r.derivedExpr).length} derived</span>
         <span>top / keysched</span>
       </div>
     </div>
