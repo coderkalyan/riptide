@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Flag, Maximize, MessageSquare, Minus, PanelLeftClose, Plus, SplitSquareHorizontal, X } from "lucide-react";
+import { ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Clock, Flag, Magnet, Maximize, MessageSquare, Minus, PanelLeftClose, Plus, SplitSquareHorizontal, X } from "lucide-react";
 import { ActiveSignal, type ActiveSignalKind } from "./ActiveSignal";
 import { ColorPicker } from "./ColorPicker";
 import { SignalTreeView } from "./SignalTree";
@@ -131,6 +131,8 @@ export function App() {
 
   const [activeSignals, setActiveSignals] = useState<ActiveSignalRef[]>(MOCK_SCENE.activeSignals);
   const [picker, setPicker] = useState<{ row: number; anchorRect: DOMRect } | null>(null);
+  const [snapCursor, setSnapCursor] = useState(true);
+  const [clockAnchor, setClockAnchor] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -268,7 +270,6 @@ export function App() {
         <span className="m">File</span><span className="m">Edit</span><span className="m">View</span>
         <span className="m">Signals</span><span className="m">Markers</span><span className="m">Window</span><span className="m">Help</span>
         <span className="sp" />
-        <span className="kbd mono">command palette</span>
       </div>
 
       <div className="body">
@@ -276,7 +277,7 @@ export function App() {
           <div className="col-head">
             <h3>Signal Tree</h3>
             <span className="sp" style={{ flex: 1 }} />
-            <span className="collapse" title="collapse panel"><PanelLeftClose size={14} strokeWidth={1.75} /></span>
+            <span className="collapse" data-tip="collapse panel"><PanelLeftClose size={14} strokeWidth={1.75} /></span>
           </div>
           <div className="col-sub"><input className="search" placeholder="filter scope/name" /></div>
           <SignalTreeView hierarchy={MOCK_SCENE.hierarchy} initialExpanded={MOCK_SCENE.initialExpanded} />
@@ -286,7 +287,7 @@ export function App() {
           </div>
           <div className="col-sub">
             <input className="search" placeholder="new derived expression" />
-            <span className="btn sm icon primary" title="add"><Plus size={14} /></span>
+            <span className="btn sm icon primary" data-tip="add"><Plus size={14} /></span>
           </div>
           <DerivedSignals>
             {activeSignals
@@ -334,23 +335,35 @@ export function App() {
           <div className="col-head toolbar">
             <h3>Waves</h3>
             <div className="divider" />
-            <div className="seg">
-              <span className="btn icon" title="to beginning"><ChevronFirst size={14} /></span>
-              <span className="btn icon" title="step backward"><ChevronLeft size={14} /></span>
-              <span className="btn icon" title="step forward"><ChevronRight size={14} /></span>
-              <span className="btn icon" title="to end"><ChevronLast size={14} /></span>
-            </div>
-            <div className="divider" />
             <span className="pill"><span className="swatch" /><span className="mono">cursor 32.400 ns</span></span>
-            <div className="divider" />
+            <div className="seg">
+              <span className="btn icon" data-tip="to beginning"><ChevronFirst size={14} /></span>
+              <span className="btn icon" data-tip="step backward"><ChevronLeft size={14} /></span>
+              <span className="btn icon" data-tip="step forward"><ChevronRight size={14} /></span>
+              <span className="btn icon" data-tip="to end"><ChevronLast size={14} /></span>
+            </div>
+            <span
+              className={`btn sm icon${snapCursor ? " on" : ""}`}
+              data-tip="snap cursor to grid"
+              onClick={() => setSnapCursor((v) => !v)}
+            >
+              <Magnet size={14} />
+            </span>
+            <span className="sp" style={{ flex: 1 }} />
             <div className="seg">
               <span className="btn icon"><Minus size={14} /></span>
-              <span className="btn icon" title="fit"><Maximize size={14} /></span>
+              <span className="btn icon" data-tip="fit"><Maximize size={14} /></span>
               <span className="btn icon"><Plus size={14} /></span>
             </div>
-            <span className="sp" style={{ flex: 1 }} />
+            <span
+              className={`btn sm icon${clockAnchor ? " on" : ""}`}
+              data-tip="anchor timeline to clock"
+              onClick={() => setClockAnchor((v) => !v)}
+            >
+              <Clock size={14} />
+            </span>
+            <div className="divider" />
             <span className="hint mono">1 ns / 14 px · 0 – {MOCK_END_TICKS} ns</span>
-            <span className="btn icon ghost">⚙</span>
           </div>
           <div className="col-sub">
             <div className="seg">
@@ -364,9 +377,6 @@ export function App() {
             <span className="btn sm ghost"><MessageSquare size={12} /> Annotate</span>
             <span className="btn sm ghost"><SplitSquareHorizontal size={12} /> Split</span>
             <span className="sp" style={{ flex: 1 }} />
-            <div className="seg">
-              <span className="btn sm">1 ns</span><span className="btn sm on">10 ns</span><span className="btn sm">100 ns</span><span className="btn sm">1 µs</span>
-            </div>
           </div>
 
           <div className="wv-canvas">

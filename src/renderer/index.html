@@ -86,6 +86,18 @@
         }
         .pill .swatch { width:8px; height:8px; border-radius:50%; background: var(--hot); }
         .pill.marker .swatch { background: var(--marker); }
+        [data-tip] { position: relative; }
+        [data-tip]:hover::after {
+            content: attr(data-tip);
+            position: absolute; bottom: calc(100% + 6px); left: 50%;
+            transform: translateX(-50%);
+            height: 22px; padding: 0 9px;
+            font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
+            border: 1px solid var(--border); border-radius: 999px;
+            background: var(--panel); color: var(--text);
+            display: inline-flex; align-items: center;
+            white-space: nowrap; pointer-events: none; z-index: 100;
+        }
         .search {
             height: 26px; padding: 0 10px 0 26px; border: 1px solid var(--border);
             border-radius: 6px; background: var(--panel) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238C8C84' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='7'/><path d='m20 20-3-3'/></svg>") no-repeat 8px center;
@@ -268,6 +280,7 @@
         .seg .btn { border: none; border-radius: 0; border-right: 1px solid var(--border); height: 22px; min-width: 22px; padding: 0 6px; font-size: 11.5px;}
         .seg .btn:last-child { border-right: none; }
         .seg .btn.on { background: var(--accent); color: var(--on-accent); }
+        .btn.on { background: var(--accent); color: var(--on-accent); border-color: transparent; }
 
         .wv-canvas { position: relative; background: var(--panel); overflow: hidden; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 

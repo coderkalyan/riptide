@@ -1,4 +1,4 @@
-import { Activity, CircleCheck, Clock, Ellipsis, EqualApproximately, RotateCcw } from "lucide-react";
+import { Activity, ListChevronsUpDown, CircleCheck, Clock, EqualApproximately, RotateCcw } from "lucide-react";
 
 export type ActiveSignalKind = "clock" | "reset" | "valid" | "derived" | "signal";
 
@@ -31,13 +31,13 @@ export function ActiveSignal(props: ActiveSignalProps) {
       <span
         className="pin"
         style={{ background: props.color }}
-        title="Click to change color"
+        data-tip="change color"
         onClick={props.onPinClick}
       />
       <span className={"s-icon " + props.kind}>{ICON[props.kind]}</span>
       <span className="n">{props.name}</span>
       <span className="v">{props.value}</span>
-      <span className="kebab"><Ellipsis size={12} /></span>
+      <span className="kebab" data-tip="drag to reorder"><ListChevronsUpDown size={12} /></span>
     </div>
   );
 }
