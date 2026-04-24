@@ -38,7 +38,7 @@ fn sdf(point: vec2f, half_size: vec2f, radius: f32) -> f32 {
 
 fn hatch(pill_local_px: vec2f, dir: f32, hatch_spacing: f32) -> f32 {
     let hatch_spacing_px = hatch_spacing * viewport.dpr;
-    let hatch_thickness = 1.0 / 3.0; // 0.5;
+    let hatch_thickness = 1.0 / 3.0;
 
     let hatch_coord = (pill_local_px.x + pill_local_px.y * dir) / hatch_spacing_px;
     let stripe = abs(fract(hatch_coord) - 0.5) * 2.0;
@@ -91,7 +91,6 @@ fn vs_single(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -
 
     // Compute the vertex position in pixel space.
     let corner = vec2f(corner_x, corner_y);
-    let signed_corner = corner * 2.0 - 1.0;
     let vertex_local_px = (corner * 2.0 - 1.0) * half_size_px;
     let vertex_px = center_px + vertex_local_px;
 
@@ -115,8 +114,6 @@ fn vs_single(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -
 fn fs_single(in: VertexData) -> @location(0) vec4f {
     let line_thickness_px = 1.0 * viewport.dpr;
     let primary_color = in.primary_color;
-    // let hi_color = vec4f(primary_color.rgb, primary_color.a * 0.7);
-    // let lo_color = vec4f(primary_color.rgb, primary_color.a * 0.2);
     let hi_alpha = 0.7;
     let lo_alpha = 0.2;
     let x_color = vec4f(0.9608, 0.4471, 0.4471, 1.0);
@@ -140,25 +137,21 @@ fn fs_single(in: VertexData) -> @location(0) vec4f {
     let aa_y = fwidth(dist_y);
     let line_mask = 1.0 - smoothstep(line_thickness_px * 0.5 - aa_y, line_thickness_px * 0.5 + aa_y, dist_y);
 
-    // Vertical edge mask.
+    // Left vertical edge: hard step (rasterizer clips the right side).
     let edge_left_x = in.half_size_px.x - line_thickness_px;
-    let edge_right_x = in.half_size_px.x;
-    let aa_x = fwidth(in.pill_local_px.x - edge_left_x);
-    let edge_left_mask = smoothstep(-aa_x, aa_x, in.pill_local_px.x - edge_left_x);
-    let edge_right_mask = select(0.0, 1.0, in.pill_local_px.x <= edge_right_x);
-    let edge_mask_raw = edge_left_mask * edge_right_mask;
+    let edge_mask_raw = select(0.0, 1.0, in.pill_local_px.x >= edge_left_x);
     let edge_mask = select(0.0, edge_mask_raw, draw_edge);
     let stroke_mask = max(line_mask * f32(draw_line), edge_mask);
 
     // Calculate shading.
     let hatch_primary = select(select(x_color, z_color, crosshatch_color), mute_color, mute);
-    let line_color = select(primary_color, mute_color, mute); // select(primary_color, hatch_primary, enable_crosshatch);
+    let line_color = select(primary_color, mute_color, mute);
     let shade_alpha = select(lo_alpha, select(hi_alpha, 1.0, highlight), draw_line_high);
     var shade_color = select(primary_color, mute_color, mute);
     shade_color = vec4f(shade_color.rgb, shade_color.a * shade_alpha);
 
-    let crosshatch_dir = f32(true) * 2.0 - 1.0;
-    let hatch_spacing = 4.0; // 2.0 + f32(!crosshatch_color) * 2.0;
+    let crosshatch_dir = 1.0;
+    let hatch_spacing = 4.0;
     let stripe_mask = hatch(in.pill_local_px, crosshatch_dir, hatch_spacing);
     let hatch_alpha = hatch_primary.a * stripe_mask;
     let hatch_color = vec4f(hatch_primary.rgb, hatch_alpha);
@@ -190,8 +183,7 @@ fn vs_multi(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     let local_ticks = vec2i(i32(segment.t_start), i32(segment.t_end)) - i32(viewport.start_ticks);
     var pixel_bounds = vec2f(local_ticks) / viewport.ticks_per_pixel;
 
-    // Apply the inset gap for pills.
-    // pixel_bounds += vec2f(xgap_px * 0.5, -xgap_px * 0.5);
+    // Asymmetric inset: shift only the right edge inward.
     pixel_bounds += vec2f(0.0, -xgap_px);
 
     // Compute the pill's center and half-size in pixels.
@@ -200,7 +192,6 @@ fn vs_multi(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
 
     // Compute the vertex position in pixel space.
     let corner = vec2f(corner_x, corner_y);
-    let signed_corner = corner * 2.0 - 1.0;
     let vertex_local_px = (corner * 2.0 - 1.0) * half_size_px;
     let vertex_px = center_px + vertex_local_px;
 
@@ -232,12 +223,11 @@ fn fs_multi(in: VertexData) -> @location(0) vec4f {
     let mute = (in.flags & (1u << 4u)) != 0u;
     let enable_crosshatch = (in.flags & (1u << 8u)) != 0u;
     let crosshatch_color = (in.flags & (1u << 9u)) != 0u;
-    let highlight = (in.flags & (1u << 12)) != 0u;
+    let highlight = (in.flags & (1u << 12u)) != 0u;
 
     // Calculate masks for rounded corner, edge, fill based on SDF.
     let d_px = sdf(in.pill_local_px, in.half_size_px, radius);
     let aa = fwidth(d_px);
-    let inside_mask = 1.0 - smoothstep(-aa, 0.0, d_px);
     let border_mask = smoothstep(-border_width - aa, -border_width, d_px) * (1.0 - smoothstep(-aa, 0.0, d_px));
     let fill_mask = 1.0 - smoothstep(-border_width - aa, -border_width, d_px);
 
@@ -245,10 +235,10 @@ fn fs_multi(in: VertexData) -> @location(0) vec4f {
     let hatch_primary = select(select(x_color, z_color, crosshatch_color), mute_color, mute);
     let line_color = select(select(primary_color, hatch_primary, enable_crosshatch), mute_color, mute);
     let shade_alpha = select(0.7, 1.0, highlight);
-    let shade_color = vec4f(select(line_color, mute_color, mute).rgb, line_color.a * shade_alpha);
+    let shade_color = vec4f(line_color.rgb, line_color.a * shade_alpha);
 
-    let crosshatch_dir = f32(true) * 2.0 - 1.0;
-    let hatch_spacing = 4.0; // 2.0 + f32(!crosshatch_color) * 2.0;
+    let crosshatch_dir = 1.0;
+    let hatch_spacing = 4.0;
     let stripe_mask = hatch(in.pill_local_px, crosshatch_dir, hatch_spacing);
     let hatch_alpha = hatch_primary.a * stripe_mask;
     let hatch_color = vec4f(hatch_primary.rgb, hatch_alpha);
@@ -258,5 +248,5 @@ fn fs_multi(in: VertexData) -> @location(0) vec4f {
 
     let final_color = line_color * border_mask + fill * fill_mask;
     let final_alpha = border_mask + fill_color.a * fill_mask;
-    return vec4f(final_color.r, final_color.g, final_color.b, final_alpha);
+    return vec4f(final_color.rgb, final_alpha);
 }

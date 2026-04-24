@@ -5,7 +5,7 @@ import { ColorPicker } from "./ColorPicker";
 import { SignalTreeView } from "./SignalTree";
 import { DerivedSignals, DerivedSignal } from "./DerivedSignals";
 import { initGPU, resizeCanvas, GPUInitError } from "./gpu/device";
-import { buildMultiBitPipeline, buildSingleBitPipeline } from "./gpu/digital";
+import { createDigitalRenderer } from "./gpu/digital";
 import { renderFrame } from "./gpu/frame";
 import { createColorBuffer, writeRowColors } from "./gpu/colors";
 import { MOCK_END_TICKS, type Segment } from "./gpu/data";
@@ -79,17 +79,20 @@ export function App() {
 
     let raf = 0;
 
-    initGPU(canvas).then(({ device, ctx, format }) => {
+    initGPU(canvas).then(async ({ device, ctx, format }) => {
       const gpuCtx = { device, ctx, format };
       const colorBuf = createColorBuffer(device);
       writeRowColors(device, colorBuf, MOCK_SCENE.activeSignals);
       gpuRef.current = { device, colorBuf };
-      const multiBit = buildMultiBitPipeline(gpuCtx, MULTI_BIT_SEGMENTS, colorBuf);
-      const singleBit = buildSingleBitPipeline(gpuCtx, SINGLE_BIT_SEGMENTS, colorBuf);
+      const renderer = createDigitalRenderer(gpuCtx);
+      const [multiBit, singleBit] = await Promise.all([
+        renderer.buildPipeline("multi", MULTI_BIT_SEGMENTS, colorBuf),
+        renderer.buildPipeline("single", SINGLE_BIT_SEGMENTS, colorBuf),
+      ]);
 
-      const ro = new ResizeObserver(() => resizeCanvas(canvas, device, ctx, format));
+      const ro = new ResizeObserver(() => resizeCanvas(canvas));
       ro.observe(canvas);
-      resizeCanvas(canvas, device, ctx, format);
+      resizeCanvas(canvas);
 
       const frame = () => {
         // All measurements are in CSS pixels from getBoundingClientRect.
@@ -115,7 +118,7 @@ export function App() {
           dpr,
           selected_row: 4,
         };
-        renderFrame(gpuCtx, [multiBit, singleBit], vp);
+        renderFrame(gpuCtx, renderer, [multiBit, singleBit], vp);
         raf = requestAnimationFrame(frame);
       };
       raf = requestAnimationFrame(frame);

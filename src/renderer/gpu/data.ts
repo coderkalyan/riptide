@@ -181,16 +181,15 @@ export function packSegments(segs: Segment[]): Uint32Array<ArrayBuffer> {
   return buf;
 }
 
-// Viewport packed as 8 × f32 = 32 bytes (multiple of 16, required by WebGPU).
-export function packViewport(vp: Viewport): Float32Array<ArrayBuffer> {
-  return new Float32Array([
-    vp.ticks_per_pixel,
-    vp.start_ticks,
-    vp.width,
-    vp.height,
-    vp.row_height,
-    vp.dpr,
-    vp.selected_row,
-    0.0, // padding
-  ]);
+// Viewport = 8 × f32 = 32 bytes (multiple of 16, required by WebGPU).
+// Writes into a caller-owned scratch array to avoid per-frame allocation.
+export function writeViewportInto(out: Float32Array, vp: Viewport): void {
+  out[0] = vp.ticks_per_pixel;
+  out[1] = vp.start_ticks;
+  out[2] = vp.width;
+  out[3] = vp.height;
+  out[4] = vp.row_height;
+  out[5] = vp.dpr;
+  out[6] = vp.selected_row;
+  out[7] = 0.0;
 }

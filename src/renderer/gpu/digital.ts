@@ -1,27 +1,30 @@
 import { GPUContext } from "./device";
-import { Segment, Viewport, packSegments, packViewport } from "./data";
+import { Segment, Viewport, packSegments, writeViewportInto } from "./data";
 import WGSL from "./digital.wgsl";
 
 type ShaderVariant = "multi" | "single";
 
 export interface SignalPipeline {
   pipeline: GPURenderPipeline;
-  uniformBuf: GPUBuffer;
-  segmentBuf: GPUBuffer;
   bindGroup: GPUBindGroup;
   segmentCount: number;
-  updateViewport(vp: Viewport): void;
 }
 
-function buildVariantPipeline(
-  { device, format }: GPUContext,
-  segments: Segment[],
-  colorBuf: GPUBuffer,
-  variant: ShaderVariant,
-): SignalPipeline {
+export interface DigitalRenderer {
+  ctx: GPUContext;
+  module: GPUShaderModule;
+  bgl: GPUBindGroupLayout;
+  layout: GPUPipelineLayout;
+  uniformBuf: GPUBuffer;
+  viewportScratch: Float32Array;
+  writeViewport(vp: Viewport): void;
+  buildPipeline(variant: ShaderVariant, segments: Segment[], colorBuf: GPUBuffer): Promise<SignalPipeline>;
+}
+
+export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
+  const { device, format } = ctx;
+
   const module = device.createShaderModule({ code: WGSL });
-  const vertexEntryPoint = variant === "single" ? "vs_single" : "vs_multi";
-  const fragmentEntryPoint = variant === "single" ? "fs_single" : "fs_multi";
 
   const bgl = device.createBindGroupLayout({
     entries: [
@@ -31,57 +34,51 @@ function buildVariantPipeline(
     ],
   });
 
-  const pipeline = device.createRenderPipeline({
-    layout: device.createPipelineLayout({ bindGroupLayouts: [bgl] }),
-    vertex: { module, entryPoint: vertexEntryPoint },
-    fragment: {
-      module,
-      entryPoint: fragmentEntryPoint,
-      targets: [{
-        format,
-        blend: {
-          color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
-          alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
-        },
-      }],
-    },
-    primitive: { topology: "triangle-strip" },
-  });
+  const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl] });
 
   const uniformBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+  const viewportScratch = new Float32Array(8);
 
-  const packed = packSegments(segments);
-  const segmentBuf = device.createBuffer({ size: packed.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-  device.queue.writeBuffer(segmentBuf, 0, packed);
+  const blend = {
+    color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+    alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
+  } as const;
 
-  const bindGroup = device.createBindGroup({
-    layout: bgl,
-    entries: [
-      { binding: 0, resource: { buffer: uniformBuf } },
-      { binding: 1, resource: { buffer: segmentBuf } },
-      { binding: 2, resource: { buffer: colorBuf } },
-    ],
-  });
+  async function buildPipeline(variant: ShaderVariant, segments: Segment[], colorBuf: GPUBuffer): Promise<SignalPipeline> {
+    const vertexEntryPoint = variant === "single" ? "vs_single" : "vs_multi";
+    const fragmentEntryPoint = variant === "single" ? "fs_single" : "fs_multi";
 
-  return {
-    pipeline, uniformBuf, segmentBuf, bindGroup,
-    segmentCount: segments.length,
-    updateViewport: (vp: Viewport) => { device.queue.writeBuffer(uniformBuf, 0, packViewport(vp)); },
-  };
-}
+    const pipeline = await device.createRenderPipelineAsync({
+      layout,
+      vertex: { module, entryPoint: vertexEntryPoint },
+      fragment: {
+        module,
+        entryPoint: fragmentEntryPoint,
+        targets: [{ format, blend }],
+      },
+      primitive: { topology: "triangle-strip" },
+    });
 
-export function buildMultiBitPipeline(
-  gpuCtx: GPUContext,
-  segments: Segment[],
-  colorBuf: GPUBuffer,
-): SignalPipeline {
-  return buildVariantPipeline(gpuCtx, segments, colorBuf, "multi");
-}
+    const packed = packSegments(segments);
+    const segmentBuf = device.createBuffer({ size: packed.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(segmentBuf, 0, packed);
 
-export function buildSingleBitPipeline(
-  gpuCtx: GPUContext,
-  segments: Segment[],
-  colorBuf: GPUBuffer,
-): SignalPipeline {
-  return buildVariantPipeline(gpuCtx, segments, colorBuf, "single");
+    const bindGroup = device.createBindGroup({
+      layout: bgl,
+      entries: [
+        { binding: 0, resource: { buffer: uniformBuf } },
+        { binding: 1, resource: { buffer: segmentBuf } },
+        { binding: 2, resource: { buffer: colorBuf } },
+      ],
+    });
+
+    return { pipeline, bindGroup, segmentCount: segments.length };
+  }
+
+  function writeViewport(vp: Viewport): void {
+    writeViewportInto(viewportScratch, vp);
+    device.queue.writeBuffer(uniformBuf, 0, viewportScratch);
+  }
+
+  return { ctx, module, bgl, layout, uniformBuf, viewportScratch, writeViewport, buildPipeline };
 }

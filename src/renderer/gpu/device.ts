@@ -34,14 +34,12 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
 }
 
 // Call on every resize — keeps the canvas backing store in sync with CSS size.
-// Must be called after initGPU since configure() needs to know the format.
-export function resizeCanvas(canvas: HTMLCanvasElement, device: GPUDevice, ctx: GPUCanvasContext, format: GPUTextureFormat): void {
+// Assigning canvas.width/height resizes the swapchain; no reconfigure needed.
+export function resizeCanvas(canvas: HTMLCanvasElement): void {
   const dpr = window.devicePixelRatio || 1;
   const w = Math.floor(canvas.clientWidth * dpr);
   const h = Math.floor(canvas.clientHeight * dpr);
   if (canvas.width === w && canvas.height === h) return;
   canvas.width = w;
   canvas.height = h;
-  // Re-configure so the swapchain texture matches the new size.
-  ctx.configure({ device, format, alphaMode: "opaque" });
 }
