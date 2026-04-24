@@ -9,6 +9,7 @@ import { createDigitalRenderer } from "./gpu/digital";
 import { renderFrame } from "./gpu/frame";
 import { createColorBuffer, writeRowColors } from "./gpu/colors";
 import { MOCK_END_TICKS, type Segment } from "./gpu/data";
+import { createTextRenderer, packRgba, MAX_GLYPHS } from "./gpu/text";
 import { MOCK_SCENE, type ActiveSignalRef, type Radix } from "./hier/mock";
 import { getSignal } from "./hier/hierarchy";
 
@@ -64,6 +65,25 @@ const MULTI_BIT_SEGMENTS = MOCK_SCENE.segments.filter((s) => {
   if (!ref) return false;
   return getSignal(MOCK_SCENE.hierarchy, ref.signalId).bitWidth > 1;
 });
+
+interface MultiBitLabel {
+  row: number;
+  tStart: number;
+  tEnd: number;
+  text: string;
+}
+
+const FLAG_MUTE = 1 << 20;
+const MULTI_BIT_LABELS: MultiBitLabel[] = MULTI_BIT_SEGMENTS
+  .filter((s) => (s.rowFlags & FLAG_MUTE) === 0)
+  .map((s) => {
+    const row = s.rowFlags & 0xffff;
+    const ref = MOCK_SCENE.activeSignals.find((r) => r.row === row)!;
+    const sig = getSignal(MOCK_SCENE.hierarchy, ref.signalId);
+    return { row, tStart: s.tStart, tEnd: s.tEnd, text: formatSegmentValue(s, sig.bitWidth, ref.radix) };
+  });
+
+const TEXT_WHITE = packRgba(0xff, 0xff, 0xff, 0xff);
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const signalsRef = useRef<HTMLDivElement>(null);
@@ -85,9 +105,10 @@ export function App() {
       writeRowColors(device, colorBuf, MOCK_SCENE.activeSignals);
       gpuRef.current = { device, colorBuf };
       const renderer = createDigitalRenderer(gpuCtx);
-      const [multiBit, singleBit] = await Promise.all([
+      const [multiBit, singleBit, textRenderer] = await Promise.all([
         renderer.buildPipeline("multi", MULTI_BIT_SEGMENTS, colorBuf),
         renderer.buildPipeline("single", SINGLE_BIT_SEGMENTS, colorBuf),
+        createTextRenderer(gpuCtx, renderer.uniformBuf),
       ]);
 
       const ro = new ResizeObserver(() => resizeCanvas(canvas));
@@ -109,8 +130,9 @@ export function App() {
           ? firstRow.getBoundingClientRect().height
           : 22;
 
+        const ticksPerPixel = MOCK_END_TICKS / canvasRect.width;
         const vp = {
-          ticks_per_pixel: MOCK_END_TICKS / canvasRect.width,
+          ticks_per_pixel: ticksPerPixel,
           start_ticks: 0,
           width: canvasRect.width,
           height: canvasRect.height,
@@ -118,7 +140,29 @@ export function App() {
           dpr,
           selected_row: 4,
         };
-        renderFrame(gpuCtx, renderer, [multiBit, singleBit], vp);
+
+        // Build glyph instances for multi-bit pill values.
+        const cellW = textRenderer.cell.widthPx;
+        let gi = 0;
+        for (const lbl of MULTI_BIT_LABELS) {
+          if (gi >= MAX_GLYPHS) break;
+          const startPx = lbl.tStart / ticksPerPixel;
+          const endPx = lbl.tEnd / ticksPerPixel;
+          const widthPx = endPx - startPx;
+          const textWidthPx = lbl.text.length * cellW;
+          if (widthPx < textWidthPx + 6) continue; // skip if pill too narrow
+          const centerX = (startPx + endPx) * 0.5;
+          const x0 = Math.round(centerX - textWidthPx * 0.5);
+          const y0 = Math.round(rowHeightCSS * (lbl.row + 0.5) - textRenderer.cell.midlinePx);
+          for (let k = 0; k < lbl.text.length && gi < MAX_GLYPHS; k++) {
+            const code = lbl.text.charCodeAt(k);
+            if (code < 0x20 || code > 0x7e) continue;
+            textRenderer.writeGlyph(gi++, x0 + k * cellW, y0, code, TEXT_WHITE);
+          }
+        }
+        textRenderer.setGlyphs(gi);
+
+        renderFrame(gpuCtx, renderer, [multiBit, singleBit], textRenderer, vp);
         raf = requestAnimationFrame(frame);
       };
       raf = requestAnimationFrame(frame);

@@ -1,11 +1,13 @@
 import { GPUContext } from "./device";
 import { DigitalRenderer, SignalPipeline } from "./digital";
+import { TextRenderer } from "./text";
 import { Viewport } from "./data";
 
 export function renderFrame(
   { device, ctx }: GPUContext,
   renderer: DigitalRenderer,
   pipelines: SignalPipeline[],
+  text: TextRenderer,
   vp: Viewport,
 ): void {
   renderer.writeViewport(vp);
@@ -25,6 +27,13 @@ export function renderFrame(
     pass.setBindGroup(0, pipeline.bindGroup);
     pass.draw(4, pipeline.segmentCount);
   }
+
+  if (text.glyphCount > 0) {
+    pass.setPipeline(text.pipeline);
+    pass.setBindGroup(0, text.bindGroup);
+    pass.draw(4, text.glyphCount);
+  }
+
   pass.end();
 
   device.queue.submit([enc.finish()]);
