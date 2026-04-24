@@ -8,8 +8,9 @@ import { initGPU, resizeCanvas, GPUInitError } from "./gpu/device";
 import { createDigitalRenderer } from "./gpu/digital";
 import { renderFrame } from "./gpu/frame";
 import { createColorBuffer, writeRowColors } from "./gpu/colors";
-import { MOCK_END_TICKS, type Segment } from "./gpu/data";
+import { MOCK_CLOCK_TICK_NS, MOCK_END_TICKS, type Segment } from "./gpu/data";
 import { createTextRenderer, packRgba, MAX_GLYPHS } from "./gpu/text";
+import { createLineRenderer } from "./gpu/lines";
 import { MOCK_SCENE, type ActiveSignalRef, type Radix } from "./hier/mock";
 import { getSignal } from "./hier/hierarchy";
 
@@ -84,6 +85,18 @@ const MULTI_BIT_LABELS: MultiBitLabel[] = MULTI_BIT_SEGMENTS
   });
 
 const TEXT_WHITE = packRgba(0xff, 0xff, 0xff, 0xff);
+const GRID_GRAY = packRgba(0x86, 0x8c, 0x96, 0x70);
+// Grid lines are 1.25*dpr CSS px thick (see lines.wgsl). Clock pill edges
+// render to the LEFT of their tick (inside the ending segment), so we shift
+// the grid's left edge leftward by its own thickness to right-align it.
+const GRID_THICKNESS_CSS_PER_DPR = 1.25;
+
+// Clock positive-edge ticks: `buildClockSegments` emits alternating half-period
+// segments starting low, so the 0→1 transitions land at ticks 5, 15, 25, ...
+const CLOCK_EDGE_TICKS: number[] = [];
+for (let t = MOCK_CLOCK_TICK_NS; t < MOCK_END_TICKS; t += 2 * MOCK_CLOCK_TICK_NS) {
+  CLOCK_EDGE_TICKS.push(t);
+}
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const signalsRef = useRef<HTMLDivElement>(null);
@@ -105,10 +118,18 @@ export function App() {
       writeRowColors(device, colorBuf, MOCK_SCENE.activeSignals);
       gpuRef.current = { device, colorBuf };
       const renderer = createDigitalRenderer(gpuCtx);
-      const [multiBit, singleBit, textRenderer] = await Promise.all([
+      const [multiBit, singleBit, textRenderer, lineRenderer] = await Promise.all([
         renderer.buildPipeline("multi", MULTI_BIT_SEGMENTS, colorBuf),
         renderer.buildPipeline("single", SINGLE_BIT_SEGMENTS, colorBuf),
         createTextRenderer(gpuCtx, renderer.uniformBuf),
+        createLineRenderer(gpuCtx, renderer.uniformBuf),
+      ]);
+      const linesBg = lineRenderer.createBatch();
+      const linesFg = lineRenderer.createBatch();
+
+      // Foreground test line: teal dashed marker at ~25% canvas width.
+      linesFg.setLines([
+        { x: 120, color: packRgba(0x4f, 0xd2, 0xbd, 0xff), dashed: true },
       ]);
 
       const ro = new ResizeObserver(() => resizeCanvas(canvas));
@@ -141,6 +162,15 @@ export function App() {
           selected_row: 4,
         };
 
+        // Grid: dashed vertical lines right-aligned to each clock positive
+        // edge (matches the clock pill's right-edge rendering).
+        const gridInset = GRID_THICKNESS_CSS_PER_DPR * dpr;
+        linesBg.setLines(CLOCK_EDGE_TICKS.map((t) => ({
+          x: t / ticksPerPixel - gridInset,
+          color: GRID_GRAY,
+          dashed: true,
+        })));
+
         // Build glyph instances for multi-bit pill values.
         const cellW = textRenderer.cell.widthPx;
         let gi = 0;
@@ -162,7 +192,7 @@ export function App() {
         }
         textRenderer.setGlyphs(gi);
 
-        renderFrame(gpuCtx, renderer, [multiBit, singleBit], textRenderer, vp);
+        renderFrame(gpuCtx, renderer, [multiBit, singleBit], linesBg, linesFg, textRenderer, vp);
         raf = requestAnimationFrame(frame);
       };
       raf = requestAnimationFrame(frame);

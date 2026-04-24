@@ -1,5 +1,6 @@
 import { GPUContext } from "./device";
 import { DigitalRenderer, SignalPipeline } from "./digital";
+import { LineBatch } from "./lines";
 import { TextRenderer } from "./text";
 import { Viewport } from "./data";
 
@@ -7,6 +8,8 @@ export function renderFrame(
   { device, ctx }: GPUContext,
   renderer: DigitalRenderer,
   pipelines: SignalPipeline[],
+  linesBg: LineBatch,
+  linesFg: LineBatch,
   text: TextRenderer,
   vp: Viewport,
 ): void {
@@ -22,10 +25,22 @@ export function renderFrame(
     }],
   });
 
+  if (linesBg.lineCount > 0) {
+    pass.setPipeline(linesBg.pipeline);
+    pass.setBindGroup(0, linesBg.bindGroup);
+    pass.draw(4, linesBg.lineCount);
+  }
+
   for (const pipeline of pipelines) {
     pass.setPipeline(pipeline.pipeline);
     pass.setBindGroup(0, pipeline.bindGroup);
     pass.draw(4, pipeline.segmentCount);
+  }
+
+  if (linesFg.lineCount > 0) {
+    pass.setPipeline(linesFg.pipeline);
+    pass.setBindGroup(0, linesFg.bindGroup);
+    pass.draw(4, linesFg.lineCount);
   }
 
   if (text.glyphCount > 0) {
