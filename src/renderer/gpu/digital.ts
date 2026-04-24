@@ -38,6 +38,7 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
 
   const uniformBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
   const viewportScratch = new Float32Array(8);
+  const viewportScratchI32 = new Int32Array(viewportScratch.buffer);
 
   const blend = {
     color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
@@ -76,7 +77,7 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
   }
 
   function writeViewport(vp: Viewport): void {
-    writeViewportInto(viewportScratch, vp);
+    writeViewportInto(viewportScratch, viewportScratchI32, vp);
     device.queue.writeBuffer(uniformBuf, 0, viewportScratch);
   }
 

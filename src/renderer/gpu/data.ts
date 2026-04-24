@@ -96,6 +96,14 @@ export function buildDataSignal(p: BuildDataSignalParams): Segment[] {
     for (let k = i; k <= j; k++) end += CYCLE_DURS[k] * MOCK_CLOCK_TICK_NS;
     const bits = valueBits(p.values[i], p.bitWidth);
     const hasNext = j + 1 < p.values.length;
+    // Single-bit transitions involving x/z on either side have no meaningful
+    // "edge": the renderer can't draw a clean 0→x flip the same way as a 0→1
+    // flip. Suppress the right-edge flag on the left-side segment.
+    let drawRightEdge = hasNext;
+    if (drawRightEdge && p.bitWidth === 1) {
+      const next = valueBits(p.values[j + 1], p.bitWidth);
+      if (bits.msb !== 0 || next.msb !== 0) drawRightEdge = false;
+    }
     segs.push({
       tStart: start,
       tEnd: end,
@@ -104,7 +112,7 @@ export function buildDataSignal(p: BuildDataSignalParams): Segment[] {
       rowFlags:
         (p.row & 0xffff) |
         (shaded ? FLAG_SHADE : 0) |
-        (hasNext ? FLAG_RIGHT_EDGE : 0) |
+        (drawRightEdge ? FLAG_RIGHT_EDGE : 0) |
         (muteAt(i) ? FLAG_MUTE : 0),
     });
     tick = end;
@@ -181,15 +189,18 @@ export function packSegments(segs: Segment[]): Uint32Array<ArrayBuffer> {
   return buf;
 }
 
-// Viewport = 8 × f32 = 32 bytes (multiple of 16, required by WebGPU).
-// Writes into a caller-owned scratch array to avoid per-frame allocation.
-export function writeViewportInto(out: Float32Array, vp: Viewport): void {
-  out[0] = vp.ticks_per_pixel;
-  out[1] = vp.start_ticks;
-  out[2] = vp.width;
-  out[3] = vp.height;
-  out[4] = vp.row_height;
-  out[5] = vp.dpr;
-  out[6] = vp.selected_row;
-  out[7] = 0.0;
+// Viewport = 8 × 4 B = 32 bytes (multiple of 16, required by WebGPU). Mixed
+// int/float fields per the WGSL Viewport struct: slots 1 (start_ticks) and 6
+// (selected_row) are integers, the rest are floats. Caller provides aliased
+// Float32 and Int32 views over the same ArrayBuffer so each slot is written
+// with the correct bit pattern without per-frame allocation.
+export function writeViewportInto(f32: Float32Array, i32: Int32Array, vp: Viewport): void {
+  f32[0] = vp.ticks_per_pixel;
+  i32[1] = vp.start_ticks;
+  f32[2] = vp.width;
+  f32[3] = vp.height;
+  f32[4] = vp.row_height;
+  f32[5] = vp.dpr;
+  i32[6] = vp.selected_row;
+  f32[7] = 0.0;
 }

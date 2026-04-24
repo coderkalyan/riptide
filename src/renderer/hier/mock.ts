@@ -38,7 +38,8 @@ export interface MockScene {
 // Values are per rising-edge cycle; index 0 = pre-first-rising-edge.
 // Reset is asynchronously deasserted at the first falling edge (tick 10), so
 // registers stay X through cycles 0 and 1 and only become clean at cycle 2.
-const V_STATE:       SegValue[] = [  "x",  "x",    0,      0,      1,          2,          2,          3,          4,     0]; // IDLE/LOAD/COMP/STORE/DONE
+// State enum: IDLE=0, BUSY=1, WAIT=2 (see state_t enum below).
+const V_STATE:       SegValue[] = [  "x",  "x",    0,      0,      1,          2,          2,          1,          0,     0];
 const V_CYCLE:       SegValue[] = [  "x",  "x",    0,      1,      2,          3,          4,          5,          6,     7];
 const V_IN_VALID:    SegValue[] = [    0,    0,    0,      1,      1,          0,          1,          1,          0,     0];
 const V_IN_DATA:     SegValue[] = [  "x",  "x",  "x",   0xA3,   0xA3,        "x",       0xB7,       0xB7,        "x",   "x"];
@@ -70,11 +71,9 @@ function buildMock(): MockScene {
     id: 1,
     name: "state_t",
     members: [
-      { raw: "000", label: "IDLE" },
-      { raw: "001", label: "LOAD" },
-      { raw: "010", label: "COMPUTE" },
-      { raw: "011", label: "STORE" },
-      { raw: "100", label: "DONE" },
+      { raw: "00", label: "IDLE" },
+      { raw: "01", label: "BUSY" },
+      { raw: "10", label: "WAIT" },
     ],
   });
 
@@ -99,7 +98,7 @@ function buildMock(): MockScene {
   const waves = b.openScope("waves", "module"); expanded.push(waves);
   const clk_id         = wire("clk", 1);
   const rst_id         = reg("rst", 1);
-  const state_id       = reg("state[2:0]", 3, { enumTypeId: 1 });
+  const state_id       = reg("state[1:0]", 2, { enumTypeId: 1 });
   const cycle_id       = reg("cycle_count[7:0]", 8);
   const in_valid_id    = reg("in_valid", 1);
   const in_data_id     = reg("in_data[7:0]", 8);
@@ -148,7 +147,7 @@ function buildMock(): MockScene {
       { tStart: 0,  tEnd: 10, value: 1 },
       { tStart: 10, tEnd: MOCK_END_TICKS, value: 0 },
     ]),
-    ...buildDataSignal({ row: 2,  bitWidth: 3,  values: V_STATE }),
+    ...buildDataSignal({ row: 2,  bitWidth: 2,  values: V_STATE }),
     ...buildDataSignal({ row: 3,  bitWidth: 8,  values: V_CYCLE }),
     ...buildDataSignal({ row: 4,  bitWidth: 1,  values: V_IN_VALID }),
     ...buildDataSignal({ row: 5,  bitWidth: 8,  values: V_IN_DATA,    muted: MUTE_IN }),
@@ -171,3 +170,7 @@ function buildMock(): MockScene {
 }
 
 export const MOCK_SCENE = buildMock();
+
+// Reset is held high from tick 0 until asynchronous deassertion at the first
+// clock falling edge (tick 10). Exposed for overlay rendering.
+export const RESET_HELD_TICKS = { tStart: 0, tEnd: 10 };

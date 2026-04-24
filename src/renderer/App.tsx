@@ -12,7 +12,7 @@ import { MOCK_CLOCK_TICK_NS, MOCK_END_TICKS, type Segment } from "./gpu/data";
 import { createTextRenderer, packRgba, MAX_GLYPHS } from "./gpu/text";
 import { createLineRenderer } from "./gpu/lines";
 import { createRectRenderer } from "./gpu/rect";
-import { MOCK_SCENE, type ActiveSignalRef, type Radix } from "./hier/mock";
+import { MOCK_SCENE, RESET_HELD_TICKS, type ActiveSignalRef, type Radix } from "./hier/mock";
 import { getSignal } from "./hier/hierarchy";
 
 function activeSignalKind(ref: ActiveSignalRef): ActiveSignalKind {
@@ -33,7 +33,12 @@ function findSegmentAtTick(row: number, tick: number): Segment | undefined {
   });
 }
 
-function formatSegmentValue(segment: Segment | undefined, bitWidth: number, radix: Radix): string {
+function formatSegmentValue(
+  segment: Segment | undefined,
+  bitWidth: number,
+  radix: Radix,
+  enumLabels?: Map<number, string>,
+): string {
   if (!segment) return "-";
   const hasX = (segment.valueMsb & ~segment.valueLsb) >>> 0;
   const hasZ = (segment.valueMsb & segment.valueLsb) >>> 0;
@@ -51,10 +56,27 @@ function formatSegmentValue(segment: Segment | undefined, bitWidth: number, radi
     return bitWidth === 1 ? chars[0] : `0b${chars.join("")}`;
   }
   const val = segment.valueLsb >>> 0;
+  if (enumLabels) {
+    const label = enumLabels.get(val);
+    if (label) return label;
+  }
   if (bitWidth === 1) return String(val);
   if (radix === "hex") return `0x${val.toString(16).toUpperCase()}`;
   if (radix === "dec") return String(val);
   return `0b${val.toString(2).padStart(bitWidth, "0")}`;
+}
+
+// Precompute enum label maps per row (value → label) for any active signal
+// whose declaration carries an enumTypeId.
+const ENUM_LABELS_BY_ROW = new Map<number, Map<number, string>>();
+for (const ref of MOCK_SCENE.activeSignals) {
+  const sig = getSignal(MOCK_SCENE.hierarchy, ref.signalId);
+  if (sig.enumTypeId == null) continue;
+  const enumType = MOCK_SCENE.hierarchy.enumTypes.get(sig.enumTypeId);
+  if (!enumType) continue;
+  const m = new Map<number, string>();
+  for (const mem of enumType.members) m.set(parseInt(mem.raw, 2), mem.label);
+  ENUM_LABELS_BY_ROW.set(ref.row, m);
 }
 
 const SINGLE_BIT_SEGMENTS = MOCK_SCENE.segments.filter((s) => {
@@ -82,13 +104,14 @@ const MULTI_BIT_LABELS: MultiBitLabel[] = MULTI_BIT_SEGMENTS
     const row = s.rowFlags & 0xffff;
     const ref = MOCK_SCENE.activeSignals.find((r) => r.row === row)!;
     const sig = getSignal(MOCK_SCENE.hierarchy, ref.signalId);
-    return { row, tStart: s.tStart, tEnd: s.tEnd, text: formatSegmentValue(s, sig.bitWidth, ref.radix) };
+    return { row, tStart: s.tStart, tEnd: s.tEnd, text: formatSegmentValue(s, sig.bitWidth, ref.radix, ENUM_LABELS_BY_ROW.get(row)) };
   });
 
 const TEXT_WHITE = packRgba(0xff, 0xff, 0xff, 0xff);
 const GRID_GRAY = packRgba(0x86, 0x8c, 0x96, 0x70);
-const SELECTED_BG = packRgba(0xff, 0xff, 0xff, 0x0e);
 const DEAD_ZONE_GRAY = packRgba(0x78, 0x7c, 0x86, 0x70);
+const RESET_RED = packRgba(0xe8, 0x6a, 0x5a, 0x60);
+const SELECTED_ROW = MOCK_SCENE.activeSignals.find((r) => r.selected)?.row ?? -1;
 const TIMELINE_FRAC = 0.9; // timeline occupies 90% of canvas; rest is dead zone
 // Grid lines are 1.25*dpr CSS px thick (see lines.wgsl). Clock pill edges
 // render to the LEFT of their tick (inside the ending segment), so we shift
@@ -168,13 +191,15 @@ export function App() {
           height: canvasRect.height,
           row_height: rowHeightCSS,
           dpr,
-          selected_row: 4,
+          selected_row: SELECTED_ROW,
         };
 
-        // Background rects: gentle highlight behind the selected row + a
-        // gray crosshatch over the post-timeline dead zone on the right.
+        // Background rects: red crosshatch over the reset-held interval,
+        // plus gray crosshatch over the post-timeline dead zone.
+        const resetX0 = RESET_HELD_TICKS.tStart / ticksPerPixel;
+        const resetX1 = RESET_HELD_TICKS.tEnd / ticksPerPixel;
         rectsBg.setRects([
-          { x: 0, y: rowHeightCSS * vp.selected_row, w: canvasRect.width, h: rowHeightCSS, color: SELECTED_BG },
+          { x: resetX0, y: 0, w: resetX1 - resetX0, h: canvasRect.height, color: RESET_RED, crosshatch: true },
           { x: timelinePx, y: 0, w: canvasRect.width - timelinePx, h: canvasRect.height, color: DEAD_ZONE_GRAY, crosshatch: true },
         ]);
 
@@ -297,7 +322,7 @@ export function App() {
                   color={ref.color}
                   pinned={ref.pinned}
                   selected={ref.selected}
-                  value={formatSegmentValue(findSegmentAtTick(ref.row, CURSOR_TICKS), sig.bitWidth, ref.radix)}
+                  value={formatSegmentValue(findSegmentAtTick(ref.row, CURSOR_TICKS), sig.bitWidth, ref.radix, ENUM_LABELS_BY_ROW.get(ref.row))}
                   onPinClick={(e) => setPicker({ row: ref.row, anchorRect: (e.currentTarget as HTMLElement).getBoundingClientRect() })}
                 />
               );
