@@ -1,6 +1,7 @@
 import { GPUContext } from "./device";
 import { DigitalRenderer, SignalPipeline } from "./digital";
 import { LineBatch } from "./lines";
+import { RectBatch } from "./rect";
 import { TextRenderer } from "./text";
 import { Viewport } from "./data";
 
@@ -9,6 +10,7 @@ export function renderFrame(
   renderer: DigitalRenderer,
   pipelines: SignalPipeline[],
   linesBg: LineBatch,
+  rects: RectBatch,
   linesFg: LineBatch,
   text: TextRenderer,
   vp: Viewport,
@@ -29,6 +31,12 @@ export function renderFrame(
     pass.setPipeline(linesBg.pipeline);
     pass.setBindGroup(0, linesBg.bindGroup);
     pass.draw(4, linesBg.lineCount);
+  }
+
+  if (rects.rectCount > 0) {
+    pass.setPipeline(rects.pipeline);
+    pass.setBindGroup(0, rects.bindGroup);
+    pass.draw(4, rects.rectCount);
   }
 
   for (const pipeline of pipelines) {

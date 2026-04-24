@@ -160,7 +160,10 @@ fn fs_single(in: VertexData) -> @location(0) vec4f {
     let fill = vec4f(fill_color.rgb, fill_alpha);
 
     let color = mix(fill, line_color, stroke_mask);
-    return color;
+    // Composite against the canvas clear color so background draws (grid
+    // lines) don't show through signals. Output is fully opaque.
+    let bg = vec3f(0.106, 0.114, 0.129);
+    return vec4f(mix(bg, color.rgb, color.a), 1.0);
 }
 
 @vertex
@@ -248,5 +251,8 @@ fn fs_multi(in: VertexData) -> @location(0) vec4f {
 
     let final_color = line_color * border_mask + fill * fill_mask;
     let final_alpha = border_mask + fill_color.a * fill_mask;
-    return vec4f(final_color.rgb, final_alpha);
+    // Composite against the canvas clear color so background draws (grid
+    // lines) don't show through signals. Output is fully opaque.
+    let bg = vec3f(0.106, 0.114, 0.129);
+    return vec4f(mix(bg, final_color.rgb, final_alpha), 1.0);
 }

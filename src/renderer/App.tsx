@@ -11,6 +11,7 @@ import { createColorBuffer, writeRowColors } from "./gpu/colors";
 import { MOCK_CLOCK_TICK_NS, MOCK_END_TICKS, type Segment } from "./gpu/data";
 import { createTextRenderer, packRgba, MAX_GLYPHS } from "./gpu/text";
 import { createLineRenderer } from "./gpu/lines";
+import { createRectRenderer } from "./gpu/rect";
 import { MOCK_SCENE, type ActiveSignalRef, type Radix } from "./hier/mock";
 import { getSignal } from "./hier/hierarchy";
 
@@ -86,6 +87,9 @@ const MULTI_BIT_LABELS: MultiBitLabel[] = MULTI_BIT_SEGMENTS
 
 const TEXT_WHITE = packRgba(0xff, 0xff, 0xff, 0xff);
 const GRID_GRAY = packRgba(0x86, 0x8c, 0x96, 0x70);
+const SELECTED_BG = packRgba(0xff, 0xff, 0xff, 0x0e);
+const DEAD_ZONE_GRAY = packRgba(0x78, 0x7c, 0x86, 0x70);
+const TIMELINE_FRAC = 0.9; // timeline occupies 90% of canvas; rest is dead zone
 // Grid lines are 1.25*dpr CSS px thick (see lines.wgsl). Clock pill edges
 // render to the LEFT of their tick (inside the ending segment), so we shift
 // the grid's left edge leftward by its own thickness to right-align it.
@@ -118,14 +122,16 @@ export function App() {
       writeRowColors(device, colorBuf, MOCK_SCENE.activeSignals);
       gpuRef.current = { device, colorBuf };
       const renderer = createDigitalRenderer(gpuCtx);
-      const [multiBit, singleBit, textRenderer, lineRenderer] = await Promise.all([
+      const [multiBit, singleBit, textRenderer, lineRenderer, rectRenderer] = await Promise.all([
         renderer.buildPipeline("multi", MULTI_BIT_SEGMENTS, colorBuf),
         renderer.buildPipeline("single", SINGLE_BIT_SEGMENTS, colorBuf),
         createTextRenderer(gpuCtx, renderer.uniformBuf),
         createLineRenderer(gpuCtx, renderer.uniformBuf),
+        createRectRenderer(gpuCtx, renderer.uniformBuf),
       ]);
       const linesBg = lineRenderer.createBatch();
       const linesFg = lineRenderer.createBatch();
+      const rectsBg = rectRenderer.createBatch();
 
       // Foreground test line: teal dashed marker at ~25% canvas width.
       linesFg.setLines([
@@ -151,7 +157,10 @@ export function App() {
           ? firstRow.getBoundingClientRect().height
           : 22;
 
-        const ticksPerPixel = MOCK_END_TICKS / canvasRect.width;
+        // Timeline occupies only `TIMELINE_FRAC` of canvas width; the rest
+        // becomes a crosshatched dead zone at the right edge.
+        const timelinePx = canvasRect.width * TIMELINE_FRAC;
+        const ticksPerPixel = MOCK_END_TICKS / timelinePx;
         const vp = {
           ticks_per_pixel: ticksPerPixel,
           start_ticks: 0,
@@ -161,6 +170,13 @@ export function App() {
           dpr,
           selected_row: 4,
         };
+
+        // Background rects: gentle highlight behind the selected row + a
+        // gray crosshatch over the post-timeline dead zone on the right.
+        rectsBg.setRects([
+          { x: 0, y: rowHeightCSS * vp.selected_row, w: canvasRect.width, h: rowHeightCSS, color: SELECTED_BG },
+          { x: timelinePx, y: 0, w: canvasRect.width - timelinePx, h: canvasRect.height, color: DEAD_ZONE_GRAY, crosshatch: true },
+        ]);
 
         // Grid: dashed vertical lines right-aligned to each clock positive
         // edge (matches the clock pill's right-edge rendering).
@@ -192,7 +208,7 @@ export function App() {
         }
         textRenderer.setGlyphs(gi);
 
-        renderFrame(gpuCtx, renderer, [multiBit, singleBit], linesBg, linesFg, textRenderer, vp);
+        renderFrame(gpuCtx, renderer, [multiBit, singleBit], linesBg, rectsBg, linesFg, textRenderer, vp);
         raf = requestAnimationFrame(frame);
       };
       raf = requestAnimationFrame(frame);
