@@ -103,7 +103,7 @@
             overflow: hidden;
         }
         .col .col-head + .col-sub + .tree + .col-head,
-        .col .col-head + .col-sub + .derived + .col-head,
+        .col .col-head + .col-sub + .derived-list + .col-head,
         .col > .col-head:not(:first-child) { border-top: 1px solid var(--border); }
         .col { border-right: 1px solid var(--border); min-width: 0; display:flex; flex-direction: column; }
         .col:last-child { border-right: none; }
@@ -165,7 +165,7 @@
             border-top: 1px solid var(--border);
         }
 
-        .derived { overflow: auto; flex: 1; padding: 0 4px 4px; }
+        .derived-list { overflow: auto; flex: 1; padding: 0 4px 4px; }
         .d-row {
             padding: 2px 6px;
             display: flex; flex-direction: column; gap: 1px;

@@ -127,18 +127,18 @@ function buildMock(): MockScene {
   const activeSignals: ActiveSignalRef[] = [
     { signalId: clk_id,        row: 0,  radix: "bin", role: "clock", pinned: true, color: "#72F5DF" },
     { signalId: rst_id,        row: 1,  radix: "bin", role: "reset",                color: "#F06B5B" },
-    { signalId: state_id,      row: 2,  radix: "dec", selected: true,               color: "#E6B14E" },
+    { signalId: state_id,      row: 2,  radix: "dec", selected: true,               color: "#B48CFF" },
     { signalId: cycle_id,      row: 3,  radix: "dec",                               color: "#B48CFF" },
-    { signalId: in_valid_id,   row: 4,  radix: "bin", role: "valid",                color: "#57C88A" },
-    { signalId: in_data_id,    row: 5,  radix: "hex",                               color: "#727BF5" },
-    { signalId: in_addr_id,    row: 6,  radix: "hex",                               color: "#4FD2BD" },
+    { signalId: in_valid_id,   row: 4,  radix: "bin", role: "valid",                color: "#F4A698" },
+    { signalId: in_data_id,    row: 5,  radix: "hex",                               color: "#F4A698" },
+    { signalId: in_addr_id,    row: 6,  radix: "hex",                               color: "#F4A698" },
     { signalId: out_valid_id,  row: 7,  radix: "bin", role: "valid",                color: "#57C88A" },
-    { signalId: out_data_id,   row: 8,  radix: "hex",                               color: "#B48CFF" },
-    { signalId: fifo_level_id, row: 9,  radix: "dec",                               color: "#72F5B4" },
+    { signalId: out_data_id,   row: 8,  radix: "hex",                               color: "#57C88A" },
+    { signalId: fifo_level_id, row: 9,  radix: "dec",                               color: "#E6B14E" },
     { signalId: fifo_empty_id, row: 10, radix: "bin",                               color: "#E6B14E" },
-    { signalId: dbus_id,       row: 11, radix: "hex",                               color: "#E86A5A" },
-    { signalId: busy_id,       row: 12, radix: "bin", derivedExpr: "in_valid | out_valid", color: "#F4A698" },
-    { signalId: done_id,       row: 13, radix: "bin", derivedExpr: "state == DONE",       color: "#F4A698" },
+    { signalId: dbus_id,       row: 11, radix: "hex",                               color: "#4FD2BD" },
+    { signalId: busy_id,       row: 12, radix: "bin", derivedExpr: "in_valid | out_valid", color: "#4FD2BD" },
+    { signalId: done_id,       row: 13, radix: "bin", derivedExpr: "state == DONE",       color: "#4FD2BD" },
   ];
 
   const segments: Segment[] = [

@@ -1,4 +1,4 @@
-import { Activity, CircleCheck, Clock, Ellipsis, Equal, RotateCcw } from "lucide-react";
+import { Activity, CircleCheck, Clock, Ellipsis, EqualApproximately, RotateCcw } from "lucide-react";
 
 export type ActiveSignalKind = "clock" | "reset" | "valid" | "derived" | "signal";
 
@@ -18,7 +18,7 @@ const ICON = {
   clock: <Clock size={12} />,
   reset: <RotateCcw size={12} />,
   valid: <CircleCheck size={12} />,
-  derived: <Equal size={12} />,
+  derived: <EqualApproximately size={12} />,
   signal: <Activity size={12} />,
 } as const;
 
