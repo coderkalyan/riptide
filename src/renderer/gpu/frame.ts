@@ -2,17 +2,23 @@ import { GPUContext } from "./device";
 import { DigitalRenderer, SignalPipeline } from "./digital";
 import { LineBatch } from "./lines";
 import { RectBatch } from "./rect";
-import { TextRenderer } from "./text";
+import { TextBatch } from "./text";
 import { Viewport } from "./data";
+
+export interface FrameLayers {
+  linesBg: LineBatch;
+  rectsBg: RectBatch;
+  linesFg: LineBatch;
+  textBody: TextBatch;
+  rectsTop: RectBatch;
+  textTop: TextBatch;
+}
 
 export function renderFrame(
   { device, ctx }: GPUContext,
   renderer: DigitalRenderer,
   pipelines: SignalPipeline[],
-  linesBg: LineBatch,
-  rects: RectBatch,
-  linesFg: LineBatch,
-  text: TextRenderer,
+  layers: FrameLayers,
   vp: Viewport,
 ): void {
   renderer.writeViewport(vp);
@@ -27,17 +33,27 @@ export function renderFrame(
     }],
   });
 
-  if (linesBg.lineCount > 0) {
-    pass.setPipeline(linesBg.pipeline);
-    pass.setBindGroup(0, linesBg.bindGroup);
-    pass.draw(4, linesBg.lineCount);
-  }
+  const drawLines = (b: LineBatch) => {
+    if (b.lineCount === 0) return;
+    pass.setPipeline(b.pipeline);
+    pass.setBindGroup(0, b.bindGroup);
+    pass.draw(4, b.lineCount);
+  };
+  const drawRects = (b: RectBatch) => {
+    if (b.rectCount === 0) return;
+    pass.setPipeline(b.pipeline);
+    pass.setBindGroup(0, b.bindGroup);
+    pass.draw(4, b.rectCount);
+  };
+  const drawText = (b: TextBatch) => {
+    if (b.glyphCount === 0) return;
+    pass.setPipeline(b.pipeline);
+    pass.setBindGroup(0, b.bindGroup);
+    pass.draw(4, b.glyphCount);
+  };
 
-  if (rects.rectCount > 0) {
-    pass.setPipeline(rects.pipeline);
-    pass.setBindGroup(0, rects.bindGroup);
-    pass.draw(4, rects.rectCount);
-  }
+  drawLines(layers.linesBg);
+  drawRects(layers.rectsBg);
 
   for (const pipeline of pipelines) {
     pass.setPipeline(pipeline.pipeline);
@@ -45,17 +61,12 @@ export function renderFrame(
     pass.draw(4, pipeline.segmentCount);
   }
 
-  if (linesFg.lineCount > 0) {
-    pass.setPipeline(linesFg.pipeline);
-    pass.setBindGroup(0, linesFg.bindGroup);
-    pass.draw(4, linesFg.lineCount);
-  }
+  drawLines(layers.linesFg);
+  drawText(layers.textBody);
 
-  if (text.glyphCount > 0) {
-    pass.setPipeline(text.pipeline);
-    pass.setBindGroup(0, text.bindGroup);
-    pass.draw(4, text.glyphCount);
-  }
+  // Pill overlays draw last — opaque, on top of everything else.
+  drawRects(layers.rectsTop);
+  drawText(layers.textTop);
 
   pass.end();
 

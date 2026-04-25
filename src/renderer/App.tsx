@@ -108,6 +108,21 @@ const MULTI_BIT_LABELS: MultiBitLabel[] = MULTI_BIT_SEGMENTS
   });
 
 const TEXT_WHITE = packRgba(0xff, 0xff, 0xff, 0xff);
+const TEXT_DARK = packRgba(0x14, 0x15, 0x17, 0xff); // matches --bg
+// Pick the higher-contrast text color (white vs near-black canvas bg) against
+// the pill's effective fill. Pills render at ~70% color over the dark bg when
+// not selected, so pre-blend before measuring luminance.
+const PILL_BLEND = 0.7;
+const BG_LUM = 0.2126 * 0.106 + 0.7152 * 0.114 + 0.0722 * 0.129;
+function pickTextColor(hex: string): number {
+  const h = hex.replace("#", "");
+  const r = parseInt(h.slice(0, 2), 16) / 255;
+  const g = parseInt(h.slice(2, 4), 16) / 255;
+  const b = parseInt(h.slice(4, 6), 16) / 255;
+  const colorLum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  const fillLum = (1 - PILL_BLEND) * BG_LUM + PILL_BLEND * colorLum;
+  return fillLum > 0.5 ? TEXT_DARK : TEXT_WHITE;
+}
 const GRID_GRAY = packRgba(0x86, 0x8c, 0x96, 0x70);
 const DEAD_ZONE_GRAY = packRgba(0x78, 0x7c, 0x86, 0x70);
 const RESET_RED = packRgba(0xe8, 0x6a, 0x5a, 0x60);
@@ -128,6 +143,7 @@ export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const signalsRef = useRef<HTMLDivElement>(null);
   const gpuRef = useRef<{ device: GPUDevice; colorBuf: GPUBuffer } | null>(null);
+  const textColorByRowRef = useRef<Map<number, number>>(new Map());
 
   const [activeSignals, setActiveSignals] = useState<ActiveSignalRef[]>(MOCK_SCENE.activeSignals);
   const [picker, setPicker] = useState<{ row: number; anchorRect: DOMRect } | null>(null);
@@ -157,6 +173,36 @@ export function App() {
       const linesBg = lineRenderer.createBatch();
       const linesFg = lineRenderer.createBatch();
       const rectsBg = rectRenderer.createBatch();
+      const rectsTop = rectRenderer.createBatch();
+      const textBody = textRenderer.createBatch();
+      const textTop = textRenderer.createBatch();
+
+      // Example cursor pill at x=240 CSS px, matching the DOM .cursor .flag
+      // styling: --hot bg, --on-accent text, 16 CSS px tall, 5 px h-padding,
+      // 3 px rounded corners, 10 px JetBrains Mono regular.
+      {
+        const pillText = "32.400 ns";
+        const cellSm = textRenderer.cellSm;
+        const padX = 5;
+        const pillW = pillText.length * cellSm.widthPx + padX * 2;
+        const pillH = 16;
+        const cursorX = 240;
+        const pillX = cursorX - pillW * 0.5;
+        const pillY = 0;
+        rectsTop.setRects([
+          { x: pillX, y: pillY, w: pillW, h: pillH, color: packRgba(0xf0, 0x6b, 0x5b, 0xff), rounded: true },
+        ]);
+        const textColor = packRgba(0x0f, 0x1a, 0x09, 0xff);
+        const textY = Math.round(pillY + pillH * 0.5 - cellSm.midlinePx);
+        const textX0 = Math.round(pillX + padX);
+        let gi = 0;
+        for (let k = 0; k < pillText.length; k++) {
+          const code = pillText.charCodeAt(k);
+          if (code < 0x20 || code > 0x7e) continue;
+          textTop.writeGlyph(gi++, textX0 + k * cellSm.widthPx, textY, code, textColor, true);
+        }
+        textTop.setGlyphs(gi);
+      }
 
       // Foreground test line: teal dashed marker at ~25% canvas width.
       linesFg.setLines([
@@ -215,7 +261,8 @@ export function App() {
         })));
 
         // Build glyph instances for multi-bit pill values.
-        const cellW = textRenderer.cell.widthPx;
+        const cellLg = textRenderer.cellLg;
+        const cellW = cellLg.widthPx;
         let gi = 0;
         for (const lbl of MULTI_BIT_LABELS) {
           if (gi >= MAX_GLYPHS) break;
@@ -226,16 +273,19 @@ export function App() {
           if (widthPx < textWidthPx + 6) continue; // skip if pill too narrow
           const centerX = (startPx + endPx) * 0.5;
           const x0 = Math.round(centerX - textWidthPx * 0.5);
-          const y0 = Math.round(rowHeightCSS * (lbl.row + 0.5) - textRenderer.cell.midlinePx);
+          const y0 = Math.round(rowHeightCSS * (lbl.row + 0.5) - cellLg.midlinePx);
+          // TODO: switch to `textColorByRowRef.current.get(lbl.row)` to use
+          // the per-row contrast pick. Forced white for now.
+          const color = TEXT_WHITE;
           for (let k = 0; k < lbl.text.length && gi < MAX_GLYPHS; k++) {
             const code = lbl.text.charCodeAt(k);
             if (code < 0x20 || code > 0x7e) continue;
-            textRenderer.writeGlyph(gi++, x0 + k * cellW, y0, code, TEXT_WHITE);
+            textBody.writeGlyph(gi++, x0 + k * cellW, y0, code, color);
           }
         }
-        textRenderer.setGlyphs(gi);
+        textBody.setGlyphs(gi);
 
-        renderFrame(gpuCtx, renderer, [multiBit, singleBit], linesBg, rectsBg, linesFg, textRenderer, vp);
+        renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, linesFg, textBody, rectsTop, textTop }, vp);
         raf = requestAnimationFrame(frame);
       };
       raf = requestAnimationFrame(frame);
@@ -252,6 +302,9 @@ export function App() {
   useEffect(() => {
     const gpu = gpuRef.current;
     if (gpu) writeRowColors(gpu.device, gpu.colorBuf, activeSignals);
+    const m = new Map<number, number>();
+    for (const r of activeSignals) m.set(r.row, pickTextColor(r.color));
+    textColorByRowRef.current = m;
   }, [activeSignals]);
 
   const handleColorChange = (row: number, color: string) => {

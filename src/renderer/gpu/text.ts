@@ -9,21 +9,29 @@ export const MAX_GLYPHS = 4096;
 const GLYPH_U32 = 4; // 16 B per glyph
 const GLYPH_BYTES = GLYPH_U32 * 4;
 
+const SMALL_FLAG_BIT = 0x80; // packed into Glyph.char_code's high bit
+
 export interface GlyphCell {
   widthPx: number;    // CSS px cell width
   heightPx: number;   // CSS px cell height
-  ascentPx: number;   // baseline offset from the top of the cell in CSS px
+  ascentPx: number;   // baseline offset from cell top in CSS px
   midlinePx: number;  // cap-height midline offset from cell top in CSS px
+}
+
+export interface TextBatch {
+  pipeline: GPURenderPipeline;
+  bindGroup: GPUBindGroup;
+  glyphCount: number;
+  /** `small` selects the smaller atlas (cursor-flag font). */
+  writeGlyph(i: number, xPx: number, yPx: number, charCode: number, rgba: number, small?: boolean): void;
+  setGlyphs(count: number): void;
 }
 
 export interface TextRenderer {
   pipeline: GPURenderPipeline;
-  bindGroup: GPUBindGroup;
-  atlasTexture: GPUTexture;
-  cell: GlyphCell;
-  setGlyphs(count: number): void;
-  writeGlyph(i: number, xPx: number, yPx: number, charCode: number, rgba: number): void;
-  glyphCount: number;
+  cellLg: GlyphCell;
+  cellSm: GlyphCell;
+  createBatch(): TextBatch;
 }
 
 const FONT_FAMILY = "'JetBrains Mono', ui-monospace, monospace";
@@ -46,23 +54,24 @@ interface AtlasBuild {
   midlineCSS: number;
 }
 
-function buildAtlasCanvas(displayPx: number, dpr: number): AtlasBuild {
-  // Render the atlas at 4x device resolution. Bilinear sampling aliases at
-  // this ratio (ideal would be mipmaps or 2x), but in practice the softness
-  // is preferable to the pixel-hinting artifacts Canvas 2D produces at
-  // small sizes.
+function buildAtlasCanvas(displayPx: number, dpr: number, fontWeight: string): AtlasBuild {
+  // 2x device-pixel resolution: bilinear handles the 2:1 downsample cleanly,
+  // and Canvas 2D has room to produce real grayscale AA.
   const scale = 2 * dpr;
   const fontPx = displayPx * scale;
-  const fontSpec = `700 ${fontPx}px ${FONT_FAMILY}`;
+  const fontSpec = `${fontWeight} ${fontPx}px ${FONT_FAMILY}`;
 
+  // `willReadFrequently: true` forces a software-backed bitmap. The default
+  // GPU-accelerated path can return uninitialized GPU memory for certain
+  // size/weight combinations when read back via convertToBlob /
+  // copyExternalImageToTexture — symptom is colored noise where text should
+  // be. Software backing is deterministic.
   const probe = new OffscreenCanvas(64, 64);
-  const pc = probe.getContext("2d");
+  const pc = probe.getContext("2d", { willReadFrequently: true });
   if (!pc) throw new Error("OffscreenCanvas 2D context unavailable");
   pc.font = fontSpec;
   const advance = Math.ceil(pc.measureText("M").width);
-  const cap = pc.measureText("M");
-  const capAscent = Math.ceil(cap.actualBoundingBoxAscent || fontPx * 0.72);
-  // Tall probe to reserve descender space for e.g. "g", "p".
+  const capAscent = Math.ceil(pc.measureText("M").actualBoundingBoxAscent || fontPx * 0.72);
   const tall = pc.measureText("Mgy");
   const descent = Math.ceil(tall.actualBoundingBoxDescent || fontPx * 0.2);
 
@@ -74,8 +83,9 @@ function buildAtlasCanvas(displayPx: number, dpr: number): AtlasBuild {
   const midlineY = padTop + capAscent * 0.5;
 
   const canvas = new OffscreenCanvas(cellW * ATLAS_COUNT, cellH);
-  const ctx = canvas.getContext("2d");
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) throw new Error("OffscreenCanvas 2D context unavailable");
+
   ctx.font = fontSpec;
   ctx.fillStyle = "#fff";
   ctx.textBaseline = "alphabetic";
@@ -94,34 +104,49 @@ function buildAtlasCanvas(displayPx: number, dpr: number): AtlasBuild {
   };
 }
 
-export async function createTextRenderer(
-  ctx: GPUContext,
-  viewportUniform: GPUBuffer,
-  opts?: { displayPx?: number; dpr?: number },
-): Promise<TextRenderer> {
-  const { device, format } = ctx;
-  const displayPx = opts?.displayPx ?? 12;
-  const dpr = opts?.dpr ?? (globalThis.devicePixelRatio || 1);
-
-  // Ensure the web font is resident before Canvas 2D rasterizes glyphs.
-  // Without this, small atlases render in the system fallback font, which
-  // produces ugly pixel-hinted output at 11 px — and at 1:1 sampling there's
-  // no oversample average to hide it, so it reads as noise.
-  const fontPx = displayPx * dpr;
-  await ensureFontLoaded(`700 ${fontPx}px ${FONT_FAMILY}`);
-
-  const atlas = buildAtlasCanvas(displayPx, dpr);
-
-  const atlasTexture = device.createTexture({
+function uploadAtlas(device: GPUDevice, atlas: AtlasBuild): GPUTexture {
+  const tex = device.createTexture({
     size: [atlas.canvas.width, atlas.canvas.height, 1],
     format: "rgba8unorm",
     usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
   });
   device.queue.copyExternalImageToTexture(
     { source: atlas.canvas, flipY: false },
-    { texture: atlasTexture, premultipliedAlpha: false },
+    { texture: tex, premultipliedAlpha: false },
     [atlas.canvas.width, atlas.canvas.height, 1],
   );
+  return tex;
+}
+
+function cellOf(a: AtlasBuild): GlyphCell {
+  return { widthPx: a.cellWCSS, heightPx: a.cellHCSS, ascentPx: a.ascentCSS, midlinePx: a.midlineCSS };
+}
+
+export interface TextOptions {
+  large?: { displayPx: number; weight: string };
+  small?: { displayPx: number; weight: string };
+  dpr?: number;
+}
+
+export async function createTextRenderer(
+  ctx: GPUContext,
+  viewportUniform: GPUBuffer,
+  opts?: TextOptions,
+): Promise<TextRenderer> {
+  const { device, format } = ctx;
+  const dpr = opts?.dpr ?? (globalThis.devicePixelRatio || 1);
+  const lg = opts?.large ?? { displayPx: 12, weight: "700" };
+  const sm = opts?.small ?? { displayPx: 10, weight: "400" };
+
+  await Promise.all([
+    ensureFontLoaded(`${lg.weight} ${lg.displayPx * dpr}px ${FONT_FAMILY}`),
+    ensureFontLoaded(`${sm.weight} ${sm.displayPx * dpr}px ${FONT_FAMILY}`),
+  ]);
+
+  const atlasLg = buildAtlasCanvas(lg.displayPx, dpr, lg.weight);
+  const atlasSm = buildAtlasCanvas(sm.displayPx, dpr, sm.weight);
+  const texLg = uploadAtlas(device, atlasLg);
+  const texSm = uploadAtlas(device, atlasSm);
 
   const sampler = device.createSampler({
     magFilter: "linear",
@@ -136,15 +161,18 @@ export async function createTextRenderer(
       { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
       { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "read-only-storage" } },
       { binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
-      { binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
+      { binding: 3, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
+      { binding: 4, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
     ],
   });
 
   const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl] });
 
   const constants = {
-    cell_w_px: atlas.cellWCSS,
-    cell_h_px: atlas.cellHCSS,
+    cell_w_lg: atlasLg.cellWCSS,
+    cell_h_lg: atlasLg.cellHCSS,
+    cell_w_sm: atlasSm.cellWCSS,
+    cell_h_sm: atlasSm.cellHCSS,
     atlas_first: ATLAS_FIRST,
     atlas_count: ATLAS_COUNT,
   };
@@ -167,47 +195,55 @@ export async function createTextRenderer(
     primitive: { topology: "triangle-strip" },
   });
 
-  const instanceBuf = device.createBuffer({
-    size: MAX_GLYPHS * GLYPH_BYTES,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-  });
-  const scratch = new Uint32Array(MAX_GLYPHS * GLYPH_U32);
-  const scratchF32 = new Float32Array(scratch.buffer);
+  const lgView = texLg.createView();
+  const smView = texSm.createView();
 
-  const bindGroup = device.createBindGroup({
-    layout: bgl,
-    entries: [
-      { binding: 0, resource: { buffer: viewportUniform } },
-      { binding: 1, resource: { buffer: instanceBuf } },
-      { binding: 2, resource: atlasTexture.createView() },
-      { binding: 3, resource: sampler },
-    ],
-  });
+  function createBatch(): TextBatch {
+    const instanceBuf = device.createBuffer({
+      size: MAX_GLYPHS * GLYPH_BYTES,
+      usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    const scratch = new Uint32Array(MAX_GLYPHS * GLYPH_U32);
+    const scratchF32 = new Float32Array(scratch.buffer);
 
-  const renderer: TextRenderer = {
+    const bindGroup = device.createBindGroup({
+      layout: bgl,
+      entries: [
+        { binding: 0, resource: { buffer: viewportUniform } },
+        { binding: 1, resource: { buffer: instanceBuf } },
+        { binding: 2, resource: lgView },
+        { binding: 3, resource: smView },
+        { binding: 4, resource: sampler },
+      ],
+    });
+
+    const batch: TextBatch = {
+      pipeline,
+      bindGroup,
+      glyphCount: 0,
+      writeGlyph(i, xPx, yPx, charCode, rgba, small) {
+        const off = i * GLYPH_U32;
+        scratchF32[off + 0] = xPx;
+        scratchF32[off + 1] = yPx;
+        scratch[off + 2] = (charCode & 0x7f) | (small ? SMALL_FLAG_BIT : 0);
+        scratch[off + 3] = rgba >>> 0;
+      },
+      setGlyphs(count) {
+        if (count > MAX_GLYPHS) count = MAX_GLYPHS;
+        batch.glyphCount = count;
+        if (count === 0) return;
+        device.queue.writeBuffer(instanceBuf, 0, scratch, 0, count * GLYPH_U32);
+      },
+    };
+    return batch;
+  }
+
+  return {
     pipeline,
-    bindGroup,
-    atlasTexture,
-    cell: { widthPx: atlas.cellWCSS, heightPx: atlas.cellHCSS, ascentPx: atlas.ascentCSS, midlinePx: atlas.midlineCSS },
-    glyphCount: 0,
-    writeGlyph(i, xPx, yPx, charCode, rgba) {
-      const off = i * GLYPH_U32;
-      scratchF32[off + 0] = xPx;
-      scratchF32[off + 1] = yPx;
-      scratch[off + 2] = charCode;
-      scratch[off + 3] = rgba >>> 0;
-    },
-    setGlyphs(count) {
-      if (count > MAX_GLYPHS) count = MAX_GLYPHS;
-      renderer.glyphCount = count;
-      if (count === 0) return;
-      // Pass the Uint32Array + element count: size/offset semantics are
-      // unambiguous this way (element units, not bytes).
-      device.queue.writeBuffer(instanceBuf, 0, scratch, 0, count * GLYPH_U32);
-    },
+    cellLg: cellOf(atlasLg),
+    cellSm: cellOf(atlasSm),
+    createBatch,
   };
-
-  return renderer;
 }
 
 // Pack 0..255 channels little-endian to match WGSL byte extraction.
