@@ -13,7 +13,15 @@ function createWindow(): void {
         height: 900,
         title: "riptide",
         autoHideMenuBar: true,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+            sandbox: false,
+            webviewTag: false,
+        },
     });
+    win.webContents.on("will-navigate", (e) => e.preventDefault());
+    win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     if (process.env.RIPTIDE_DEV) {
         win.loadURL("http://localhost:5173");
     } else {
