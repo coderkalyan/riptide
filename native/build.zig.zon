@@ -1,0 +1,13 @@
+.{
+    .name = .riptide_native,
+    .version = "0.0.0",
+    .fingerprint = 0x29cc0a9b2e3d24a5,
+    .minimum_zig_version = "0.15.2",
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "include",
+    },
+}

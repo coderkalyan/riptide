@@ -19,6 +19,7 @@ export interface DigitalRenderer {
   viewportScratch: Float32Array;
   writeViewport(vp: Viewport): void;
   buildPipeline(variant: ShaderVariant, segments: Segment[], colorBuf: GPUBuffer): Promise<SignalPipeline>;
+  buildPipelineFromPacked(variant: ShaderVariant, packed: Uint32Array<ArrayBuffer>, segmentCount: number, colorBuf: GPUBuffer): Promise<SignalPipeline>;
 }
 
 export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
@@ -45,7 +46,7 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
     alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
   } as const;
 
-  async function buildPipeline(variant: ShaderVariant, segments: Segment[], colorBuf: GPUBuffer): Promise<SignalPipeline> {
+  async function pipelineWithSegmentBuf(variant: ShaderVariant, segmentBuf: GPUBuffer, segmentCount: number, colorBuf: GPUBuffer): Promise<SignalPipeline> {
     const vertexEntryPoint = variant === "single" ? "vs_single" : "vs_multi";
     const fragmentEntryPoint = variant === "single" ? "fs_single" : "fs_multi";
 
@@ -60,10 +61,6 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
       primitive: { topology: "triangle-strip" },
     });
 
-    const packed = packSegments(segments);
-    const segmentBuf = device.createBuffer({ size: packed.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
-    device.queue.writeBuffer(segmentBuf, 0, packed);
-
     const bindGroup = device.createBindGroup({
       layout: bgl,
       entries: [
@@ -73,7 +70,20 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
       ],
     });
 
-    return { pipeline, bindGroup, segmentCount: segments.length };
+    return { pipeline, bindGroup, segmentCount };
+  }
+
+  async function buildPipeline(variant: ShaderVariant, segments: Segment[], colorBuf: GPUBuffer): Promise<SignalPipeline> {
+    const packed = packSegments(segments);
+    const segmentBuf = device.createBuffer({ size: packed.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(segmentBuf, 0, packed);
+    return pipelineWithSegmentBuf(variant, segmentBuf, segments.length, colorBuf);
+  }
+
+  async function buildPipelineFromPacked(variant: ShaderVariant, packed: Uint32Array<ArrayBuffer>, segmentCount: number, colorBuf: GPUBuffer): Promise<SignalPipeline> {
+    const segmentBuf = device.createBuffer({ size: packed.byteLength, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
+    device.queue.writeBuffer(segmentBuf, 0, packed);
+    return pipelineWithSegmentBuf(variant, segmentBuf, segmentCount, colorBuf);
   }
 
   function writeViewport(vp: Viewport): void {
@@ -81,5 +91,5 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
     device.queue.writeBuffer(uniformBuf, 0, viewportScratch);
   }
 
-  return { ctx, module, bgl, layout, uniformBuf, viewportScratch, writeViewport, buildPipeline };
+  return { ctx, module, bgl, layout, uniformBuf, viewportScratch, writeViewport, buildPipeline, buildPipelineFromPacked };
 }

@@ -6,10 +6,11 @@
   "packageManager": "pnpm@9.0.0",
   "scripts": {
     "wgsl-check": "node scripts/wgsl-check.mjs",
+    "build:native": "cd native && zig build -Doptimize=ReleaseSafe && mkdir -p ../dist/native && cp zig-out/lib/libriptide.so ../dist/native/riptide.node",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
-    "build": "pnpm wgsl-check && tsc -p tsconfig.json && mkdir -p dist/renderer && esbuild src/renderer/index.tsx --bundle --outfile=dist/renderer/index.js --format=iife --target=es2022 --loader:.tsx=tsx --loader:.wgsl=text --jsx=automatic && cp src/renderer/index.html dist/renderer/index.html",
+    "build": "pnpm wgsl-check && pnpm build:native && tsc -p tsconfig.json && mkdir -p dist/renderer && esbuild src/renderer/index.tsx --bundle --outfile=dist/renderer/index.js --format=iife --target=es2022 --loader:.tsx=tsx --loader:.wgsl=text --jsx=automatic --external:../native/riptide.node && cp src/renderer/index.html dist/renderer/index.html",
     "dev": "pnpm build && electron .",
-    "dev:ui": "pnpm wgsl-check && node scripts/dev-ui.mjs"
+    "dev:ui": "pnpm wgsl-check && pnpm build:native && node scripts/dev-ui.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

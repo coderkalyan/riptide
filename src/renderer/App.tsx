@@ -14,6 +14,7 @@ import { createLineRenderer } from "./gpu/lines";
 import { createRectRenderer } from "./gpu/rect";
 import { MOCK_SCENE, RESET_HELD_TICKS, type ActiveSignalRef, type Radix } from "./hier/mock";
 import { getSignal } from "./hier/hierarchy";
+import { getMockSegments } from "./native";
 
 function activeSignalKind(ref: ActiveSignalRef): ActiveSignalKind {
   if (ref.role === "clock") return "clock";
@@ -163,9 +164,10 @@ export function App() {
       writeRowColors(device, colorBuf, MOCK_SCENE.activeSignals);
       gpuRef.current = { device, colorBuf };
       const renderer = createDigitalRenderer(gpuCtx);
+      const native = getMockSegments();
       const [multiBit, singleBit, textRenderer, lineRenderer, rectRenderer] = await Promise.all([
-        renderer.buildPipeline("multi", MULTI_BIT_SEGMENTS, colorBuf),
-        renderer.buildPipeline("single", SINGLE_BIT_SEGMENTS, colorBuf),
+        renderer.buildPipelineFromPacked("multi", native.multi, native.multiCount, colorBuf),
+        renderer.buildPipelineFromPacked("single", native.single, native.singleCount, colorBuf),
         createTextRenderer(gpuCtx, renderer.uniformBuf),
         createLineRenderer(gpuCtx, renderer.uniformBuf),
         createRectRenderer(gpuCtx, renderer.uniformBuf),
