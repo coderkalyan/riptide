@@ -25,6 +25,7 @@ export interface Viewport {
   row_height: number;
   dpr: number;
   selected_row: number;
+  wave_y_offset: number;
 }
 
 export const MOCK_CLOCK_TICK_NS = 5;
@@ -202,5 +203,5 @@ export function writeViewportInto(f32: Float32Array, i32: Int32Array, vp: Viewpo
   f32[4] = vp.row_height;
   f32[5] = vp.dpr;
   i32[6] = vp.selected_row;
-  f32[7] = 0.0;
+  f32[7] = vp.wave_y_offset;
 }

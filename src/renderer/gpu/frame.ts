@@ -61,8 +61,8 @@ export function renderFrame(
     pass.draw(4, pipeline.segmentCount);
   }
 
-  drawLines(layers.linesFg);
   drawText(layers.textBody);
+  drawLines(layers.linesFg);
 
   // Pill overlays draw last — opaque, on top of everything else.
   drawRects(layers.rectsTop);

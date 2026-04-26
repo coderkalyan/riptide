@@ -3,7 +3,9 @@ import WGSL from "./text.wgsl";
 
 export const ATLAS_FIRST = 0x20;
 export const ATLAS_LAST = 0x7e;
-export const ATLAS_COUNT = ATLAS_LAST - ATLAS_FIRST + 1; // 95
+export const ATLAS_MIDDLE_DOT = 0x00b7;
+const ATLAS_EXTRA_CODE = 0x7f;
+export const ATLAS_COUNT = ATLAS_LAST - ATLAS_FIRST + 2; // ASCII + middle dot
 
 export const MAX_GLYPHS = 4096;
 const GLYPH_U32 = 4; // 16 B per glyph
@@ -91,7 +93,8 @@ function buildAtlasCanvas(displayPx: number, dpr: number, fontWeight: string): A
   ctx.textBaseline = "alphabetic";
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   for (let i = 0; i < ATLAS_COUNT; i++) {
-    const ch = String.fromCharCode(ATLAS_FIRST + i);
+    const code = i <= ATLAS_LAST - ATLAS_FIRST ? ATLAS_FIRST + i : ATLAS_MIDDLE_DOT;
+    const ch = String.fromCharCode(code);
     ctx.fillText(ch, i * cellW + 1, baselineY);
   }
 
@@ -223,9 +226,10 @@ export async function createTextRenderer(
       glyphCount: 0,
       writeGlyph(i, xPx, yPx, charCode, rgba, small) {
         const off = i * GLYPH_U32;
+        const atlasCode = charCode === ATLAS_MIDDLE_DOT ? ATLAS_EXTRA_CODE : charCode;
         scratchF32[off + 0] = xPx;
         scratchF32[off + 1] = yPx;
-        scratch[off + 2] = (charCode & 0x7f) | (small ? SMALL_FLAG_BIT : 0);
+        scratch[off + 2] = (atlasCode & 0x7f) | (small ? SMALL_FLAG_BIT : 0);
         scratch[off + 3] = rgba >>> 0;
       },
       setGlyphs(count) {

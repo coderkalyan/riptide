@@ -9,7 +9,7 @@ import { createDigitalRenderer } from "./gpu/digital";
 import { renderFrame } from "./gpu/frame";
 import { createColorBuffer, writeRowColors } from "./gpu/colors";
 import { MOCK_CLOCK_TICK_NS, MOCK_END_TICKS, type Segment } from "./gpu/data";
-import { createTextRenderer, packRgba, MAX_GLYPHS } from "./gpu/text";
+import { createTextRenderer, packRgba, MAX_GLYPHS, ATLAS_MIDDLE_DOT } from "./gpu/text";
 import { createLineRenderer } from "./gpu/lines";
 import { createRectRenderer } from "./gpu/rect";
 import { MOCK_SCENE, RESET_HELD_TICKS, type ActiveSignalRef, type Radix } from "./hier/mock";
@@ -109,6 +109,12 @@ const MULTI_BIT_LABELS: MultiBitLabel[] = MULTI_BIT_SEGMENTS
 
 const TEXT_WHITE = packRgba(0xff, 0xff, 0xff, 0xff);
 const TEXT_DARK = packRgba(0x14, 0x15, 0x17, 0xff); // matches --bg
+const TEXT_SECONDARY = packRgba(0xc4, 0xc3, 0xbb, 0xff);
+const ON_ACCENT = packRgba(0x0f, 0x1a, 0x09, 0xff);
+const PANEL_2 = packRgba(0x22, 0x25, 0x2a, 0xff);
+const BORDER = packRgba(0x2f, 0x33, 0x3a, 0xff);
+const HOT = packRgba(0xf0, 0x6b, 0x5b, 0xff);
+const MARKER = packRgba(0x4f, 0xd2, 0xbd, 0xff);
 // Pick the higher-contrast text color (white vs near-black canvas bg) against
 // the pill's effective fill. Pills render at ~70% color over the dark bg when
 // not selected, so pre-blend before measuring luminance.
@@ -128,6 +134,7 @@ const DEAD_ZONE_GRAY = packRgba(0x78, 0x7c, 0x86, 0x70);
 const RESET_RED = packRgba(0xe8, 0x6a, 0x5a, 0x60);
 const SELECTED_ROW = MOCK_SCENE.activeSignals.find((r) => r.selected)?.row ?? -1;
 const TIMELINE_FRAC = 0.9; // timeline occupies 90% of canvas; rest is dead zone
+const RULER_TICKS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90];
 // Grid lines are 1.25*dpr CSS px thick (see lines.wgsl). Clock pill edges
 // render to the LEFT of their tick (inside the ending segment), so we shift
 // the grid's left edge leftward by its own thickness to right-align it.
@@ -177,37 +184,24 @@ export function App() {
       const textBody = textRenderer.createBatch();
       const textTop = textRenderer.createBatch();
 
-      // Example cursor pill at x=240 CSS px, matching the DOM .cursor .flag
-      // styling: --hot bg, --on-accent text, 16 CSS px tall, 5 px h-padding,
-      // 3 px rounded corners, 10 px JetBrains Mono regular.
-      {
-        const pillText = "32.400 ns";
-        const cellSm = textRenderer.cellSm;
-        const padX = 5;
-        const pillW = pillText.length * cellSm.widthPx + padX * 2;
-        const pillH = 16;
-        const cursorX = 240;
-        const pillX = cursorX - pillW * 0.5;
-        const pillY = 0;
-        rectsTop.setRects([
-          { x: pillX, y: pillY, w: pillW, h: pillH, color: packRgba(0xf0, 0x6b, 0x5b, 0xff), rounded: true },
-        ]);
-        const textColor = packRgba(0x0f, 0x1a, 0x09, 0xff);
-        const textY = Math.round(pillY + pillH * 0.5 - cellSm.midlinePx);
-        const textX0 = Math.round(pillX + padX);
-        let gi = 0;
-        for (let k = 0; k < pillText.length; k++) {
-          const code = pillText.charCodeAt(k);
-          if (code < 0x20 || code > 0x7e) continue;
-          textTop.writeGlyph(gi++, textX0 + k * cellSm.widthPx, textY, code, textColor, true);
+      const writeText = (
+        batch: typeof textBody,
+        startGlyph: number,
+        x: number,
+        y: number,
+        text: string,
+        color: number,
+        small = false,
+      ) => {
+        const cell = small ? textRenderer.cellSm : textRenderer.cellLg;
+        let gi = startGlyph;
+        for (let k = 0; k < text.length && gi < MAX_GLYPHS; k++) {
+          const code = text.charCodeAt(k);
+          if ((code < 0x20 || code > 0x7e) && code !== ATLAS_MIDDLE_DOT) continue;
+          batch.writeGlyph(gi++, x + k * cell.widthPx, y, code, color, small);
         }
-        textTop.setGlyphs(gi);
-      }
-
-      // Foreground test line: teal dashed marker at ~25% canvas width.
-      linesFg.setLines([
-        { x: 120, color: packRgba(0x4f, 0xd2, 0xbd, 0xff), dashed: true },
-      ]);
+        return gi;
+      };
 
       const ro = new ResizeObserver(() => resizeCanvas(canvas));
       ro.observe(canvas);
@@ -227,11 +221,14 @@ export function App() {
         const rowHeightCSS = firstRow
           ? firstRow.getBoundingClientRect().height
           : 22;
+        const rulerHeightCSS = rowHeightCSS;
+        const waveHeightCSS = Math.max(0, canvasRect.height - rulerHeightCSS);
 
         // Timeline occupies only `TIMELINE_FRAC` of canvas width; the rest
         // becomes a crosshatched dead zone at the right edge.
         const timelinePx = canvasRect.width * TIMELINE_FRAC;
         const ticksPerPixel = MOCK_END_TICKS / timelinePx;
+        const xForTick = (tick: number) => tick / ticksPerPixel;
         const vp = {
           ticks_per_pixel: ticksPerPixel,
           start_ticks: 0,
@@ -240,6 +237,7 @@ export function App() {
           row_height: rowHeightCSS,
           dpr,
           selected_row: SELECTED_ROW,
+          wave_y_offset: rulerHeightCSS,
         };
 
         // Background rects: red crosshatch over the reset-held interval,
@@ -247,8 +245,10 @@ export function App() {
         const resetX0 = RESET_HELD_TICKS.tStart / ticksPerPixel;
         const resetX1 = RESET_HELD_TICKS.tEnd / ticksPerPixel;
         rectsBg.setRects([
-          { x: resetX0, y: 0, w: resetX1 - resetX0, h: canvasRect.height, color: RESET_RED, crosshatch: true },
-          { x: timelinePx, y: 0, w: canvasRect.width - timelinePx, h: canvasRect.height, color: DEAD_ZONE_GRAY, crosshatch: true },
+          { x: 0, y: 0, w: canvasRect.width, h: rulerHeightCSS, color: PANEL_2 },
+          { x: 0, y: rulerHeightCSS - 1, w: canvasRect.width, h: 1, color: BORDER },
+          { x: resetX0, y: rulerHeightCSS, w: resetX1 - resetX0, h: waveHeightCSS, color: RESET_RED, crosshatch: true },
+          { x: timelinePx, y: rulerHeightCSS, w: canvasRect.width - timelinePx, h: waveHeightCSS, color: DEAD_ZONE_GRAY, crosshatch: true },
         ]);
 
         // Grid: dashed vertical lines right-aligned to each clock positive
@@ -259,11 +259,27 @@ export function App() {
           color: GRID_GRAY,
           dashed: true,
         })));
+        linesFg.setLines([
+          { x: xForTick(MARKER_TICKS), color: MARKER, dashed: true },
+          { x: xForTick(CURSOR_TICKS), color: HOT },
+        ]);
 
         // Build glyph instances for multi-bit pill values.
         const cellLg = textRenderer.cellLg;
         const cellW = cellLg.widthPx;
         let gi = 0;
+        const rulerLabelY = Math.round(rulerHeightCSS * 0.5 + 2);
+        for (const t of RULER_TICKS) {
+          gi = writeText(
+            textBody,
+            gi,
+            Math.round(xForTick(t) + 3),
+            rulerLabelY,
+            `${t} ns`,
+            TEXT_SECONDARY,
+            true,
+          );
+        }
         for (const lbl of MULTI_BIT_LABELS) {
           if (gi >= MAX_GLYPHS) break;
           const startPx = lbl.tStart / ticksPerPixel;
@@ -273,7 +289,7 @@ export function App() {
           if (widthPx < textWidthPx + 6) continue; // skip if pill too narrow
           const centerX = (startPx + endPx) * 0.5;
           const x0 = Math.round(centerX - textWidthPx * 0.5);
-          const y0 = Math.round(rowHeightCSS * (lbl.row + 0.5) - cellLg.midlinePx);
+          const y0 = Math.round(rulerHeightCSS + rowHeightCSS * (lbl.row + 0.5) - cellLg.midlinePx);
           // TODO: switch to `textColorByRowRef.current.get(lbl.row)` to use
           // the per-row contrast pick. Forced white for now.
           const color = TEXT_WHITE;
@@ -284,6 +300,31 @@ export function App() {
           }
         }
         textBody.setGlyphs(gi);
+
+        const cellSm = textRenderer.cellSm;
+        const padX = 5;
+        const pillH = 16;
+        const flagRects: { x: number; y: number; w: number; h: number; color: number; rounded: true }[] = [];
+        let flagGi = 0;
+        const addFlag = (x: number, text: string, color: number) => {
+          const pillW = text.length * cellSm.widthPx + padX * 2;
+          const pillX = x - pillW * 0.5;
+          const pillY = 0;
+          flagRects.push({ x: pillX, y: pillY, w: pillW, h: pillH, color, rounded: true });
+          flagGi = writeText(
+            textTop,
+            flagGi,
+            Math.round(pillX + padX),
+            Math.round(pillY + pillH * 0.5 - cellSm.midlinePx),
+            text,
+            ON_ACCENT,
+            true,
+          );
+        };
+        addFlag(xForTick(MARKER_TICKS), `M1 · ${MARKER_TICKS.toFixed(3)} ns`, MARKER);
+        addFlag(xForTick(CURSOR_TICKS), `${CURSOR_TICKS.toFixed(3)} ns`, HOT);
+        rectsTop.setRects(flagRects);
+        textTop.setGlyphs(flagGi);
 
         renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, linesFg, textBody, rectsTop, textTop }, vp);
         raf = requestAnimationFrame(frame);
@@ -433,16 +474,6 @@ export function App() {
           </div>
 
           <div className="wv-canvas">
-            <div className="ruler">
-              {[0, 10, 20, 30, 40, 50, 60, 70, 80, 90].map((t) => (
-                <span key={t}>
-                  <div className="tk major" style={{ left: `${(t / MOCK_END_TICKS) * 100}%` }} />
-                  <div className="lb mono" style={{ left: `${(t / MOCK_END_TICKS) * 100}%` }}>{t} ns</div>
-                </span>
-              ))}
-              <div className="cursor" style={{ left: `${(CURSOR_TICKS / MOCK_END_TICKS) * 100}%` }}><div className="flag">{CURSOR_TICKS.toFixed(3)} ns</div></div>
-              <div className="marker" style={{ left: `${(MARKER_TICKS / MOCK_END_TICKS) * 100}%` }}><div className="flag">M1 · {MARKER_TICKS.toFixed(3)} ns</div></div>
-            </div>
             <div className="gpu-host">
               <canvas id="gpu" ref={canvasRef} />
             </div>

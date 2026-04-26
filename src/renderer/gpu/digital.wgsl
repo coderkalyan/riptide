@@ -6,6 +6,7 @@ struct Viewport {
     row_height: f32,
     dpr: f32,
     selected_row: i32,
+    wave_y_offset: f32,
 }
 
 struct Segment {
@@ -86,7 +87,7 @@ fn vs_single(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -
     var pixel_bounds = vec2f(local_ticks) / viewport.ticks_per_pixel;
 
     // Compute the pill's center and half-size in pixels.
-    let center_px = vec2f((pixel_bounds[0] + pixel_bounds[1]) * 0.5, viewport.row_height * (f32(row) + 0.5));
+    let center_px = vec2f((pixel_bounds[0] + pixel_bounds[1]) * 0.5, viewport.wave_y_offset + viewport.row_height * (f32(row) + 0.5));
     let half_size_px = vec2f((pixel_bounds[1] - pixel_bounds[0]) * 0.5, (viewport.row_height - gap_px) * 0.5);
 
     // Compute the vertex position in pixel space.
@@ -190,7 +191,7 @@ fn vs_multi(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     pixel_bounds += vec2f(0.0, -xgap_px);
 
     // Compute the pill's center and half-size in pixels.
-    let center_px = vec2f((pixel_bounds[0] + pixel_bounds[1]) * 0.5, viewport.row_height * (f32(row) + 0.5));
+    let center_px = vec2f((pixel_bounds[0] + pixel_bounds[1]) * 0.5, viewport.wave_y_offset + viewport.row_height * (f32(row) + 0.5));
     let half_size_px = vec2f((pixel_bounds[1] - pixel_bounds[0]) * 0.5, (viewport.row_height - ygap_px) * 0.5);
 
     // Compute the vertex position in pixel space.

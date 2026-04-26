@@ -10,6 +10,7 @@ struct Viewport {
     row_height: f32,
     dpr: f32,
     selected_row: i32,
+    wave_y_offset: f32,
 }
 
 struct Line {

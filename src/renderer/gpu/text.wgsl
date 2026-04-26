@@ -1,5 +1,5 @@
-// Text overlay. Instanced quad per glyph. Two pre-built ASCII atlases (95
-// cells of 0x20..0x7E each): one large, one small. Per-glyph flag picks
+// Text overlay. Instanced quad per glyph. Two pre-built atlases (ASCII
+// 0x20..0x7E plus one middle-dot slot): one large, one small. Per-glyph flag picks
 // which atlas + cell metrics to use.
 
 struct Viewport {
@@ -10,6 +10,7 @@ struct Viewport {
     row_height: f32,
     dpr: f32,
     selected_row: i32,
+    wave_y_offset: f32,
 }
 
 struct Glyph {
