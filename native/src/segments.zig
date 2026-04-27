@@ -11,13 +11,17 @@ pub const FLAG_RISING_EDGE: u32 = 1 << 18;
 pub const FLAG_FALLING_EDGE: u32 = 1 << 19;
 pub const FLAG_MUTE: u32 = 1 << 20;
 
-pub const PackedSegment = struct {
+// extern struct guarantees C ABI layout (5 contiguous u32, no reordering, no
+// padding) so a list of these is bit-identical to the GPU storage buffer.
+pub const PackedSegment = extern struct {
     t_start: u32,
     t_end: u32,
     value_lsb: u32,
     value_msb: u32,
     row_flags: u32,
 };
+
+pub const PACKED_SEGMENT_BYTES: usize = @sizeOf(PackedSegment);
 
 pub const SegValue = union(enum) {
     num: u32,
@@ -162,14 +166,6 @@ pub fn buildDataSignal(
 }
 
 pub fn packInto(dest: []u8, segs: []const PackedSegment) void {
-    std.debug.assert(dest.len == segs.len * 5 * 4);
-    const u32_ptr: [*]u32 = @ptrCast(@alignCast(dest.ptr));
-    for (segs, 0..) |s, i| {
-        const base = i * 5;
-        u32_ptr[base + 0] = s.t_start;
-        u32_ptr[base + 1] = s.t_end;
-        u32_ptr[base + 2] = s.value_lsb;
-        u32_ptr[base + 3] = s.value_msb;
-        u32_ptr[base + 4] = s.row_flags;
-    }
+    std.debug.assert(dest.len == segs.len * PACKED_SEGMENT_BYTES);
+    @memcpy(dest, std.mem.sliceAsBytes(segs));
 }

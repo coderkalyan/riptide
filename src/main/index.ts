@@ -27,7 +27,7 @@ function createWindow(): void {
     } else {
         win.loadFile(path.join(app.getAppPath(), "dist/renderer/index.html"));
     }
-    // win.webContents.openDevTools({ mode: "detach" });
+    win.webContents.openDevTools({ mode: "detach" });
 }
 
 app.whenReady().then(createWindow);
