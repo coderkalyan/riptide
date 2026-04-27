@@ -2,9 +2,27 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const tide = @import("tide");
 const seg = @import("segments.zig");
-const scene = @import("mock_scene.zig");
 
 const SegValue = seg.SegValue;
+
+const X = SegValue{ .x = {} };
+const Z = SegValue{ .z = {} };
+fn N(v: u32) SegValue {
+    return .{ .num = v };
+}
+
+const V_STATE = [_]SegValue{ X, X, N(0), N(0), N(1), N(2), N(2), N(1), N(0), N(0) };
+const V_CYCLE = [_]SegValue{ X, X, N(0), N(1), N(2), N(3), N(4), N(5), N(6), N(7) };
+const V_IN_VALID = [_]SegValue{ N(0), N(0), N(0), N(1), N(1), N(0), N(1), N(1), N(0), N(0) };
+const V_IN_DATA = [_]SegValue{ X, X, X, N(0xA3), N(0xA3), X, N(0xB7), N(0xB7), X, X };
+const V_IN_ADDR = [_]SegValue{ X, X, X, N(0x1000), N(0x1004), X, N(0x1008), N(0x100C), X, X };
+const V_OUT_VALID = [_]SegValue{ N(0), N(0), N(0), N(0), N(0), N(1), N(1), N(1), N(1), N(0) };
+const V_OUT_DATA = [_]SegValue{ X, X, X, X, X, N(0xDEADBEEF), N(0xDEADBEEF), N(0xCAFEB0BA), N(0xCAFEB0BA), X };
+const V_FIFO_LEVEL = [_]SegValue{ X, X, N(0), N(1), N(2), N(2), N(2), N(1), N(0), N(0) };
+const V_FIFO_EMPTY = [_]SegValue{ X, X, N(1), N(0), N(0), N(0), N(0), N(0), N(1), N(1) };
+const V_DBUS = [_]SegValue{ X, X, Z, N(0x55), N(0x55), Z, N(0xF0), N(0xF0), Z, Z };
+const V_BUSY = [_]SegValue{ N(0), N(0), N(0), N(1), N(1), N(1), N(1), N(1), N(1), N(1) };
+const V_DONE = [_]SegValue{ N(0), N(0), N(0), N(0), N(0), N(0), N(0), N(0), N(1), N(0) };
 
 pub const Row = enum(u64) {
     clk = 0,
@@ -23,7 +41,7 @@ pub const Row = enum(u64) {
     done = 13,
 };
 
-fn rowId(r: Row) tide.Signal.Id {
+pub fn rowId(r: Row) tide.Signal.Id {
     return @enumFromInt(@intFromEnum(r));
 }
 
@@ -39,12 +57,6 @@ fn appendValue(b: *tide.Builder, gpa: Allocator, ts: u64, v: SegValue, width: u3
     const bps = b.type.bytes();
     writeBits(x0[0..bps], x1[0..bps], bits.lsb, bits.msb);
     try b.append(gpa, ts, x0[0..bps], x1[0..bps]);
-}
-
-fn sameValue(a: SegValue, b: SegValue, width: u32) bool {
-    const aa = seg.valueBits(a, width);
-    const bb = seg.valueBits(b, width);
-    return aa.lsb == bb.lsb and aa.msb == bb.msb;
 }
 
 fn insertDataSignal(
@@ -64,7 +76,7 @@ fn insertDataSignal(
     while (i < values.len) {
         const start_tick = tick;
         var j = i;
-        while (j + 1 < values.len and sameValue(values[j], values[j + 1], width)) j += 1;
+        while (j + 1 < values.len and seg.sameValue(values[j], values[j + 1], width)) j += 1;
         try appendValue(&b, gpa, start_tick, values[i], width);
         var k = i;
         while (k <= j) : (k += 1) tick += seg.CYCLE_DURS[k] * seg.MOCK_CLOCK_TICK_NS;
@@ -92,6 +104,7 @@ fn insertClk(db: *tide.Database, gpa: Allocator) !void {
     try db.insert(sig);
 }
 
+// Async deassert at first falling edge (tick 10).
 fn insertRst(db: *tide.Database, gpa: Allocator) !void {
     const ty: tide.Type = .{ .kind = .quaternary, .width = 1 };
     var b: tide.Builder = .init(rowId(.rst), ty);
@@ -110,18 +123,18 @@ pub fn build(gpa: Allocator) !tide.Database {
 
     try insertClk(&db, gpa);
     try insertRst(&db, gpa);
-    try insertDataSignal(&db, gpa, .state, 2, &scene.V_STATE);
-    try insertDataSignal(&db, gpa, .cycle, 8, &scene.V_CYCLE);
-    try insertDataSignal(&db, gpa, .in_valid, 1, &scene.V_IN_VALID);
-    try insertDataSignal(&db, gpa, .in_data, 8, &scene.V_IN_DATA);
-    try insertDataSignal(&db, gpa, .in_addr, 16, &scene.V_IN_ADDR);
-    try insertDataSignal(&db, gpa, .out_valid, 1, &scene.V_OUT_VALID);
-    try insertDataSignal(&db, gpa, .out_data, 32, &scene.V_OUT_DATA);
-    try insertDataSignal(&db, gpa, .fifo_level, 4, &scene.V_FIFO_LEVEL);
-    try insertDataSignal(&db, gpa, .fifo_empty, 1, &scene.V_FIFO_EMPTY);
-    try insertDataSignal(&db, gpa, .dbus, 8, &scene.V_DBUS);
-    try insertDataSignal(&db, gpa, .busy, 1, &scene.V_BUSY);
-    try insertDataSignal(&db, gpa, .done, 1, &scene.V_DONE);
+    try insertDataSignal(&db, gpa, .state, 2, &V_STATE);
+    try insertDataSignal(&db, gpa, .cycle, 8, &V_CYCLE);
+    try insertDataSignal(&db, gpa, .in_valid, 1, &V_IN_VALID);
+    try insertDataSignal(&db, gpa, .in_data, 8, &V_IN_DATA);
+    try insertDataSignal(&db, gpa, .in_addr, 16, &V_IN_ADDR);
+    try insertDataSignal(&db, gpa, .out_valid, 1, &V_OUT_VALID);
+    try insertDataSignal(&db, gpa, .out_data, 32, &V_OUT_DATA);
+    try insertDataSignal(&db, gpa, .fifo_level, 4, &V_FIFO_LEVEL);
+    try insertDataSignal(&db, gpa, .fifo_empty, 1, &V_FIFO_EMPTY);
+    try insertDataSignal(&db, gpa, .dbus, 8, &V_DBUS);
+    try insertDataSignal(&db, gpa, .busy, 1, &V_BUSY);
+    try insertDataSignal(&db, gpa, .done, 1, &V_DONE);
 
     return db;
 }

@@ -56,10 +56,6 @@ fn getDb() *const tide.Database {
     return &cached_db.?;
 }
 
-fn rowId(r: mock_db.Row) tide.Signal.Id {
-    return @enumFromInt(@intFromEnum(r));
-}
-
 fn buildPackedLists(gpa: std.mem.Allocator) !struct {
     multi: std.ArrayList(seg.PackedSegment),
     single: std.ArrayList(seg.PackedSegment),
@@ -73,8 +69,7 @@ fn buildPackedLists(gpa: std.mem.Allocator) !struct {
     const end_t: u64 = seg.MOCK_END_TICKS;
 
     for (ROWS) |r| {
-        const id = rowId(r.row);
-        const q = db.query(id, 0, end_t) orelse @panic("missing signal");
+        const q = db.query(mock_db.rowId(r.row), 0, end_t) orelse @panic("missing signal");
         const list = switch (r.target) {
             .multi => &multi,
             .single => &single,
@@ -84,7 +79,7 @@ fn buildPackedLists(gpa: std.mem.Allocator) !struct {
             .width = r.width,
             .shaded = r.shaded,
             .kind = r.kind,
-            .gate_id = if (r.gate) |g| rowId(g) else null,
+            .gate_id = if (r.gate) |g| mock_db.rowId(g) else null,
         });
     }
 
