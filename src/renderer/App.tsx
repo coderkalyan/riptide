@@ -163,6 +163,18 @@ function formatRulerLabel(t: number, spacing: number): string {
   return `${t.toFixed(decimals)} ns`;
 }
 
+function formatZoom(ticksPerPixel: number): string {
+  if (!isFinite(ticksPerPixel) || ticksPerPixel <= 0) return "— ns / — px";
+  const pxPerNs = 1 / ticksPerPixel;
+  if (pxPerNs >= 1) {
+    const d = pxPerNs >= 100 ? 0 : pxPerNs >= 10 ? 1 : 2;
+    return `1 ns / ${pxPerNs.toFixed(d)} px`;
+  }
+  const nsPerPx = ticksPerPixel;
+  const d = nsPerPx >= 100 ? 0 : nsPerPx >= 10 ? 1 : 2;
+  return `${nsPerPx.toFixed(d)} ns / 1 px`;
+}
+
 function snapToClockEdge(tick: number): number {
   // Quantize to the clock period; CLOCK_EDGE_TICKS lands on odd multiples of
   // MOCK_CLOCK_TICK_NS (5, 15, 25, ...). Round to the nearest one.
@@ -202,6 +214,9 @@ export function App() {
   // signal value column re-renders on cursor move).
   const [cursorTicks, setCursorTicks] = useState(INITIAL_CURSOR_TICKS);
   const cursorTicksRef = useRef(INITIAL_CURSOR_TICKS);
+  // Mirror of `ticksPerPixelRef` for reactive zoom labels. Synced from RAF.
+  const [ticksPerPixel, setTicksPerPixel] = useState(0);
+  const ticksPerPixelReportedRef = useRef(0);
   const snapCursorRef = useRef(snapCursor);
   useEffect(() => { snapCursorRef.current = snapCursor; }, [snapCursor]);
   const selectedRowRef = useRef(MOCK_SCENE.activeSignals.find((r) => r.selected)?.row ?? -1);
@@ -285,6 +300,10 @@ export function App() {
           startTicksRef.current = 0;
         }
         const ticksPerPixel = ticksPerPixelRef.current;
+        if (ticksPerPixel !== ticksPerPixelReportedRef.current) {
+          ticksPerPixelReportedRef.current = ticksPerPixel;
+          setTicksPerPixel(ticksPerPixel);
+        }
         const startTicks = startTicksRef.current;
         const visibleTicks = timelinePx * ticksPerPixel;
         const cursor = cursorTicksRef.current;
@@ -683,7 +702,7 @@ export function App() {
               <Clock size={14} />
             </span>
             <div className="divider" />
-            <span className="hint mono">1 ns / 14 px · 0 – {MOCK_END_TICKS} ns</span>
+            <span className="hint mono">{formatZoom(ticksPerPixel)} · 0 – {MOCK_END_TICKS} ns</span>
           </div>
           <div className="col-sub">
             <div className="seg">
@@ -711,7 +730,7 @@ export function App() {
         <span>cursor <b>{cursorTicks.toFixed(3)} ns</b></span>
         <span>M1 <b>{MARKER_TICKS.toFixed(3)} ns</b></span>
         <span>Δ <b>{(cursorTicks - MARKER_TICKS).toFixed(3)} ns</b></span>
-        <span>zoom <b>1 ns / 14 px</b></span>
+        <span>zoom <b>{formatZoom(ticksPerPixel)}</b></span>
         <span className="sp" />
         <span>147 signals</span>
         <span>{activeSignals.length} active</span>

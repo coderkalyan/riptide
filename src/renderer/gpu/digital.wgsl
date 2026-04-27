@@ -147,7 +147,7 @@ fn fs_single(in: VertexData) -> @location(0) vec4f {
     // Calculate shading.
     let hatch_primary = select(select(x_color, z_color, crosshatch_color), mute_color, mute);
     let line_color = select(primary_color, mute_color, mute);
-    let shade_alpha = select(lo_alpha, select(hi_alpha, 1.0, highlight), draw_line_high);
+    let shade_alpha = select(lo_alpha, select(hi_alpha, 0.8, highlight), draw_line_high);
     var shade_color = select(primary_color, mute_color, mute);
     shade_color = vec4f(shade_color.rgb, shade_color.a * shade_alpha);
 
@@ -219,8 +219,8 @@ fn fs_multi(in: VertexData) -> @location(0) vec4f {
     let radius = 2.0 * viewport.dpr;
     let border_width = 1.0 * viewport.dpr;
     let primary_color = in.primary_color;
-    let x_color = vec4f(0.9608, 0.4471, 0.4471, 1.0);
-    let z_color = vec4f(1.0, 0.863, 0.0, 1.0);
+    let x_color = vec4f(0.9608, 0.4471, 0.4471, 0.7);
+    let z_color = vec4f(1.0, 0.863, 0.0, 0.7);
     let mute_color = vec4f(0.47, 0.47, 0.47, 0.6);
 
     let enable_fill = (in.flags & (1u << 0u)) != 0u;
