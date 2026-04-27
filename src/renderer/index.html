@@ -110,10 +110,18 @@
 
         .body {
             display: grid;
-            grid-template-columns: 236px 296px 1fr;
             flex: 1;
             min-height: 0;
             overflow: hidden;
+            position: relative;
+        }
+        .col-resize {
+            position: absolute;
+            top: 0; bottom: 0;
+            width: 7px;
+            cursor: col-resize;
+            user-select: none;
+            z-index: 1;
         }
         .col .col-head + .col-sub + .tree + .col-head,
         .col .col-head + .col-sub + .derived-list + .col-head,

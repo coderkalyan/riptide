@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Clock, Flag, Magnet, Maximize, MessageSquare, Minus, PanelLeftClose, Plus, SplitSquareHorizontal, X } from "lucide-react";
+import { ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Clock, Flag, Magnet, Maximize, MessageSquare, Minus, PanelLeftClose, PanelLeftOpen, Plus, SplitSquareHorizontal, X } from "lucide-react";
 import { ActiveSignal, type ActiveSignalKind } from "./ActiveSignal";
 import { ColorPicker } from "./ColorPicker";
 import { SignalTreeView } from "./SignalTree";
-import { DerivedSignals, DerivedSignal } from "./DerivedSignals";
 import { initGPU, resizeCanvas, GPUInitError } from "./gpu/device";
 import { createDigitalRenderer } from "./gpu/digital";
 import { renderFrame } from "./gpu/frame";
@@ -509,6 +508,38 @@ export function App() {
     setActiveSignals((refs) => refs.map((r) => (r.row === row ? { ...r, color } : r)));
   };
 
+  const TREE_MIN_PX = 160;
+  const ACTIVE_MIN_PX = 200;
+  const TREE_COLLAPSED_PX = 28;
+  const [treeW, setTreeW] = useState(236);
+  const [activeW, setActiveW] = useState(296);
+  const [treeCollapsed, setTreeCollapsed] = useState(false);
+  const treeColW = treeCollapsed ? TREE_COLLAPSED_PX : treeW;
+  const startResize = (which: "tree" | "active") => (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startTree = treeW;
+    const startActive = activeW;
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    target.classList.add("dragging");
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX;
+      if (which === "tree") setTreeW(Math.max(TREE_MIN_PX, startTree + dx));
+      else setActiveW(Math.max(ACTIVE_MIN_PX, startActive + dx));
+    };
+    const onUp = (ev: PointerEvent) => {
+      target.releasePointerCapture(ev.pointerId);
+      target.classList.remove("dragging");
+      target.removeEventListener("pointermove", onMove);
+      target.removeEventListener("pointerup", onUp);
+      target.removeEventListener("pointercancel", onUp);
+    };
+    target.addEventListener("pointermove", onMove);
+    target.addEventListener("pointerup", onUp);
+    target.addEventListener("pointercancel", onUp);
+  };
+
   // Click row: select it (deselecting others). Click selected row again: clear.
   const handleRowClick = (row: number) => {
     setActiveSignals((refs) => {
@@ -560,31 +591,31 @@ export function App() {
         <span className="sp" />
       </div>
 
-      <div className="body">
+      <div className="body" style={{ gridTemplateColumns: `${treeColW}px ${activeW}px 1fr` }}>
+        {!treeCollapsed && (
+          <div className="col-resize" style={{ left: treeColW - 3 }} onPointerDown={startResize("tree")} />
+        )}
+        <div className="col-resize" style={{ left: treeColW + activeW - 3 }} onPointerDown={startResize("active")} />
         <div className="col">
-          <div className="col-head">
-            <h3>Signal Tree</h3>
-            <span className="sp" style={{ flex: 1 }} />
-            <span className="collapse" data-tip="collapse panel"><PanelLeftClose size={14} strokeWidth={1.75} /></span>
-          </div>
-          <div className="col-sub"><input className="search" placeholder="filter scope/name" /></div>
-          <SignalTreeView hierarchy={MOCK_SCENE.hierarchy} initialExpanded={MOCK_SCENE.initialExpanded} />
-
-          <div className="col-head">
-            <h3>Derived Signals</h3>
-          </div>
-          <div className="col-sub">
-            <input className="search" placeholder="new derived expression" />
-            <span className="btn sm icon primary" data-tip="add"><Plus size={14} /></span>
-          </div>
-          <DerivedSignals>
-            {activeSignals
-              .filter((r) => r.derivedExpr)
-              .map((r, i) => {
-                const sig = getSignal(MOCK_SCENE.hierarchy, r.signalId);
-                return <DerivedSignal key={i} name={sig.name} expr={r.derivedExpr!} />;
-              })}
-          </DerivedSignals>
+          {treeCollapsed ? (
+            <div className="col-head" style={{ justifyContent: "center" }}>
+              <span className="collapse" data-tip="expand panel" onClick={() => setTreeCollapsed(false)}>
+                <PanelLeftOpen size={14} strokeWidth={1.75} />
+              </span>
+            </div>
+          ) : (
+            <>
+              <div className="col-head">
+                <h3>Signal Tree</h3>
+                <span className="sp" style={{ flex: 1 }} />
+                <span className="collapse" data-tip="collapse panel" onClick={() => setTreeCollapsed(true)}>
+                  <PanelLeftClose size={14} strokeWidth={1.75} />
+                </span>
+              </div>
+              <div className="col-sub"><input className="search" placeholder="filter scope/name" /></div>
+              <SignalTreeView hierarchy={MOCK_SCENE.hierarchy} initialExpanded={MOCK_SCENE.initialExpanded} />
+            </>
+          )}
         </div>
 
         <div className="col">
