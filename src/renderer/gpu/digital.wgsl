@@ -1,6 +1,6 @@
 struct Viewport {
     ticks_per_pixel: f32,
-    start_ticks: u32,
+    start_ticks: f32,
     width: f32,
     height: f32,
     row_height: f32,
@@ -83,8 +83,8 @@ fn vs_single(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -
     let corner_y = f32((vi >> 1u) & 1u);
 
     // Transform from timeline (tick) space into pixel space.
-    let local_ticks = vec2i(i32(segment.t_start), i32(segment.t_end)) - i32(viewport.start_ticks);
-    var pixel_bounds = vec2f(local_ticks) / viewport.ticks_per_pixel;
+    let local_ticks = vec2f(f32(segment.t_start), f32(segment.t_end)) - viewport.start_ticks;
+    var pixel_bounds = local_ticks / viewport.ticks_per_pixel;
 
     // Compute the pill's center and half-size in pixels.
     let center_px = vec2f((pixel_bounds[0] + pixel_bounds[1]) * 0.5, viewport.wave_y_offset + viewport.row_height * (f32(row) + 0.5));
@@ -184,8 +184,8 @@ fn vs_multi(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     let corner_y = f32((vi >> 1u) & 1u);
 
     // Transform from timeline (tick) space into pixel space.
-    let local_ticks = vec2i(i32(segment.t_start), i32(segment.t_end)) - i32(viewport.start_ticks);
-    var pixel_bounds = vec2f(local_ticks) / viewport.ticks_per_pixel;
+    let local_ticks = vec2f(f32(segment.t_start), f32(segment.t_end)) - viewport.start_ticks;
+    var pixel_bounds = local_ticks / viewport.ticks_per_pixel;
 
     // Asymmetric inset: shift only the right edge inward.
     pixel_bounds += vec2f(0.0, -xgap_px);

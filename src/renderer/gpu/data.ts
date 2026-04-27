@@ -191,13 +191,13 @@ export function packSegments(segs: Segment[]): Uint32Array<ArrayBuffer> {
 }
 
 // Viewport = 8 × 4 B = 32 bytes (multiple of 16, required by WebGPU). Mixed
-// int/float fields per the WGSL Viewport struct: slots 1 (start_ticks) and 6
-// (selected_row) are integers, the rest are floats. Caller provides aliased
-// Float32 and Int32 views over the same ArrayBuffer so each slot is written
-// with the correct bit pattern without per-frame allocation.
+// int/float fields per the WGSL Viewport struct: slot 6 (selected_row) is
+// the only integer; the rest are floats. Caller provides aliased Float32 and
+// Int32 views over the same ArrayBuffer so each slot is written with the
+// correct bit pattern without per-frame allocation.
 export function writeViewportInto(f32: Float32Array, i32: Int32Array, vp: Viewport): void {
   f32[0] = vp.ticks_per_pixel;
-  i32[1] = vp.start_ticks;
+  f32[1] = vp.start_ticks;
   f32[2] = vp.width;
   f32[3] = vp.height;
   f32[4] = vp.row_height;

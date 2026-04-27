@@ -24,8 +24,9 @@ function activeSignalKind(ref: ActiveSignalRef): ActiveSignalKind {
   return "signal";
 }
 
-const CURSOR_TICKS = 32.4;
+const INITIAL_CURSOR_TICKS = 32.4;
 const MARKER_TICKS = 19.6;
+const ZOOM_PER_DELTA_Y = 0.001; // Math.exp() factor per wheel deltaY unit
 
 function findSegmentAtTick(row: number, tick: number): Segment | undefined {
   return MOCK_SCENE.segments.find((segment) => {
@@ -135,7 +136,42 @@ const DEAD_ZONE_GRAY = packRgba(0x78, 0x7c, 0x86, 0x70);
 const RESET_RED = packRgba(0xe8, 0x6a, 0x5a, 0x60);
 const SELECTED_ROW = MOCK_SCENE.activeSignals.find((r) => r.selected)?.row ?? -1;
 const TIMELINE_FRAC = 0.9; // timeline occupies 90% of canvas; rest is dead zone
-const RULER_TICKS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90];
+const NOTCH_COLOR = packRgba(0x86, 0x8c, 0x96, 0xff);
+const NOTCH_HEIGHT = 12;
+
+// Pick a "nice" ruler-tick spacing — multiples of {1, 2, 5} × 10^n — so the
+// visible range gets ~8 labels.
+function rulerSpacing(visibleTicks: number): number {
+  const target = visibleTicks / 8;
+  const exp = Math.floor(Math.log10(target));
+  const base = Math.pow(10, exp);
+  const m = target / base;
+  if (m < 2) return base;
+  if (m < 5) return 2 * base;
+  return 5 * base;
+}
+
+function dynamicRulerTicks(startTicks: number, visibleTicks: number): { ticks: number[]; spacing: number } {
+  const spacing = rulerSpacing(visibleTicks);
+  const first = Math.ceil(startTicks / spacing) * spacing;
+  const ticks: number[] = [];
+  // Tolerance avoids dropping ticks at the right edge due to fp accumulation.
+  const end = startTicks + visibleTicks + spacing * 1e-6;
+  for (let t = first; t <= end; t += spacing) ticks.push(t);
+  return { ticks, spacing };
+}
+
+function formatRulerLabel(t: number, spacing: number): string {
+  const decimals = spacing >= 1 ? 0 : Math.max(0, -Math.floor(Math.log10(spacing)));
+  return `${t.toFixed(decimals)} ns`;
+}
+
+function snapToClockEdge(tick: number): number {
+  // Quantize to the clock period; CLOCK_EDGE_TICKS lands on odd multiples of
+  // MOCK_CLOCK_TICK_NS (5, 15, 25, ...). Round to the nearest one.
+  const period = 2 * MOCK_CLOCK_TICK_NS;
+  return Math.round((tick - MOCK_CLOCK_TICK_NS) / period) * period + MOCK_CLOCK_TICK_NS;
+}
 // Grid lines are 1.25*dpr CSS px thick (see lines.wgsl). Clock pill edges
 // render to the LEFT of their tick (inside the ending segment), so we shift
 // the grid's left edge leftward by its own thickness to right-align it.
@@ -150,13 +186,27 @@ for (let t = MOCK_CLOCK_TICK_NS; t < MOCK_END_TICKS; t += 2 * MOCK_CLOCK_TICK_NS
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const signalsRef = useRef<HTMLDivElement>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
   const gpuRef = useRef<{ device: GPUDevice; colorBuf: GPUBuffer } | null>(null);
   const textColorByRowRef = useRef<Map<number, number>>(new Map());
+
+  // Viewport state — refs only (RAF is the sole reader, no React DOM uses
+  // these). `userInteractedRef` flips on first interaction, freezing auto-fit.
+  const startTicksRef = useRef(0);
+  const ticksPerPixelRef = useRef(0); // initialized to fit on first frame
+  const userInteractedRef = useRef(false);
+  const draggingRef = useRef(false);
 
   const [activeSignals, setActiveSignals] = useState<ActiveSignalRef[]>(MOCK_SCENE.activeSignals);
   const [picker, setPicker] = useState<{ row: number; anchorRect: DOMRect } | null>(null);
   const [snapCursor, setSnapCursor] = useState(true);
   const [clockAnchor, setClockAnchor] = useState(false);
+  // Cursor needs both a ref (event handlers, frame loop) and state (active-
+  // signal value column re-renders on cursor move).
+  const [cursorTicks, setCursorTicks] = useState(INITIAL_CURSOR_TICKS);
+  const cursorTicksRef = useRef(INITIAL_CURSOR_TICKS);
+  const snapCursorRef = useRef(snapCursor);
+  useEffect(() => { snapCursorRef.current = snapCursor; }, [snapCursor]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -229,11 +279,20 @@ export function App() {
         // Timeline occupies only `TIMELINE_FRAC` of canvas width; the rest
         // becomes a crosshatched dead zone at the right edge.
         const timelinePx = canvasRect.width * TIMELINE_FRAC;
-        const ticksPerPixel = MOCK_END_TICKS / timelinePx;
-        const xForTick = (tick: number) => tick / ticksPerPixel;
+
+        // Auto-fit until the user interacts, then freeze.
+        if (!userInteractedRef.current || ticksPerPixelRef.current <= 0) {
+          ticksPerPixelRef.current = MOCK_END_TICKS / timelinePx;
+          startTicksRef.current = 0;
+        }
+        const ticksPerPixel = ticksPerPixelRef.current;
+        const startTicks = startTicksRef.current;
+        const visibleTicks = timelinePx * ticksPerPixel;
+        const cursor = cursorTicksRef.current;
+        const xForTick = (tick: number) => (tick - startTicks) / ticksPerPixel;
         const vp = {
           ticks_per_pixel: ticksPerPixel,
-          start_ticks: 0,
+          start_ticks: startTicks,
           width: canvasRect.width,
           height: canvasRect.height,
           row_height: rowHeightCSS,
@@ -242,28 +301,37 @@ export function App() {
           wave_y_offset: rulerHeightCSS,
         };
 
-        // Background rects: red crosshatch over the reset-held interval,
-        // plus gray crosshatch over the post-timeline dead zone.
-        const resetX0 = RESET_HELD_TICKS.tStart / ticksPerPixel;
-        const resetX1 = RESET_HELD_TICKS.tEnd / ticksPerPixel;
+        // Right-edge dead zone: extend leftward to the data end when the
+        // user has zoomed out past MOCK_END_TICKS, so the OOB area shows
+        // crosshatch.
+        const dataEndPx = xForTick(MOCK_END_TICKS);
+        const deadStartPx = Math.min(timelinePx, dataEndPx);
+
+        // Major notch: bottom-aligned to the ruler's lower border.
+        const notchY = rulerHeightCSS - NOTCH_HEIGHT;
+        const { ticks: rulerTicks, spacing: rulerStep } = dynamicRulerTicks(startTicks, visibleTicks);
         rectsBg.setRects([
           { x: 0, y: 0, w: canvasRect.width, h: rulerHeightCSS, color: PANEL_2 },
           { x: 0, y: rulerHeightCSS - 1, w: canvasRect.width, h: 1, color: BORDER },
-          { x: resetX0, y: rulerHeightCSS, w: resetX1 - resetX0, h: waveHeightCSS, color: RESET_RED, crosshatch: true },
-          { x: timelinePx, y: rulerHeightCSS, w: canvasRect.width - timelinePx, h: waveHeightCSS, color: DEAD_ZONE_GRAY, crosshatch: true },
+          ...rulerTicks.map((t) => ({
+            x: xForTick(t), y: notchY, w: 2, h: NOTCH_HEIGHT, color: NOTCH_COLOR,
+          })),
+          { x: deadStartPx, y: rulerHeightCSS, w: canvasRect.width - deadStartPx, h: waveHeightCSS, color: DEAD_ZONE_GRAY, crosshatch: true },
         ]);
 
-        // Grid: dashed vertical lines right-aligned to each clock positive
-        // edge (matches the clock pill's right-edge rendering).
+        // Grid: dashed vertical lines right-aligned to each visible clock
+        // positive edge.
         const gridInset = GRID_THICKNESS_CSS_PER_DPR * dpr;
-        linesBg.setLines(CLOCK_EDGE_TICKS.map((t) => ({
-          x: t / ticksPerPixel - gridInset,
-          color: GRID_GRAY,
-          dashed: true,
-        })));
+        const visStart = startTicks - 1;
+        const visEnd = startTicks + visibleTicks + 1;
+        linesBg.setLines(
+          CLOCK_EDGE_TICKS
+            .filter((t) => t >= visStart && t <= visEnd)
+            .map((t) => ({ x: xForTick(t) - gridInset, color: GRID_GRAY, dashed: true })),
+        );
         linesFg.setLines([
           { x: xForTick(MARKER_TICKS), color: MARKER, dashed: true },
-          { x: xForTick(CURSOR_TICKS), color: HOT },
+          { x: xForTick(cursor), color: HOT },
         ]);
 
         // Build glyph instances for multi-bit pill values.
@@ -271,21 +339,21 @@ export function App() {
         const cellW = cellLg.widthPx;
         let gi = 0;
         const rulerLabelY = Math.round(rulerHeightCSS * 0.5 + 2);
-        for (const t of RULER_TICKS) {
+        for (const t of rulerTicks) {
           gi = writeText(
             textBody,
             gi,
             Math.round(xForTick(t) + 3),
             rulerLabelY,
-            `${t} ns`,
+            formatRulerLabel(t, rulerStep),
             TEXT_SECONDARY,
             true,
           );
         }
         for (const lbl of MULTI_BIT_LABELS) {
           if (gi >= MAX_GLYPHS) break;
-          const startPx = lbl.tStart / ticksPerPixel;
-          const endPx = lbl.tEnd / ticksPerPixel;
+          const startPx = xForTick(lbl.tStart);
+          const endPx = xForTick(lbl.tEnd);
           const widthPx = endPx - startPx;
           const textWidthPx = lbl.text.length * cellW;
           if (widthPx < textWidthPx + 6) continue; // skip if pill too narrow
@@ -324,7 +392,7 @@ export function App() {
           );
         };
         addFlag(xForTick(MARKER_TICKS), `M1 · ${MARKER_TICKS.toFixed(3)} ns`, MARKER);
-        addFlag(xForTick(CURSOR_TICKS), `${CURSOR_TICKS.toFixed(3)} ns`, HOT);
+        addFlag(xForTick(cursor), `${cursor.toFixed(3)} ns`, HOT);
         rectsTop.setRects(flagRects);
         textTop.setGlyphs(flagGi);
 
@@ -349,6 +417,85 @@ export function App() {
     for (const r of activeSignals) m.set(r.row, pickTextColor(r.color));
     textColorByRowRef.current = m;
   }, [activeSignals]);
+
+  // Mouse interactivity: wheel = pan, ctrl+wheel = zoom (anchored at mouse x),
+  // left click/drag = cursor follows mouse. Native listeners (not React
+  // synthetic) so the wheel handler can be non-passive and call preventDefault.
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return;
+
+    const clampPan = (timelinePx: number) => {
+      const visibleTicks = timelinePx * ticksPerPixelRef.current;
+      if (visibleTicks < MOCK_END_TICKS) {
+        startTicksRef.current = Math.max(0, Math.min(MOCK_END_TICKS - visibleTicks, startTicksRef.current));
+      } else {
+        // Fully zoomed out: data fits with room to spare. Force start to 0 so
+        // ctrl-zoom-while-fit anchors at the data origin instead of drifting.
+        startTicksRef.current = 0;
+      }
+    };
+
+    const setCursorAtClientX = (clientX: number) => {
+      const rect = host.getBoundingClientRect();
+      const px = clientX - rect.left;
+      let tick = startTicksRef.current + px * ticksPerPixelRef.current;
+      if (snapCursorRef.current) tick = snapToClockEdge(tick);
+      cursorTicksRef.current = tick;
+      setCursorTicks(tick);
+    };
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      userInteractedRef.current = true;
+      const rect = host.getBoundingClientRect();
+      const timelinePx = rect.width * TIMELINE_FRAC;
+      if (e.ctrlKey) {
+        const mouseX = e.clientX - rect.left;
+        const worldTickAtMouse = startTicksRef.current + mouseX * ticksPerPixelRef.current;
+        const factor = Math.exp(e.deltaY * ZOOM_PER_DELTA_Y);
+        ticksPerPixelRef.current *= factor;
+        startTicksRef.current = worldTickAtMouse - mouseX * ticksPerPixelRef.current;
+      } else {
+        // Pan only when zoomed in past fit; otherwise ignore (clampPan would
+        // snap back to 0 anyway, but skipping is cleaner UX).
+        const visibleTicks = timelinePx * ticksPerPixelRef.current;
+        if (visibleTicks >= MOCK_END_TICKS) return;
+        const dx = e.deltaX !== 0 ? e.deltaX : e.deltaY;
+        startTicksRef.current += dx * ticksPerPixelRef.current;
+      }
+      clampPan(timelinePx);
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.button !== 0) return;
+      draggingRef.current = true;
+      host.setPointerCapture(e.pointerId);
+      setCursorAtClientX(e.clientX);
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (!draggingRef.current) return;
+      setCursorAtClientX(e.clientX);
+    };
+    const onPointerUp = (e: PointerEvent) => {
+      if (!draggingRef.current) return;
+      draggingRef.current = false;
+      host.releasePointerCapture(e.pointerId);
+    };
+
+    host.addEventListener("wheel", onWheel, { passive: false });
+    host.addEventListener("pointerdown", onPointerDown);
+    host.addEventListener("pointermove", onPointerMove);
+    host.addEventListener("pointerup", onPointerUp);
+    host.addEventListener("pointercancel", onPointerUp);
+    return () => {
+      host.removeEventListener("wheel", onWheel);
+      host.removeEventListener("pointerdown", onPointerDown);
+      host.removeEventListener("pointermove", onPointerMove);
+      host.removeEventListener("pointerup", onPointerUp);
+      host.removeEventListener("pointercancel", onPointerUp);
+    };
+  }, []);
 
   const handleColorChange = (row: number, color: string) => {
     setActiveSignals((refs) => refs.map((r) => (r.row === row ? { ...r, color } : r)));
@@ -419,7 +566,7 @@ export function App() {
                   color={ref.color}
                   pinned={ref.pinned}
                   selected={ref.selected}
-                  value={formatSegmentValue(findSegmentAtTick(ref.row, CURSOR_TICKS), sig.bitWidth, ref.radix, ENUM_LABELS_BY_ROW.get(ref.row))}
+                  value={formatSegmentValue(findSegmentAtTick(ref.row, cursorTicks), sig.bitWidth, ref.radix, ENUM_LABELS_BY_ROW.get(ref.row))}
                   onPinClick={(e) => setPicker({ row: ref.row, anchorRect: (e.currentTarget as HTMLElement).getBoundingClientRect() })}
                 />
               );
@@ -431,7 +578,7 @@ export function App() {
           <div className="col-head toolbar">
             <h3>Waves</h3>
             <div className="divider" />
-            <span className="pill"><span className="swatch" /><span className="mono">cursor 32.400 ns</span></span>
+            <span className="pill"><span className="swatch" /><span className="mono">cursor {cursorTicks.toFixed(3)} ns</span></span>
             <div className="seg">
               <span className="btn icon" data-tip="to beginning"><ChevronFirst size={14} /></span>
               <span className="btn icon" data-tip="step backward"><ChevronLeft size={14} /></span>
@@ -476,7 +623,7 @@ export function App() {
           </div>
 
           <div className="wv-canvas">
-            <div className="gpu-host">
+            <div className="gpu-host" ref={hostRef}>
               <canvas id="gpu" ref={canvasRef} />
             </div>
           </div>
@@ -484,9 +631,9 @@ export function App() {
       </div>
 
       <div className="status">
-        <span>cursor <b>{CURSOR_TICKS.toFixed(3)} ns</b></span>
+        <span>cursor <b>{cursorTicks.toFixed(3)} ns</b></span>
         <span>M1 <b>{MARKER_TICKS.toFixed(3)} ns</b></span>
-        <span>Δ <b>{(CURSOR_TICKS - MARKER_TICKS).toFixed(3)} ns</b></span>
+        <span>Δ <b>{(cursorTicks - MARKER_TICKS).toFixed(3)} ns</b></span>
         <span>zoom <b>1 ns / 14 px</b></span>
         <span className="sp" />
         <span>147 signals</span>

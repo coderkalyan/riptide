@@ -4,7 +4,7 @@
 
 struct Viewport {
     ticks_per_pixel: f32,
-    start_ticks: u32,
+    start_ticks: f32,
     width: f32,
     height: f32,
     row_height: f32,
