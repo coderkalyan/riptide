@@ -12,6 +12,7 @@ export interface ActiveSignalProps {
   selected?: boolean;
   nested?: boolean;
   onPinClick?: (e: React.MouseEvent<HTMLElement>) => void;
+  onClick?: (e: React.MouseEvent<HTMLElement>) => void;
 }
 
 const ICON = {
@@ -27,12 +28,12 @@ export function ActiveSignal(props: ActiveSignalProps) {
     .filter(Boolean)
     .join(" ");
   return (
-    <div className={cls}>
+    <div className={cls} onClick={props.onClick}>
       <span
         className="pin"
         style={{ background: props.color }}
         data-tip="change color"
-        onClick={props.onPinClick}
+        onClick={(e) => { e.stopPropagation(); props.onPinClick?.(e); }}
       />
       <span className={"s-icon " + props.kind}>{ICON[props.kind]}</span>
       <span className="n">{props.name}</span>

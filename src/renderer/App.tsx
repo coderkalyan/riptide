@@ -134,8 +134,6 @@ function pickTextColor(hex: string): number {
 const GRID_GRAY = packRgba(0x86, 0x8c, 0x96, 0x70);
 const DEAD_ZONE_GRAY = packRgba(0x78, 0x7c, 0x86, 0x70);
 const RESET_RED = packRgba(0xe8, 0x6a, 0x5a, 0x60);
-const SELECTED_ROW = MOCK_SCENE.activeSignals.find((r) => r.selected)?.row ?? -1;
-const TIMELINE_FRAC = 0.9; // timeline occupies 90% of canvas; rest is dead zone
 const NOTCH_COLOR = packRgba(0x86, 0x8c, 0x96, 0xff);
 const NOTCH_HEIGHT = 12;
 
@@ -207,6 +205,10 @@ export function App() {
   const cursorTicksRef = useRef(INITIAL_CURSOR_TICKS);
   const snapCursorRef = useRef(snapCursor);
   useEffect(() => { snapCursorRef.current = snapCursor; }, [snapCursor]);
+  const selectedRowRef = useRef(MOCK_SCENE.activeSignals.find((r) => r.selected)?.row ?? -1);
+  useEffect(() => {
+    selectedRowRef.current = activeSignals.find((r) => r.selected)?.row ?? -1;
+  }, [activeSignals]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -276,9 +278,7 @@ export function App() {
         const rulerHeightCSS = rowHeightCSS;
         const waveHeightCSS = Math.max(0, canvasRect.height - rulerHeightCSS);
 
-        // Timeline occupies only `TIMELINE_FRAC` of canvas width; the rest
-        // becomes a crosshatched dead zone at the right edge.
-        const timelinePx = canvasRect.width * TIMELINE_FRAC;
+        const timelinePx = canvasRect.width;
 
         // Auto-fit until the user interacts, then freeze.
         if (!userInteractedRef.current || ticksPerPixelRef.current <= 0) {
@@ -297,7 +297,7 @@ export function App() {
           height: canvasRect.height,
           row_height: rowHeightCSS,
           dpr,
-          selected_row: SELECTED_ROW,
+          selected_row: selectedRowRef.current,
           wave_y_offset: rulerHeightCSS,
         };
 
@@ -378,7 +378,14 @@ export function App() {
         let flagGi = 0;
         const addFlag = (x: number, text: string, color: number) => {
           const pillW = text.length * cellSm.widthPx + padX * 2;
-          const pillX = x - pillW * 0.5;
+          // Default anchor: pill's left edge sits on the line. Near the right
+          // canvas edge, slide the pill leftward so it stays on-screen — at
+          // x == canvas.right, pill's right edge sits on the line. Linear
+          // ramp over the last `pillW` px of canvas (interior is dead zone,
+          // no pill movement). Final clamp keeps the pill fully on-screen.
+          const flipStart = canvasRect.width - pillW;
+          const t = Math.max(0, Math.min(1, (x - flipStart) / pillW));
+          const pillX = Math.max(0, Math.min(canvasRect.width - pillW, x - t * pillW));
           const pillY = 0;
           flagRects.push({ x: pillX, y: pillY, w: pillW, h: pillH, color, rounded: true });
           flagGi = writeText(
@@ -438,7 +445,8 @@ export function App() {
 
     const setCursorAtClientX = (clientX: number) => {
       const rect = host.getBoundingClientRect();
-      const px = clientX - rect.left;
+      // Clamp px to canvas; pointer capture lets events fire outside the host.
+      const px = Math.max(0, Math.min(rect.width, clientX - rect.left));
       let tick = startTicksRef.current + px * ticksPerPixelRef.current;
       if (snapCursorRef.current) tick = snapToClockEdge(tick);
       cursorTicksRef.current = tick;
@@ -449,7 +457,7 @@ export function App() {
       e.preventDefault();
       userInteractedRef.current = true;
       const rect = host.getBoundingClientRect();
-      const timelinePx = rect.width * TIMELINE_FRAC;
+      const timelinePx = rect.width;
       if (e.ctrlKey) {
         const mouseX = e.clientX - rect.left;
         const worldTickAtMouse = startTicksRef.current + mouseX * ticksPerPixelRef.current;
@@ -499,6 +507,43 @@ export function App() {
 
   const handleColorChange = (row: number, color: string) => {
     setActiveSignals((refs) => refs.map((r) => (r.row === row ? { ...r, color } : r)));
+  };
+
+  // Click row: select it (deselecting others). Click selected row again: clear.
+  const handleRowClick = (row: number) => {
+    setActiveSignals((refs) => {
+      const wasSelected = refs.find((r) => r.row === row)?.selected ?? false;
+      return refs.map((r) => ({
+        ...r,
+        selected: !wasSelected && r.row === row,
+      }));
+    });
+  };
+
+  const ZOOM_STEP = 1.25;
+  const zoomBy = (factor: number) => {
+    const host = hostRef.current;
+    if (!host) return;
+    const timelinePx = host.getBoundingClientRect().width;
+    userInteractedRef.current = true;
+    const centerX = timelinePx * 0.5;
+    const worldTickAtCenter = startTicksRef.current + centerX * ticksPerPixelRef.current;
+    ticksPerPixelRef.current *= factor;
+    startTicksRef.current = worldTickAtCenter - centerX * ticksPerPixelRef.current;
+    const visible = timelinePx * ticksPerPixelRef.current;
+    if (visible < MOCK_END_TICKS) {
+      startTicksRef.current = Math.max(0, Math.min(MOCK_END_TICKS - visible, startTicksRef.current));
+    } else {
+      startTicksRef.current = 0;
+    }
+  };
+  const fitView = () => {
+    const host = hostRef.current;
+    if (!host) return;
+    const timelinePx = host.getBoundingClientRect().width;
+    ticksPerPixelRef.current = MOCK_END_TICKS / timelinePx;
+    startTicksRef.current = 0;
+    userInteractedRef.current = false;
   };
 
   return (
@@ -568,6 +613,7 @@ export function App() {
                   selected={ref.selected}
                   value={formatSegmentValue(findSegmentAtTick(ref.row, cursorTicks), sig.bitWidth, ref.radix, ENUM_LABELS_BY_ROW.get(ref.row))}
                   onPinClick={(e) => setPicker({ row: ref.row, anchorRect: (e.currentTarget as HTMLElement).getBoundingClientRect() })}
+                  onClick={() => handleRowClick(ref.row)}
                 />
               );
             })}
@@ -594,9 +640,9 @@ export function App() {
             </span>
             <span className="sp" style={{ flex: 1 }} />
             <div className="seg">
-              <span className="btn icon"><Minus size={14} /></span>
-              <span className="btn icon" data-tip="fit"><Maximize size={14} /></span>
-              <span className="btn icon"><Plus size={14} /></span>
+              <span className="btn icon" data-tip="zoom out" onClick={() => zoomBy(ZOOM_STEP)}><Minus size={14} /></span>
+              <span className="btn icon" data-tip="fit" onClick={fitView}><Maximize size={14} /></span>
+              <span className="btn icon" data-tip="zoom in" onClick={() => zoomBy(1 / ZOOM_STEP)}><Plus size={14} /></span>
             </div>
             <span
               className={`btn sm icon${clockAnchor ? " on" : ""}`}

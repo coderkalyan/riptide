@@ -1,6 +1,7 @@
-// Vertical full-height lines. Used for timeline grid + cursors/markers.
-// Instanced quad per line: 2*dpr CSS px wide, spans canvas top to bottom.
-// x_px is the LEFT edge of the line.
+// Vertical lines for timeline grid + cursors/markers. Start partway down
+// into the flag pill (so the line visually anchors the pill) but not at
+// y=0, which would leave AA slivers above the pill's rounded corners.
+// Instanced quad per line: 2*dpr CSS px wide. x_px is the LEFT edge.
 
 struct Viewport {
     ticks_per_pixel: f32,
@@ -47,9 +48,11 @@ fn vs_line(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
     let corner_x = f32(vi & 1u);
     let corner_y = f32((vi >> 1u) & 1u);
 
-    // Line is left-aligned, anchored at x_px.
+    // Line is left-aligned, anchored at x_px. Top starts inside the flag pill
+    // (8 CSS px = pill_h/2 in App.tsx) so the line appears to enter the pill.
     let x_px = line.x_px + corner_x * thickness;
-    let y_px = corner_y * viewport.height;
+    let y_top = 8.0;
+    let y_px = y_top + corner_y * (viewport.height - y_top);
 
     let clip_x = x_px / viewport.width * 2.0 - 1.0;
     let clip_y = 1.0 - y_px / viewport.height * 2.0;

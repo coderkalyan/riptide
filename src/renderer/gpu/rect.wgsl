@@ -82,11 +82,17 @@ fn fs_rect(in: VertexData) -> @location(0) vec4f {
     let stripe_mask = 1.0 - f32(crosshatch) * smoothstep(thickness - aa_s, thickness + aa_s, stripe);
     a *= stripe_mask;
 
-    // Rounded-corner mask — capsule SDF, AA via fwidth on the signed distance.
+    // Rounded-corner mask — only AA inside the corner zones (where both
+    // q.x>0 and q.y>0); straight edges stay sharp so adjacent pixels
+    // (e.g. a cursor line abutting the pill) don't pick up sub-pixel
+    // transparency.
     let centered = in.local_px - in.half_size_px;
-    let d = sdf_rounded(centered, in.half_size_px, ROUND_RADIUS_PX);
+    let q = abs(centered) - in.half_size_px + ROUND_RADIUS_PX;
+    let in_corner = q.x > 0.0 && q.y > 0.0;
+    let d = length(max(q, vec2f(0.0, 0.0))) - ROUND_RADIUS_PX;
     let aa_d = fwidth(d);
-    let round_mask = 1.0 - smoothstep(-aa_d, 0.0, d);
+    let corner_mask = 1.0 - smoothstep(-aa_d, 0.0, d);
+    let round_mask = select(1.0, corner_mask, in_corner);
     a *= select(1.0, round_mask, rounded);
 
     return vec4f(in.color.rgb, a);
