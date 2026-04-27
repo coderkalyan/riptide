@@ -177,6 +177,21 @@ export function buildClockSegments(row: number): Segment[] {
 //   [0] tStart  [1] tEnd  [2] valueLsb  [3] valueMsb  [4] rowFlags
 // Matches the storage buffer struct in the WGSL shader.
 
+export function unpackSegments(packed: Uint32Array, count: number): Segment[] {
+  const out: Segment[] = new Array(count);
+  for (let i = 0; i < count; i++) {
+    const o = i * 5;
+    out[i] = {
+      tStart: packed[o],
+      tEnd: packed[o + 1],
+      valueLsb: packed[o + 2],
+      valueMsb: packed[o + 3],
+      rowFlags: packed[o + 4],
+    };
+  }
+  return out;
+}
+
 export function packSegments(segs: Segment[]): Uint32Array<ArrayBuffer> {
   const buf = new Uint32Array(new ArrayBuffer(segs.length * 5 * 4));
   for (let i = 0; i < segs.length; i++) {

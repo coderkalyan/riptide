@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { Activity, ChevronDown, ChevronRight, Package, Plus } from "lucide-react";
 import type { Hierarchy, NodeId, Signal } from "./hier/types";
-import { getScope } from "./hier/hierarchy";
 
 export function signalIconKind(sig: Signal): "enum" | "bus" | "scalar" {
   if (sig.enumTypeId != null) return "enum";
@@ -83,5 +82,3 @@ function TreeNode({
   );
 }
 
-// Re-export so App.tsx can traverse from hierarchy when needed.
-export { getScope };

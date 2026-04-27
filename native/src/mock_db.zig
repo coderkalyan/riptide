@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const tide = @import("tide");
 const seg = @import("segments.zig");
+const hier = @import("hier.zig");
 
 const SegValue = seg.SegValue;
 
@@ -137,4 +138,52 @@ pub fn build(gpa: Allocator) !tide.Database {
     try insertDataSignal(&db, gpa, .done, 1, &V_DONE);
 
     return db;
+}
+
+pub fn buildHierarchy(gpa: Allocator) !hier.Hierarchy {
+    var b: hier.Builder = .init(gpa);
+    errdefer b.arena.deinit();
+
+    const Sig = struct {
+        name: []const u8,
+        row: Row,
+        var_type: hier.VarType,
+        bit_width: u32,
+    };
+    const wave_sigs = [_]Sig{
+        .{ .name = "clk", .row = .clk, .var_type = .vcd_wire, .bit_width = 1 },
+        .{ .name = "rst", .row = .rst, .var_type = .vcd_reg, .bit_width = 1 },
+        .{ .name = "state[1:0]", .row = .state, .var_type = .vcd_reg, .bit_width = 2 },
+        .{ .name = "cycle_count[7:0]", .row = .cycle, .var_type = .vcd_reg, .bit_width = 8 },
+        .{ .name = "in_valid", .row = .in_valid, .var_type = .vcd_reg, .bit_width = 1 },
+        .{ .name = "in_data[7:0]", .row = .in_data, .var_type = .vcd_reg, .bit_width = 8 },
+        .{ .name = "in_addr[15:0]", .row = .in_addr, .var_type = .vcd_reg, .bit_width = 16 },
+        .{ .name = "out_valid", .row = .out_valid, .var_type = .vcd_reg, .bit_width = 1 },
+        .{ .name = "out_data[31:0]", .row = .out_data, .var_type = .vcd_reg, .bit_width = 32 },
+        .{ .name = "fifo_level[3:0]", .row = .fifo_level, .var_type = .vcd_reg, .bit_width = 4 },
+        .{ .name = "fifo_empty", .row = .fifo_empty, .var_type = .vcd_wire, .bit_width = 1 },
+        .{ .name = "dbus[7:0]", .row = .dbus, .var_type = .vcd_wire, .bit_width = 8 },
+    };
+
+    _ = try b.openScope("top", .module);
+    _ = try b.openScope("keysched", .module);
+    _ = try b.openScope("waves", .module);
+    for (wave_sigs) |s| {
+        _ = try b.addSignal(.{
+            .name = s.name,
+            .var_type = s.var_type,
+            .bit_width = s.bit_width,
+            .handle = rowId(s.row),
+        });
+    }
+    b.closeScope(); // waves
+    b.closeScope(); // keysched
+    b.closeScope(); // top
+
+    _ = try b.openScope("derived", .package);
+    _ = try b.addSignal(.{ .name = "busy", .var_type = .vcd_wire, .bit_width = 1, .handle = rowId(.busy) });
+    _ = try b.addSignal(.{ .name = "done", .var_type = .vcd_wire, .bit_width = 1, .handle = rowId(.done) });
+    b.closeScope();
+
+    return try b.build();
 }

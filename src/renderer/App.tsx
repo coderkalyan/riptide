@@ -7,13 +7,13 @@ import { initGPU, resizeCanvas, GPUInitError } from "./gpu/device";
 import { createDigitalRenderer } from "./gpu/digital";
 import { renderFrame } from "./gpu/frame";
 import { createColorBuffer, writeRowColors } from "./gpu/colors";
-import { MOCK_CLOCK_TICK_NS, MOCK_END_TICKS, type Segment } from "./gpu/data";
+import { MOCK_CLOCK_TICK_NS, MOCK_END_TICKS, type Segment, unpackSegments } from "./gpu/data";
 import { createTextRenderer, packRgba, MAX_GLYPHS, ATLAS_MIDDLE_DOT } from "./gpu/text";
 import { createLineRenderer } from "./gpu/lines";
 import { createRectRenderer } from "./gpu/rect";
-import { MOCK_SCENE, RESET_HELD_TICKS, type ActiveSignalRef, type Radix } from "./hier/mock";
-import { getSignal } from "./hier/hierarchy";
-import { getMockSegments } from "./native";
+import { resolveScene, type ActiveSignalRef, type Radix } from "./hier/scene";
+import { getSignal } from "./hier/types";
+import { getHierarchy, getMockSegments } from "./native";
 
 function activeSignalKind(ref: ActiveSignalRef): ActiveSignalKind {
   if (ref.role === "clock") return "clock";
@@ -27,8 +27,16 @@ const INITIAL_CURSOR_TICKS = 32.4;
 const MARKER_TICKS = 19.6;
 const ZOOM_PER_DELTA_Y = 0.001; // Math.exp() factor per wheel deltaY unit
 
+const HIERARCHY = getHierarchy();
+const { activeSignals: INITIAL_ACTIVE_SIGNALS, initialExpanded: INITIAL_EXPANDED } = resolveScene(HIERARCHY);
+const NATIVE_SEGMENTS = getMockSegments();
+const ALL_SEGMENTS: Segment[] = [
+  ...unpackSegments(NATIVE_SEGMENTS.multi, NATIVE_SEGMENTS.multiCount),
+  ...unpackSegments(NATIVE_SEGMENTS.single, NATIVE_SEGMENTS.singleCount),
+];
+
 function findSegmentAtTick(row: number, tick: number): Segment | undefined {
-  return MOCK_SCENE.segments.find((segment) => {
+  return ALL_SEGMENTS.find((segment) => {
     const segmentRow = segment.rowFlags & 0xffff;
     return segmentRow === row && segment.tStart <= tick && tick < segment.tEnd;
   });
@@ -70,26 +78,15 @@ function formatSegmentValue(
 // Precompute enum label maps per row (value → label) for any active signal
 // whose declaration carries an enumTypeId.
 const ENUM_LABELS_BY_ROW = new Map<number, Map<number, string>>();
-for (const ref of MOCK_SCENE.activeSignals) {
-  const sig = getSignal(MOCK_SCENE.hierarchy, ref.signalId);
+for (const ref of INITIAL_ACTIVE_SIGNALS) {
+  const sig = getSignal(HIERARCHY, ref.signalId);
   if (sig.enumTypeId == null) continue;
-  const enumType = MOCK_SCENE.hierarchy.enumTypes.get(sig.enumTypeId);
+  const enumType = HIERARCHY.enumTypes.get(sig.enumTypeId);
   if (!enumType) continue;
   const m = new Map<number, string>();
   for (const mem of enumType.members) m.set(parseInt(mem.raw, 2), mem.label);
   ENUM_LABELS_BY_ROW.set(ref.row, m);
 }
-
-const SINGLE_BIT_SEGMENTS = MOCK_SCENE.segments.filter((s) => {
-  const ref = MOCK_SCENE.activeSignals.find((r) => r.row === (s.rowFlags & 0xffff));
-  if (!ref) return false;
-  return getSignal(MOCK_SCENE.hierarchy, ref.signalId).bitWidth === 1;
-});
-const MULTI_BIT_SEGMENTS = MOCK_SCENE.segments.filter((s) => {
-  const ref = MOCK_SCENE.activeSignals.find((r) => r.row === (s.rowFlags & 0xffff));
-  if (!ref) return false;
-  return getSignal(MOCK_SCENE.hierarchy, ref.signalId).bitWidth > 1;
-});
 
 interface MultiBitLabel {
   row: number;
@@ -99,12 +96,17 @@ interface MultiBitLabel {
 }
 
 const FLAG_MUTE = 1 << 20;
-const MULTI_BIT_LABELS: MultiBitLabel[] = MULTI_BIT_SEGMENTS
-  .filter((s) => (s.rowFlags & FLAG_MUTE) === 0)
+const MULTI_BIT_LABELS: MultiBitLabel[] = ALL_SEGMENTS
+  .filter((s) => {
+    if ((s.rowFlags & FLAG_MUTE) !== 0) return false;
+    const ref = INITIAL_ACTIVE_SIGNALS.find((r) => r.row === (s.rowFlags & 0xffff));
+    if (!ref) return false;
+    return getSignal(HIERARCHY, ref.signalId).bitWidth > 1;
+  })
   .map((s) => {
     const row = s.rowFlags & 0xffff;
-    const ref = MOCK_SCENE.activeSignals.find((r) => r.row === row)!;
-    const sig = getSignal(MOCK_SCENE.hierarchy, ref.signalId);
+    const ref = INITIAL_ACTIVE_SIGNALS.find((r) => r.row === row)!;
+    const sig = getSignal(HIERARCHY, ref.signalId);
     return { row, tStart: s.tStart, tEnd: s.tEnd, text: formatSegmentValue(s, sig.bitWidth, ref.radix, ENUM_LABELS_BY_ROW.get(row)) };
   });
 
@@ -194,7 +196,7 @@ export function App() {
   const userInteractedRef = useRef(false);
   const draggingRef = useRef(false);
 
-  const [activeSignals, setActiveSignals] = useState<ActiveSignalRef[]>(MOCK_SCENE.activeSignals);
+  const [activeSignals, setActiveSignals] = useState<ActiveSignalRef[]>(INITIAL_ACTIVE_SIGNALS);
   const [picker, setPicker] = useState<{ row: number; anchorRect: DOMRect } | null>(null);
   const [snapCursor, setSnapCursor] = useState(true);
   const [clockAnchor, setClockAnchor] = useState(false);
@@ -219,13 +221,12 @@ export function App() {
     initGPU(canvas).then(async ({ device, ctx, format }) => {
       const gpuCtx = { device, ctx, format };
       const colorBuf = createColorBuffer(device);
-      writeRowColors(device, colorBuf, MOCK_SCENE.activeSignals);
+      writeRowColors(device, colorBuf, INITIAL_ACTIVE_SIGNALS);
       gpuRef.current = { device, colorBuf };
       const renderer = createDigitalRenderer(gpuCtx);
-      const native = getMockSegments();
       const [multiBit, singleBit, textRenderer, lineRenderer, rectRenderer] = await Promise.all([
-        renderer.buildPipelineFromPacked("multi", native.multi, native.multiCount, colorBuf),
-        renderer.buildPipelineFromPacked("single", native.single, native.singleCount, colorBuf),
+        renderer.buildPipelineFromPacked("multi", NATIVE_SEGMENTS.multi, NATIVE_SEGMENTS.multiCount, colorBuf),
+        renderer.buildPipelineFromPacked("single", NATIVE_SEGMENTS.single, NATIVE_SEGMENTS.singleCount, colorBuf),
         createTextRenderer(gpuCtx, renderer.uniformBuf),
         createLineRenderer(gpuCtx, renderer.uniformBuf),
         createRectRenderer(gpuCtx, renderer.uniformBuf),
@@ -597,26 +598,28 @@ export function App() {
         )}
         <div className="col-resize" style={{ left: treeColW + activeW - 3 }} onPointerDown={startResize("active")} />
         <div className="col">
-          {treeCollapsed ? (
-            <div className="col-head" style={{ justifyContent: "center" }}>
-              <span className="collapse" data-tip="expand panel" onClick={() => setTreeCollapsed(false)}>
-                <PanelLeftOpen size={14} strokeWidth={1.75} />
-              </span>
-            </div>
-          ) : (
-            <>
-              <div className="col-head">
-                <h3>Signal Tree</h3>
-                <span className="sp" style={{ flex: 1 }} />
-                <span className="collapse" data-tip="collapse panel" onClick={() => setTreeCollapsed(true)}>
-                  <PanelLeftClose size={14} strokeWidth={1.75} />
+          {
+            treeCollapsed ? (
+              <div className="col-head" style={{ justifyContent: "center" }}>
+                <span className="collapse" data-tip="expand panel" onClick={() => setTreeCollapsed(false)}>
+                  <PanelLeftOpen size={14} strokeWidth={1.75} />
                 </span>
               </div>
-              <div className="col-sub"><input className="search" placeholder="filter scope/name" /></div>
-              <SignalTreeView hierarchy={MOCK_SCENE.hierarchy} initialExpanded={MOCK_SCENE.initialExpanded} />
-            </>
-          )}
-        </div>
+            ) : (
+              <>
+                <div className="col-head">
+                  <h3>Signal Tree</h3>
+                  <span className="sp" style={{ flex: 1 }} />
+                  <span className="collapse" data-tip="collapse panel" onClick={() => setTreeCollapsed(true)}>
+                    <PanelLeftClose size={14} strokeWidth={1.75} />
+                  </span>
+                </div>
+                <div className="col-sub"><input className="search" placeholder="filter scope/name" /></div>
+                <SignalTreeView hierarchy={MOCK_SCENE.hierarchy} initialExpanded={MOCK_SCENE.initialExpanded} />
+              </>
+            )
+          }
+        </div >
 
         <div className="col">
           <div className="col-head"><h3>Active Signals</h3><span className="hint">{activeSignals.length} active</span></div>
@@ -632,7 +635,7 @@ export function App() {
           </div>
           <div className="signals" ref={signalsRef}>
             {activeSignals.map((ref, i) => {
-              const sig = getSignal(MOCK_SCENE.hierarchy, ref.signalId);
+              const sig = getSignal(HIERARCHY, ref.signalId);
               return (
                 <ActiveSignal
                   key={i}
@@ -705,7 +708,7 @@ export function App() {
             </div>
           </div>
         </div>
-      </div>
+      </div >
 
       <div className="status">
         <span>cursor <b>{cursorTicks.toFixed(3)} ns</b></span>
@@ -719,14 +722,16 @@ export function App() {
         <span>top / keysched</span>
       </div>
 
-      {picker && (
-        <ColorPicker
-          color={activeSignals.find((r) => r.row === picker.row)?.color ?? "#000000"}
-          onChange={(c) => handleColorChange(picker.row, c)}
-          onClose={() => setPicker(null)}
-          anchorRect={picker.anchorRect}
-        />
-      )}
-    </div>
+      {
+        picker && (
+          <ColorPicker
+            color={activeSignals.find((r) => r.row === picker.row)?.color ?? "#000000"}
+            onChange={(c) => handleColorChange(picker.row, c)}
+            onClose={() => setPicker(null)}
+            anchorRect={picker.anchorRect}
+          />
+        )
+      }
+    </div >
   );
 }

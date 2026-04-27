@@ -192,6 +192,18 @@ export function declaredRange(sig: Signal): { msb: number; lsb: number } | null 
   return m ? { msb: +m[1], lsb: +m[2] } : null;
 }
 
+export function getScope(h: Hierarchy, id: NodeId): Scope {
+  const n = h.nodes.get(id);
+  if (!n || n.kind !== "scope") throw new Error(`Node ${id} is not a scope`);
+  return n;
+}
+
+export function getSignal(h: Hierarchy, id: NodeId): Signal {
+  const n = h.nodes.get(id);
+  if (!n || n.kind !== "signal") throw new Error(`Node ${id} is not a signal`);
+  return n;
+}
+
 export function pathOf(h: Hierarchy, id: NodeId): string {
   const parts: string[] = [];
   let cur: HierNode | undefined = h.nodes.get(id);
