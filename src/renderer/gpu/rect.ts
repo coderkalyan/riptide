@@ -16,7 +16,9 @@ export interface RectBatch {
   pipeline: GPURenderPipeline;
   bindGroup: GPUBindGroup;
   rectCount: number;
-  setRects(rects: RectSpec[]): void;
+  // count overrides rects.length (useful when callers reuse a pooled scratch
+  // array longer than the live region).
+  setRects(rects: RectSpec[], count?: number): void;
 }
 
 export interface RectRenderer {
@@ -78,8 +80,9 @@ export async function createRectRenderer(
       pipeline,
       bindGroup,
       rectCount: 0,
-      setRects(rects) {
-        const count = Math.min(rects.length, MAX_RECTS);
+      setRects(rects, countArg) {
+        const requested = countArg ?? rects.length;
+        const count = Math.min(requested, MAX_RECTS);
         batch.rectCount = count;
         if (count === 0) return;
         for (let i = 0; i < count; i++) {

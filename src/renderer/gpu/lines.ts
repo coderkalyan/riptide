@@ -15,7 +15,9 @@ export interface LineBatch {
   pipeline: GPURenderPipeline;
   bindGroup: GPUBindGroup;
   lineCount: number;
-  setLines(lines: LineSpec[]): void;
+  // count overrides lines.length (useful when callers reuse a pooled scratch
+  // array longer than the live region).
+  setLines(lines: LineSpec[], count?: number): void;
 }
 
 export interface LineRenderer {
@@ -77,8 +79,9 @@ export async function createLineRenderer(
       pipeline,
       bindGroup,
       lineCount: 0,
-      setLines(lines) {
-        const count = Math.min(lines.length, MAX_LINES);
+      setLines(lines, countArg) {
+        const requested = countArg ?? lines.length;
+        const count = Math.min(requested, MAX_LINES);
         batch.lineCount = count;
         if (count === 0) return;
         for (let i = 0; i < count; i++) {

@@ -6,6 +6,10 @@ interface NativeModule {
     multiCount: number;
     single: ArrayBuffer;
     singleCount: number;
+    rowInfo: ArrayBuffer;
+    rowCount: number;
+    x0Pool: ArrayBuffer;
+    x1Pool: ArrayBuffer;
   };
 }
 
@@ -16,6 +20,10 @@ export interface NativeMockSegments {
   multiCount: number;
   single: Uint32Array<ArrayBuffer>;
   singleCount: number;
+  rowInfo: ArrayBuffer;
+  rowCount: number;
+  x0Pool: ArrayBuffer;
+  x1Pool: ArrayBuffer;
 }
 
 export function getMockSegments(): NativeMockSegments {
@@ -25,5 +33,9 @@ export function getMockSegments(): NativeMockSegments {
     multiCount: r.multiCount,
     single: new Uint32Array(r.single),
     singleCount: r.singleCount,
+    rowInfo: r.rowInfo,
+    rowCount: r.rowCount,
+    x0Pool: r.x0Pool,
+    x1Pool: r.x1Pool,
   };
 }

@@ -176,22 +176,15 @@ function formatZoom(ticksPerPixel: number): string {
 }
 
 function snapToClockEdge(tick: number): number {
-  // Quantize to the clock period; CLOCK_EDGE_TICKS lands on odd multiples of
+  // Quantize to the clock period: rising edges land on odd multiples of
   // MOCK_CLOCK_TICK_NS (5, 15, 25, ...). Round to the nearest one.
   const period = 2 * MOCK_CLOCK_TICK_NS;
   return Math.round((tick - MOCK_CLOCK_TICK_NS) / period) * period + MOCK_CLOCK_TICK_NS;
 }
-// Grid lines are 1.25*dpr CSS px thick (see lines.wgsl). Clock pill edges
+// Grid lines are 1.25*dpr CSS px thick (see lines.wgsl). Segment right edges
 // render to the LEFT of their tick (inside the ending segment), so we shift
 // the grid's left edge leftward by its own thickness to right-align it.
 const GRID_THICKNESS_CSS_PER_DPR = 1.25;
-
-// Clock positive-edge ticks: `buildClockSegments` emits alternating half-period
-// segments starting low, so the 0→1 transitions land at ticks 5, 15, 25, ...
-const CLOCK_EDGE_TICKS: number[] = [];
-for (let t = MOCK_CLOCK_TICK_NS; t < MOCK_END_TICKS; t += 2 * MOCK_CLOCK_TICK_NS) {
-  CLOCK_EDGE_TICKS.push(t);
-}
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const signalsRef = useRef<HTMLDivElement>(null);
@@ -238,9 +231,10 @@ export function App() {
       gpuRef.current = { device, colorBuf };
       const renderer = createDigitalRenderer(gpuCtx);
       const native = getMockSegments();
+      const scene = renderer.createSceneBuffers(native.rowInfo, native.x0Pool, native.x1Pool);
       const [multiBit, singleBit, textRenderer, lineRenderer, rectRenderer] = await Promise.all([
-        renderer.buildPipelineFromPacked("multi", native.multi, native.multiCount, colorBuf),
-        renderer.buildPipelineFromPacked("single", native.single, native.singleCount, colorBuf),
+        renderer.buildPipelineFromPacked("multi", native.multi, native.multiCount, colorBuf, scene),
+        renderer.buildPipelineFromPacked("single", native.single, native.singleCount, colorBuf, scene),
         createTextRenderer(gpuCtx, renderer.uniformBuf),
         createLineRenderer(gpuCtx, renderer.uniformBuf),
         createRectRenderer(gpuCtx, renderer.uniformBuf),
@@ -251,6 +245,51 @@ export function App() {
       const rectsTop = rectRenderer.createBatch();
       const textBody = textRenderer.createBatch();
       const textTop = textRenderer.createBatch();
+
+      // Pooled scratch arrays + spec objects. Reused across frames; never
+      // shrunk so JS engines can keep the underlying objects hot.
+      type RectMut = { x: number; y: number; w: number; h: number; color: number; crosshatch?: boolean; rounded?: boolean };
+      type LineMut = { x: number; color: number; dashed?: boolean };
+      const rectsBgScratch: RectMut[] = [];
+      const linesBgScratch: LineMut[] = [];
+      const linesFgScratch: LineMut[] = [];
+      const rectsTopScratch: RectMut[] = [];
+      const getRect = (arr: RectMut[], i: number): RectMut => {
+        let r = arr[i];
+        if (!r) { r = { x: 0, y: 0, w: 0, h: 0, color: 0 }; arr[i] = r; }
+        r.crosshatch = undefined;
+        r.rounded = undefined;
+        return r;
+      };
+      const getLine = (arr: LineMut[], i: number): LineMut => {
+        let l = arr[i];
+        if (!l) { l = { x: 0, color: 0 }; arr[i] = l; }
+        l.dashed = undefined;
+        return l;
+      };
+
+      // Hoisted viewport object — mutated in place each frame.
+      const vp = {
+        ticks_per_pixel: 0,
+        start_ticks: 0,
+        width: 0,
+        height: 0,
+        row_height: 0,
+        dpr: 1,
+        selected_row: -1,
+        wave_y_offset: 0,
+      };
+
+      // Cache layout-derived measurements so the rAF loop never calls
+      // getBoundingClientRect (which forces sync reflow). ResizeObserver
+      // refreshes them on size change; matchMedia handles DPR-only changes.
+      const cached = { canvasW: canvas.clientWidth, canvasH: canvas.clientHeight, rowH: 22 };
+      const updateMetrics = () => {
+        cached.canvasW = canvas.clientWidth;
+        cached.canvasH = canvas.clientHeight;
+        const fr = signals.firstElementChild as HTMLElement | null;
+        if (fr) cached.rowH = fr.getBoundingClientRect().height;
+      };
 
       const writeText = (
         batch: typeof textBody,
@@ -271,28 +310,38 @@ export function App() {
         return gi;
       };
 
-      const ro = new ResizeObserver(() => resizeCanvas(canvas));
+      const ro = new ResizeObserver(() => { resizeCanvas(canvas); updateMetrics(); });
       ro.observe(canvas);
+      ro.observe(signals);
       resizeCanvas(canvas);
+      updateMetrics();
+
+      // DPR-only changes (e.g. dragging the window between displays at
+      // different scales) don't trigger ResizeObserver because clientWidth
+      // stays the same. Watch for them via matchMedia and re-arm each fire.
+      let dprMql: MediaQueryList = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+      const onDprChange = () => {
+        resizeCanvas(canvas);
+        updateMetrics();
+        dprMql.removeEventListener("change", onDprChange);
+        dprMql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+        dprMql.addEventListener("change", onDprChange);
+      };
+      dprMql.addEventListener("change", onDprChange);
 
       const frame = () => {
-        // All measurements are in CSS pixels from getBoundingClientRect.
-        // Multiply by DPR to get physical canvas pixels — the only unit the
-        // GPU shader knows about.
+        // All measurements are in CSS pixels (cached, refreshed by
+        // ResizeObserver). Multiply by DPR to get physical canvas pixels —
+        // the only unit the GPU shader knows about.
         const dpr = window.devicePixelRatio || 1;
-        const canvasRect = canvas.getBoundingClientRect();
-        const signalsRect = signals.getBoundingClientRect();
-
-        // Row height: measure the first rendered row element directly so any
-        // future CSS change (compact mode, zoom) is picked up automatically.
-        const firstRow = signals.firstElementChild as HTMLElement | null;
-        const rowHeightCSS = firstRow
-          ? firstRow.getBoundingClientRect().height
-          : 22;
+        const canvasW = cached.canvasW;
+        const canvasH = cached.canvasH;
+        const rowHeightCSS = cached.rowH;
         const rulerHeightCSS = rowHeightCSS;
-        const waveHeightCSS = Math.max(0, canvasRect.height - rulerHeightCSS);
+        const waveHeightCSS = Math.max(0, canvasH - rulerHeightCSS);
 
-        const timelinePx = canvasRect.width;
+        const timelinePx = canvasW;
+        if (timelinePx <= 0) { raf = requestAnimationFrame(frame); return; }
 
         // Auto-fit until the user interacts, then freeze.
         if (!userInteractedRef.current || ticksPerPixelRef.current <= 0) {
@@ -308,16 +357,14 @@ export function App() {
         const visibleTicks = timelinePx * ticksPerPixel;
         const cursor = cursorTicksRef.current;
         const xForTick = (tick: number) => (tick - startTicks) / ticksPerPixel;
-        const vp = {
-          ticks_per_pixel: ticksPerPixel,
-          start_ticks: startTicks,
-          width: canvasRect.width,
-          height: canvasRect.height,
-          row_height: rowHeightCSS,
-          dpr,
-          selected_row: selectedRowRef.current,
-          wave_y_offset: rulerHeightCSS,
-        };
+        vp.ticks_per_pixel = ticksPerPixel;
+        vp.start_ticks = startTicks;
+        vp.width = canvasW;
+        vp.height = canvasH;
+        vp.row_height = rowHeightCSS;
+        vp.dpr = dpr;
+        vp.selected_row = selectedRowRef.current;
+        vp.wave_y_offset = rulerHeightCSS;
 
         // Right-edge dead zone: extend leftward to the data end when the
         // user has zoomed out past MOCK_END_TICKS, so the OOB area shows
@@ -328,29 +375,39 @@ export function App() {
         // Major notch: bottom-aligned to the ruler's lower border.
         const notchY = rulerHeightCSS - NOTCH_HEIGHT;
         const { ticks: rulerTicks, spacing: rulerStep } = dynamicRulerTicks(startTicks, visibleTicks);
-        rectsBg.setRects([
-          { x: 0, y: 0, w: canvasRect.width, h: rulerHeightCSS, color: PANEL_2 },
-          { x: 0, y: rulerHeightCSS - 1, w: canvasRect.width, h: 1, color: BORDER },
-          ...rulerTicks.map((t) => ({
-            x: xForTick(t), y: notchY, w: 2, h: NOTCH_HEIGHT, color: NOTCH_COLOR,
-          })),
-          { x: deadStartPx, y: rulerHeightCSS, w: canvasRect.width - deadStartPx, h: waveHeightCSS, color: DEAD_ZONE_GRAY, crosshatch: true },
-        ]);
+        let bgRectN = 0;
+        {
+          const r0 = getRect(rectsBgScratch, bgRectN++);
+          r0.x = 0; r0.y = 0; r0.w = canvasW; r0.h = rulerHeightCSS; r0.color = PANEL_2;
+          const r1 = getRect(rectsBgScratch, bgRectN++);
+          r1.x = 0; r1.y = rulerHeightCSS - 1; r1.w = canvasW; r1.h = 1; r1.color = BORDER;
+          for (const t of rulerTicks) {
+            const r = getRect(rectsBgScratch, bgRectN++);
+            r.x = xForTick(t); r.y = notchY; r.w = 2; r.h = NOTCH_HEIGHT; r.color = NOTCH_COLOR;
+          }
+          const rd = getRect(rectsBgScratch, bgRectN++);
+          rd.x = deadStartPx; rd.y = rulerHeightCSS;
+          rd.w = canvasW - deadStartPx; rd.h = waveHeightCSS;
+          rd.color = DEAD_ZONE_GRAY; rd.crosshatch = true;
+        }
+        rectsBg.setRects(rectsBgScratch, bgRectN);
 
-        // Grid: dashed vertical lines right-aligned to each visible clock
-        // positive edge.
+        // Grid: dashed vertical lines right-aligned to each ruler tick.
+        // Segment right edges sit just left of their tick, so the inset shift
+        // makes the grid line coincide with that edge.
         const gridInset = GRID_THICKNESS_CSS_PER_DPR * dpr;
-        const visStart = startTicks - 1;
-        const visEnd = startTicks + visibleTicks + 1;
-        linesBg.setLines(
-          CLOCK_EDGE_TICKS
-            .filter((t) => t >= visStart && t <= visEnd)
-            .map((t) => ({ x: xForTick(t) - gridInset, color: GRID_GRAY, dashed: true })),
-        );
-        linesFg.setLines([
-          { x: xForTick(MARKER_TICKS), color: MARKER, dashed: true },
-          { x: xForTick(cursor), color: HOT },
-        ]);
+        let bgLineN = 0;
+        for (const t of rulerTicks) {
+          const l = getLine(linesBgScratch, bgLineN++);
+          l.x = xForTick(t) - gridInset; l.color = GRID_GRAY; l.dashed = true;
+        }
+        linesBg.setLines(linesBgScratch, bgLineN);
+
+        const lfg0 = getLine(linesFgScratch, 0);
+        lfg0.x = xForTick(MARKER_TICKS); lfg0.color = MARKER; lfg0.dashed = true;
+        const lfg1 = getLine(linesFgScratch, 1);
+        lfg1.x = xForTick(cursor); lfg1.color = HOT;
+        linesFg.setLines(linesFgScratch, 2);
 
         // Build glyph instances for multi-bit pill values.
         const cellLg = textRenderer.cellLg;
@@ -392,7 +449,7 @@ export function App() {
         const cellSm = textRenderer.cellSm;
         const padX = 5;
         const pillH = 16;
-        const flagRects: { x: number; y: number; w: number; h: number; color: number; rounded: true }[] = [];
+        let topRectN = 0;
         let flagGi = 0;
         const addFlag = (x: number, text: string, color: number) => {
           const pillW = text.length * cellSm.widthPx + padX * 2;
@@ -401,11 +458,12 @@ export function App() {
           // x == canvas.right, pill's right edge sits on the line. Linear
           // ramp over the last `pillW` px of canvas (interior is dead zone,
           // no pill movement). Final clamp keeps the pill fully on-screen.
-          const flipStart = canvasRect.width - pillW;
+          const flipStart = canvasW - pillW;
           const t = Math.max(0, Math.min(1, (x - flipStart) / pillW));
-          const pillX = Math.max(0, Math.min(canvasRect.width - pillW, x - t * pillW));
+          const pillX = Math.max(0, Math.min(canvasW - pillW, x - t * pillW));
           const pillY = 0;
-          flagRects.push({ x: pillX, y: pillY, w: pillW, h: pillH, color, rounded: true });
+          const r = getRect(rectsTopScratch, topRectN++);
+          r.x = pillX; r.y = pillY; r.w = pillW; r.h = pillH; r.color = color; r.rounded = true;
           flagGi = writeText(
             textTop,
             flagGi,
@@ -418,7 +476,7 @@ export function App() {
         };
         addFlag(xForTick(MARKER_TICKS), `M1 · ${MARKER_TICKS.toFixed(3)} ns`, MARKER);
         addFlag(xForTick(cursor), `${cursor.toFixed(3)} ns`, HOT);
-        rectsTop.setRects(flagRects);
+        rectsTop.setRects(rectsTopScratch, topRectN);
         textTop.setGlyphs(flagGi);
 
         renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, linesFg, textBody, rectsTop, textTop }, vp);

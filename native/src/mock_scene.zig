@@ -22,57 +22,44 @@ const V_DBUS = [_]SegValue{ X, X, Z, N(0x55), N(0x55), Z, N(0xF0), N(0xF0), Z, Z
 const V_BUSY = [_]SegValue{ N(0), N(0), N(0), N(1), N(1), N(1), N(1), N(1), N(1), N(1) };
 const V_DONE = [_]SegValue{ N(0), N(0), N(0), N(0), N(0), N(0), N(0), N(0), N(1), N(0) };
 
-// Derived from V_IN_VALID / V_OUT_VALID: muted iff valid != 1.
 const MUTE_IN = [_]bool{ true, true, true, false, false, true, false, false, true, true };
 const MUTE_OUT = [_]bool{ true, true, true, true, true, false, false, false, false, true };
 
 pub const Built = struct {
-    multi: std.ArrayList(seg.PackedSegment),
-    single: std.ArrayList(seg.PackedSegment),
+    scene: seg.Scene,
+    final: seg.Finalized,
 
-    pub fn deinit(self: *Built, gpa: Allocator) void {
-        self.multi.deinit(gpa);
-        self.single.deinit(gpa);
+    pub fn deinit(self: *Built) void {
+        const gpa = self.scene.gpa;
+        self.final.deinit(gpa);
+        self.scene.deinit();
     }
 };
 
 pub fn buildAll(gpa: Allocator) !Built {
-    var b: Built = .{ .multi = .{}, .single = .{} };
-    errdefer b.deinit(gpa);
+    var s = seg.Scene.init(gpa);
+    errdefer s.deinit();
 
-    // Row 0: clk (bw=1) -> single
-    try seg.buildClockSegments(&b.single, gpa, 0);
-
-    // Row 1: rst (bw=1) -> single. Async deassert at first falling edge (tick 10).
-    try seg.buildSegments(&b.single, gpa, 1, 1, &.{
+    // Row 0: clk
+    try s.buildClockSegments(&s.single, 0);
+    // Row 1: rst — async deassert at first falling edge.
+    try s.buildSegments(&s.single, 1, 1, &.{
         .{ .t_start = 0, .t_end = 10, .value = N(1) },
         .{ .t_start = 10, .t_end = seg.MOCK_END_TICKS, .value = N(0) },
     }, true);
+    try s.buildDataSignal(&s.multi, .{ .row = 2, .bit_width = 2, .values = &V_STATE });
+    try s.buildDataSignal(&s.multi, .{ .row = 3, .bit_width = 8, .values = &V_CYCLE });
+    try s.buildDataSignal(&s.single, .{ .row = 4, .bit_width = 1, .values = &V_IN_VALID });
+    try s.buildDataSignal(&s.multi, .{ .row = 5, .bit_width = 8, .values = &V_IN_DATA, .muted = &MUTE_IN });
+    try s.buildDataSignal(&s.multi, .{ .row = 6, .bit_width = 16, .values = &V_IN_ADDR, .muted = &MUTE_IN });
+    try s.buildDataSignal(&s.single, .{ .row = 7, .bit_width = 1, .values = &V_OUT_VALID });
+    try s.buildDataSignal(&s.multi, .{ .row = 8, .bit_width = 32, .values = &V_OUT_DATA, .muted = &MUTE_OUT });
+    try s.buildDataSignal(&s.multi, .{ .row = 9, .bit_width = 4, .values = &V_FIFO_LEVEL });
+    try s.buildDataSignal(&s.single, .{ .row = 10, .bit_width = 1, .values = &V_FIFO_EMPTY });
+    try s.buildDataSignal(&s.multi, .{ .row = 11, .bit_width = 8, .values = &V_DBUS });
+    try s.buildDataSignal(&s.single, .{ .row = 12, .bit_width = 1, .values = &V_BUSY });
+    try s.buildDataSignal(&s.single, .{ .row = 13, .bit_width = 1, .values = &V_DONE });
 
-    // Row 2: state (bw=2) -> multi
-    try seg.buildDataSignal(&b.multi, gpa, .{ .row = 2, .bit_width = 2, .values = &V_STATE });
-    // Row 3: cycle (bw=8) -> multi
-    try seg.buildDataSignal(&b.multi, gpa, .{ .row = 3, .bit_width = 8, .values = &V_CYCLE });
-    // Row 4: in_valid (bw=1) -> single
-    try seg.buildDataSignal(&b.single, gpa, .{ .row = 4, .bit_width = 1, .values = &V_IN_VALID });
-    // Row 5: in_data (bw=8) -> multi
-    try seg.buildDataSignal(&b.multi, gpa, .{ .row = 5, .bit_width = 8, .values = &V_IN_DATA, .muted = &MUTE_IN });
-    // Row 6: in_addr (bw=16) -> multi
-    try seg.buildDataSignal(&b.multi, gpa, .{ .row = 6, .bit_width = 16, .values = &V_IN_ADDR, .muted = &MUTE_IN });
-    // Row 7: out_valid (bw=1) -> single
-    try seg.buildDataSignal(&b.single, gpa, .{ .row = 7, .bit_width = 1, .values = &V_OUT_VALID });
-    // Row 8: out_data (bw=32) -> multi
-    try seg.buildDataSignal(&b.multi, gpa, .{ .row = 8, .bit_width = 32, .values = &V_OUT_DATA, .muted = &MUTE_OUT });
-    // Row 9: fifo_level (bw=4) -> multi
-    try seg.buildDataSignal(&b.multi, gpa, .{ .row = 9, .bit_width = 4, .values = &V_FIFO_LEVEL });
-    // Row 10: fifo_empty (bw=1) -> single
-    try seg.buildDataSignal(&b.single, gpa, .{ .row = 10, .bit_width = 1, .values = &V_FIFO_EMPTY });
-    // Row 11: dbus (bw=8) -> multi
-    try seg.buildDataSignal(&b.multi, gpa, .{ .row = 11, .bit_width = 8, .values = &V_DBUS });
-    // Row 12: busy (bw=1) -> single
-    try seg.buildDataSignal(&b.single, gpa, .{ .row = 12, .bit_width = 1, .values = &V_BUSY });
-    // Row 13: done (bw=1) -> single
-    try seg.buildDataSignal(&b.single, gpa, .{ .row = 13, .bit_width = 1, .values = &V_DONE });
-
-    return b;
+    const final = try seg.finalize(&s, gpa);
+    return .{ .scene = s, .final = final };
 }

@@ -5,13 +5,17 @@
 
 struct Viewport {
     ticks_per_pixel: f32,
-    start_ticks: f32,
+    start_ticks_int: i32,
+    start_ticks_frac: f32,
     width: f32,
     height: f32,
     row_height: f32,
     dpr: f32,
     selected_row: i32,
     wave_y_offset: f32,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
 }
 
 struct Line {

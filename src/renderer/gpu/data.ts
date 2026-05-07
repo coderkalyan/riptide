@@ -19,6 +19,8 @@ export interface Segment {
 // Passed to the GPU as a uniform buffer each frame.
 export interface Viewport {
   ticks_per_pixel: number;
+  // Pass start_ticks as a real number; writeViewportInto splits it into
+  // integer (i32) + fractional (f32) parts for shader-side precision.
   start_ticks: number;
   width: number;
   height: number;
@@ -172,36 +174,25 @@ export function buildClockSegments(row: number): Segment[] {
   return segs;
 }
 
-// ---- GPU packing -------------------------------------------------------
-// Layout: each segment = 5 × u32 = 20 bytes
-//   [0] tStart  [1] tEnd  [2] valueLsb  [3] valueMsb  [4] rowFlags
-// Matches the storage buffer struct in the WGSL shader.
-
-export function packSegments(segs: Segment[]): Uint32Array<ArrayBuffer> {
-  const buf = new Uint32Array(new ArrayBuffer(segs.length * 5 * 4));
-  for (let i = 0; i < segs.length; i++) {
-    const s = segs[i];
-    buf[i * 5 + 0] = s.tStart;
-    buf[i * 5 + 1] = s.tEnd;
-    buf[i * 5 + 2] = s.valueLsb;
-    buf[i * 5 + 3] = s.valueMsb;
-    buf[i * 5 + 4] = s.rowFlags;
-  }
-  return buf;
-}
-
-// Viewport = 8 × 4 B = 32 bytes (multiple of 16, required by WebGPU). Mixed
-// int/float fields per the WGSL Viewport struct: slot 6 (selected_row) is
-// the only integer; the rest are floats. Caller provides aliased Float32 and
-// Int32 views over the same ArrayBuffer so each slot is written with the
-// correct bit pattern without per-frame allocation.
+// Viewport = 12 × 4 B = 48 bytes (multiple of 16, required by WebGPU). Mixed
+// int/float fields per the WGSL Viewport struct: slot 1 (start_ticks_int) and
+// slot 7 (selected_row) are i32; the rest are f32. Slots 9..11 are pad to hit
+// 16-byte alignment. Caller provides aliased Float32 and Int32 views over the
+// same ArrayBuffer so each slot is written with the correct bit pattern
+// without per-frame allocation.
+export const VIEWPORT_BYTES = 48;
 export function writeViewportInto(f32: Float32Array, i32: Int32Array, vp: Viewport): void {
+  // Split start_ticks into integer + fractional parts so shader subtraction
+  // happens in i32 (full precision for tick values > 2^24).
+  const startInt = Math.floor(vp.start_ticks);
   f32[0] = vp.ticks_per_pixel;
-  f32[1] = vp.start_ticks;
-  f32[2] = vp.width;
-  f32[3] = vp.height;
-  f32[4] = vp.row_height;
-  f32[5] = vp.dpr;
-  i32[6] = vp.selected_row;
-  f32[7] = vp.wave_y_offset;
+  i32[1] = startInt | 0;
+  f32[2] = vp.start_ticks - startInt;
+  f32[3] = vp.width;
+  f32[4] = vp.height;
+  f32[5] = vp.row_height;
+  f32[6] = vp.dpr;
+  i32[7] = vp.selected_row;
+  f32[8] = vp.wave_y_offset;
+  // f32[9..11] left zero (pad).
 }

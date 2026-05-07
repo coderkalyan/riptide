@@ -14,6 +14,27 @@ export interface FrameLayers {
   textTop: TextBatch;
 }
 
+function drawLines(pass: GPURenderPassEncoder, b: LineBatch): void {
+  if (b.lineCount === 0) return;
+  pass.setPipeline(b.pipeline);
+  pass.setBindGroup(0, b.bindGroup);
+  pass.draw(4, b.lineCount);
+}
+function drawRects(pass: GPURenderPassEncoder, b: RectBatch): void {
+  if (b.rectCount === 0) return;
+  pass.setPipeline(b.pipeline);
+  pass.setBindGroup(0, b.bindGroup);
+  pass.draw(4, b.rectCount);
+}
+function drawText(pass: GPURenderPassEncoder, b: TextBatch): void {
+  if (b.glyphCount === 0) return;
+  pass.setPipeline(b.pipeline);
+  pass.setBindGroup(0, b.bindGroup);
+  pass.draw(4, b.glyphCount);
+}
+
+const CLEAR_VALUE = { r: 0.106, g: 0.114, b: 0.129, a: 1 };
+
 export function renderFrame(
   { device, ctx }: GPUContext,
   renderer: DigitalRenderer,
@@ -28,32 +49,13 @@ export function renderFrame(
     colorAttachments: [{
       view: ctx.getCurrentTexture().createView(),
       loadOp: "clear",
-      clearValue: { r: 0.106, g: 0.114, b: 0.129, a: 1 },
+      clearValue: CLEAR_VALUE,
       storeOp: "store",
     }],
   });
 
-  const drawLines = (b: LineBatch) => {
-    if (b.lineCount === 0) return;
-    pass.setPipeline(b.pipeline);
-    pass.setBindGroup(0, b.bindGroup);
-    pass.draw(4, b.lineCount);
-  };
-  const drawRects = (b: RectBatch) => {
-    if (b.rectCount === 0) return;
-    pass.setPipeline(b.pipeline);
-    pass.setBindGroup(0, b.bindGroup);
-    pass.draw(4, b.rectCount);
-  };
-  const drawText = (b: TextBatch) => {
-    if (b.glyphCount === 0) return;
-    pass.setPipeline(b.pipeline);
-    pass.setBindGroup(0, b.bindGroup);
-    pass.draw(4, b.glyphCount);
-  };
-
-  drawLines(layers.linesBg);
-  drawRects(layers.rectsBg);
+  drawLines(pass, layers.linesBg);
+  drawRects(pass, layers.rectsBg);
 
   for (const pipeline of pipelines) {
     pass.setPipeline(pipeline.pipeline);
@@ -61,12 +63,12 @@ export function renderFrame(
     pass.draw(4, pipeline.segmentCount);
   }
 
-  drawText(layers.textBody);
-  drawLines(layers.linesFg);
+  drawText(pass, layers.textBody);
+  drawLines(pass, layers.linesFg);
 
   // Pill overlays draw last — opaque, on top of everything else.
-  drawRects(layers.rectsTop);
-  drawText(layers.textTop);
+  drawRects(pass, layers.rectsTop);
+  drawText(pass, layers.textTop);
 
   pass.end();
 

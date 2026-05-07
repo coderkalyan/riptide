@@ -1,12 +1,19 @@
 struct Viewport {
     ticks_per_pixel: f32,
-    start_ticks: f32,
+    // start_ticks split into integer + fractional parts. Subtraction happens
+    // in integer domain (preserves precision for tick values > 2^24) and the
+    // fractional part is added back as f32 for sub-pixel pan smoothness.
+    start_ticks_int: i32,
+    start_ticks_frac: f32,
     width: f32,
     height: f32,
     row_height: f32,
     dpr: f32,
     selected_row: i32,
     wave_y_offset: f32,
+    _pad0: f32,
+    _pad1: f32,
+    _pad2: f32,
 }
 
 struct Segment {
@@ -14,10 +21,6 @@ struct Segment {
     t_start: u32,
     // End tick.
     t_end: u32,
-    // LSBs of the segment value bitstring (0/1).
-    value_lsb: u32,
-    // MSBs of the segment value bitstring (x/z).
-    value_msb: u32,
     // Packed flags and row information.
     // [15:0] = row index
     // [  16] = enable shading
@@ -28,9 +31,59 @@ struct Segment {
     row_flags: u32,
 }
 
+// Per-row metadata: where this row's bit-packed samples live in the shared
+// x0/x1 pools, plus its bits-per-sample (next pow2 of bit_width, ≤ 32).
+struct RowInfo {
+    x0_offset_u32: u32,
+    x1_offset_u32: u32,
+    bits_per_sample: u32,
+    // First instance index for this row in its pipeline. Sample index for an
+    // instance ii of this row is `ii - segment_start`.
+    segment_start: u32,
+}
+
+// Pipeline-creation constant: 0 = single-bit, 1 = multi-bit. Folded at
+// pipeline-compile time so per-variant branches have no runtime cost.
+const VARIANT_SINGLE: u32 = 0u;
+const VARIANT_MULTI:  u32 = 1u;
+override VARIANT: u32 = 0u;
+
+// VertexData.flags layout (single source of truth — vs and fs both read these).
+// Bits [0..7] mirror segment.row_flags[16..23] (shade/edge/rising/falling/mute).
+// Bits [8..15] are per-sample decoded state. F_DRAW_LINE_HIGH is single-only.
+const F_SHADE:          u32 = 1u << 0u;
+const F_RIGHT_EDGE:     u32 = 1u << 1u;
+const F_RISING_EDGE:    u32 = 1u << 2u;
+const F_FALLING_EDGE:   u32 = 1u << 3u;
+const F_MUTE:           u32 = 1u << 4u;
+const F_CROSSHATCH:     u32 = 1u << 8u;
+const F_HATCH_COLOR:    u32 = 1u << 9u;
+const F_DRAW_LINE:      u32 = 1u << 10u;
+const F_DRAW_LINE_HIGH: u32 = 1u << 11u; // single-bit variant only
+const F_HIGHLIGHT:      u32 = 1u << 12u;
+
 @group(0) @binding(0) var<uniform> viewport: Viewport;
 @group(0) @binding(1) var<storage, read> segments: array<Segment>;
 @group(0) @binding(2) var<storage, read> row_colors: array<vec4<f32>>;
+@group(0) @binding(3) var<storage, read> rows: array<RowInfo>;
+@group(0) @binding(4) var<storage, read> x0_pool: array<u32>;
+@group(0) @binding(5) var<storage, read> x1_pool: array<u32>;
+
+// Decode (lsb, msb) for a segment's sample. bits_per_sample is pow2 ≤ 32 so
+// each sample lives in exactly one u32 word.
+fn decodeSample(row: u32, instance_index: u32) -> vec2<u32> {
+    let info = rows[row];
+    let bits = info.bits_per_sample;
+    let sample_index = instance_index - info.segment_start;
+    let bit_off = sample_index * bits;
+    let word = bit_off >> 5u;
+    let shift = bit_off & 31u;
+    // bits ∈ [1,32]; (~0u) >> (32 - bits) yields the correct mask for all sizes.
+    let mask: u32 = ~0u >> (32u - bits);
+    let lsb = (x0_pool[info.x0_offset_u32 + word] >> shift) & mask;
+    let msb = (x1_pool[info.x1_offset_u32 + word] >> shift) & mask;
+    return vec2<u32>(lsb, msb);
+}
 
 fn sdf(point: vec2f, half_size: vec2f, radius: f32) -> f32 {
     let q = abs(point) - half_size + radius;
@@ -52,43 +105,44 @@ struct VertexData {
     @builtin(position) pos: vec4f,
     @location(0) pill_local_px: vec2f,
     @location(1) @interpolate(flat) half_size_px: vec2f,
-    // [ 0] = enabling shading
-    // [ 1] = enable right edge
-    // [ 2] = rising edge arrow
-    // [ 3] = falling edge arrow
-    // [ 4] = mute segment
-    // [ 8] = draw line high
-    // [ 9] = enable crosshatch
-    // [10] = red/gray crosshatch color
-    // [11] = enable line or border
-    // [12] = highlight segment (e.g. for selected row)
     @location(2) @interpolate(flat) flags: u32,
     @location(3) @interpolate(flat) primary_color: vec4f,
 }
 
+// Shared vertex shader. Branches on VARIANT (override constant) for the only
+// two real differences between single- and multi-bit: a 1*dpr right-edge
+// inset, and packing F_DRAW_LINE_HIGH (single-only).
 @vertex
-fn vs_single(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VertexData {
-    let gap_px = 2.0 * viewport.dpr;
+fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VertexData {
+    let xgap_px = select(0.0, 1.0 * viewport.dpr, VARIANT == VARIANT_MULTI);
+    let ygap_px = 2.0 * viewport.dpr;
 
     let segment = segments[ii];
     let row = segment.row_flags & 0xffffu;
-    let draw_line = segment.value_msb == 0u;
-    let draw_line_high = segment.value_lsb != 0u;
-    let enable_crosshatch = (segment.value_msb) != 0u;
-    let crosshatch_color = (segment.value_lsb) != 0u;
+    let value = decodeSample(row, ii);
+    let lsb_nonzero = value.x != 0u;
+    let msb_nonzero = value.y != 0u;
     let highlight = i32(row) == viewport.selected_row;
 
     // Synthesize vertices for a triangle strip rect in [0, 1]^2.
     let corner_x = f32(vi & 1u);
     let corner_y = f32((vi >> 1u) & 1u);
 
-    // Transform from timeline (tick) space into pixel space.
-    let local_ticks = vec2f(f32(segment.t_start), f32(segment.t_end)) - viewport.start_ticks;
-    var pixel_bounds = local_ticks / viewport.ticks_per_pixel;
+    // Transform from timeline (tick) space into pixel space. Subtract in i32
+    // before f32 cast so values > 2^24 don't lose integer precision.
+    let dt = vec2f(
+        f32(i32(segment.t_start) - viewport.start_ticks_int),
+        f32(i32(segment.t_end)   - viewport.start_ticks_int),
+    ) - viewport.start_ticks_frac;
+    var pixel_bounds = dt / viewport.ticks_per_pixel;
+
+    // Asymmetric inset: shift only the right edge inward (multi only; for
+    // single, xgap_px is 0).
+    pixel_bounds += vec2f(0.0, -xgap_px);
 
     // Compute the pill's center and half-size in pixels.
     let center_px = vec2f((pixel_bounds[0] + pixel_bounds[1]) * 0.5, viewport.wave_y_offset + viewport.row_height * (f32(row) + 0.5));
-    let half_size_px = vec2f((pixel_bounds[1] - pixel_bounds[0]) * 0.5, (viewport.row_height - gap_px) * 0.5);
+    let half_size_px = vec2f((pixel_bounds[1] - pixel_bounds[0]) * 0.5, (viewport.row_height - ygap_px) * 0.5);
 
     // Compute the vertex position in pixel space.
     let corner = vec2f(corner_x, corner_y);
@@ -99,14 +153,15 @@ fn vs_single(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -
     let clip_x = vertex_px.x / viewport.width * 2.0 - 1.0;
     let clip_y = 1.0 - vertex_px.y / viewport.height * 2.0;
 
-    // Shader (instance uniform) rendering flags.
-    var flags = 0u;
-    flags |= (segment.row_flags >> 16u) & 0xffu;
-    flags |= u32(draw_line_high) << 8u;
-    flags |= u32(enable_crosshatch) << 9u;
-    flags |= u32(crosshatch_color) << 10u;
-    flags |= u32(draw_line) << 11u;
-    flags |= u32(highlight) << 12u;
+    // Pack flags. Per-sample bits use the same semantics in both variants;
+    // F_DRAW_LINE_HIGH is single-only (multi's fs ignores it but we gate the
+    // write anyway to keep the bit-layout intent explicit).
+    var flags = (segment.row_flags >> 16u) & 0xffu;
+    flags |= select(0u, F_CROSSHATCH,     msb_nonzero);
+    flags |= select(0u, F_HATCH_COLOR,    lsb_nonzero);
+    flags |= select(0u, F_DRAW_LINE,      !msb_nonzero);
+    flags |= select(0u, F_DRAW_LINE_HIGH, lsb_nonzero && VARIANT == VARIANT_SINGLE);
+    flags |= select(0u, F_HIGHLIGHT,      highlight);
 
     return VertexData(vec4f(clip_x, clip_y, 0.0, 1.0), vertex_local_px, half_size_px, flags, row_colors[row]);
 }
@@ -121,14 +176,14 @@ fn fs_single(in: VertexData) -> @location(0) vec4f {
     let z_color = vec4f(1.0, 0.863, 0.0, 1.0);
     let mute_color = vec4f(0.47, 0.47, 0.47, 0.6);
 
-    let enable_fill = (in.flags & (1u << 0u)) != 0u;
-    let draw_edge = (in.flags & (1u << 1u)) != 0u;
-    let mute = (in.flags & (1u << 4u)) != 0u;
-    let draw_line_high = (in.flags & (1u << 8u)) != 0u;
-    let enable_crosshatch = (in.flags & (1u << 9u)) != 0u;
-    let crosshatch_color = (in.flags & (1u << 10u)) != 0u;
-    let draw_line = (in.flags & (1u << 11u)) != 0u;
-    let highlight = (in.flags & (1u << 12u)) != 0u;
+    let enable_fill       = (in.flags & F_SHADE)          != 0u;
+    let draw_edge         = (in.flags & F_RIGHT_EDGE)     != 0u;
+    let mute              = (in.flags & F_MUTE)           != 0u;
+    let enable_crosshatch = (in.flags & F_CROSSHATCH)     != 0u;
+    let crosshatch_color  = (in.flags & F_HATCH_COLOR)    != 0u;
+    let draw_line         = (in.flags & F_DRAW_LINE)      != 0u;
+    let draw_line_high    = (in.flags & F_DRAW_LINE_HIGH) != 0u;
+    let highlight         = (in.flags & F_HIGHLIGHT)      != 0u;
 
     // Horizontal line mask.
     let line_lo_px = in.half_size_px.y - (line_thickness_px * 0.5);
@@ -167,53 +222,6 @@ fn fs_single(in: VertexData) -> @location(0) vec4f {
     return vec4f(mix(bg, color.rgb, color.a), 1.0);
 }
 
-@vertex
-fn vs_multi(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VertexData {
-    let xgap_px = 1.0 * viewport.dpr;
-    let ygap_px = 2.0 * viewport.dpr;
-
-    let segment = segments[ii];
-    let row = segment.row_flags & 0xffffu;
-    let draw_line = segment.value_msb == 0u;
-    let enable_crosshatch = (segment.value_msb) != 0u;
-    let crosshatch_color = (segment.value_lsb) != 0u;
-    let highlight = i32(row) == viewport.selected_row;
-
-    // Synthesize vertices for a triangle strip rect in [0, 1]^2.
-    let corner_x = f32(vi & 1u);
-    let corner_y = f32((vi >> 1u) & 1u);
-
-    // Transform from timeline (tick) space into pixel space.
-    let local_ticks = vec2f(f32(segment.t_start), f32(segment.t_end)) - viewport.start_ticks;
-    var pixel_bounds = local_ticks / viewport.ticks_per_pixel;
-
-    // Asymmetric inset: shift only the right edge inward.
-    pixel_bounds += vec2f(0.0, -xgap_px);
-
-    // Compute the pill's center and half-size in pixels.
-    let center_px = vec2f((pixel_bounds[0] + pixel_bounds[1]) * 0.5, viewport.wave_y_offset + viewport.row_height * (f32(row) + 0.5));
-    let half_size_px = vec2f((pixel_bounds[1] - pixel_bounds[0]) * 0.5, (viewport.row_height - ygap_px) * 0.5);
-
-    // Compute the vertex position in pixel space.
-    let corner = vec2f(corner_x, corner_y);
-    let vertex_local_px = (corner * 2.0 - 1.0) * half_size_px;
-    let vertex_px = center_px + vertex_local_px;
-
-    // Convert vertex position to clip space.
-    let clip_x = vertex_px.x / viewport.width * 2.0 - 1.0;
-    let clip_y = 1.0 - vertex_px.y / viewport.height * 2.0;
-
-    // Shader (instance uniform) rendering flags.
-    var flags = 0u;
-    flags |= (segment.row_flags >> 16u) & 0xffu;
-    flags |= u32(enable_crosshatch) << 8u;
-    flags |= u32(crosshatch_color) << 9u;
-    flags |= u32(draw_line) << 10u;
-    flags |= u32(highlight) << 12u;
-
-    return VertexData(vec4f(clip_x, clip_y, 0.0, 1.0), vertex_local_px, half_size_px, flags, row_colors[row]);
-}
-
 @fragment
 fn fs_multi(in: VertexData) -> @location(0) vec4f {
     let radius = 2.0 * viewport.dpr;
@@ -223,11 +231,11 @@ fn fs_multi(in: VertexData) -> @location(0) vec4f {
     let z_color = vec4f(1.0, 0.863, 0.0, 0.7);
     let mute_color = vec4f(0.47, 0.47, 0.47, 0.6);
 
-    let enable_fill = (in.flags & (1u << 0u)) != 0u;
-    let mute = (in.flags & (1u << 4u)) != 0u;
-    let enable_crosshatch = (in.flags & (1u << 8u)) != 0u;
-    let crosshatch_color = (in.flags & (1u << 9u)) != 0u;
-    let highlight = (in.flags & (1u << 12u)) != 0u;
+    let enable_fill       = (in.flags & F_SHADE)       != 0u;
+    let mute              = (in.flags & F_MUTE)        != 0u;
+    let enable_crosshatch = (in.flags & F_CROSSHATCH)  != 0u;
+    let crosshatch_color  = (in.flags & F_HATCH_COLOR) != 0u;
+    let highlight         = (in.flags & F_HIGHLIGHT)   != 0u;
 
     // Calculate masks for rounded corner, edge, fill based on SDF.
     let d_px = sdf(in.pill_local_px, in.half_size_px, radius);
