@@ -181,10 +181,13 @@ function snapToClockEdge(tick: number): number {
   const period = 2 * MOCK_CLOCK_TICK_NS;
   return Math.round((tick - MOCK_CLOCK_TICK_NS) / period) * period + MOCK_CLOCK_TICK_NS;
 }
-// Grid lines are 1.25*dpr CSS px thick (see lines.wgsl). Segment right edges
-// render to the LEFT of their tick (inside the ending segment), so we shift
-// the grid's left edge leftward by its own thickness to right-align it.
-const GRID_THICKNESS_CSS_PER_DPR = 1.25;
+
+// Clock positive-edge ticks: `buildClockSegments` emits alternating half-period
+// segments starting low, so the 0→1 transitions land at ticks 5, 15, 25, ...
+const CLOCK_EDGE_TICKS: number[] = [];
+for (let t = MOCK_CLOCK_TICK_NS; t < MOCK_END_TICKS; t += 2 * MOCK_CLOCK_TICK_NS) {
+  CLOCK_EDGE_TICKS.push(t);
+}
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const signalsRef = useRef<HTMLDivElement>(null);
@@ -242,9 +245,12 @@ export function App() {
       const linesBg = lineRenderer.createBatch();
       const linesFg = lineRenderer.createBatch();
       const rectsBg = rectRenderer.createBatch();
-      const rectsTop = rectRenderer.createBatch();
       const textBody = textRenderer.createBatch();
-      const textTop = textRenderer.createBatch();
+      // One rect+text batch per overlay pill so opaque rects can fully occlude
+      // earlier pills' text (no z buffer needed). Order: marker first, cursor
+      // last → cursor wins on overlap.
+      const pillMarker = { rects: rectRenderer.createBatch(), text: textRenderer.createBatch() };
+      const pillCursor = { rects: rectRenderer.createBatch(), text: textRenderer.createBatch() };
 
       // Pooled scratch arrays + spec objects. Reused across frames; never
       // shrunk so JS engines can keep the underlying objects hot.
@@ -253,7 +259,7 @@ export function App() {
       const rectsBgScratch: RectMut[] = [];
       const linesBgScratch: LineMut[] = [];
       const linesFgScratch: LineMut[] = [];
-      const rectsTopScratch: RectMut[] = [];
+      const pillRectScratch: RectMut[] = [];
       const getRect = (arr: RectMut[], i: number): RectMut => {
         let r = arr[i];
         if (!r) { r = { x: 0, y: 0, w: 0, h: 0, color: 0 }; arr[i] = r; }
@@ -392,14 +398,16 @@ export function App() {
         }
         rectsBg.setRects(rectsBgScratch, bgRectN);
 
-        // Grid: dashed vertical lines right-aligned to each ruler tick.
-        // Segment right edges sit just left of their tick, so the inset shift
-        // makes the grid line coincide with that edge.
-        const gridInset = GRID_THICKNESS_CSS_PER_DPR * dpr;
+        // Grid: dashed vertical lines at each visible rising clock edge.
+        // Segment right edges sit just left of their tick, so the line lands
+        // immediately after.
+        const visStart = startTicks - 1;
+        const visEnd = startTicks + visibleTicks + 1;
         let bgLineN = 0;
-        for (const t of rulerTicks) {
+        for (const t of CLOCK_EDGE_TICKS) {
+          if (t < visStart || t > visEnd) continue;
           const l = getLine(linesBgScratch, bgLineN++);
-          l.x = xForTick(t) - gridInset; l.color = GRID_GRAY; l.dashed = true;
+          l.x = xForTick(t); l.color = GRID_GRAY; l.dashed = true;
         }
         linesBg.setLines(linesBgScratch, bgLineN);
 
@@ -449,9 +457,7 @@ export function App() {
         const cellSm = textRenderer.cellSm;
         const padX = 5;
         const pillH = 16;
-        let topRectN = 0;
-        let flagGi = 0;
-        const addFlag = (x: number, text: string, color: number) => {
+        const addFlag = (x: number, text: string, color: number, pill: { rects: typeof rectsBg; text: typeof textBody }) => {
           const pillW = text.length * cellSm.widthPx + padX * 2;
           // Default anchor: pill's left edge sits on the line. Near the right
           // canvas edge, slide the pill leftward so it stays on-screen — at
@@ -462,24 +468,24 @@ export function App() {
           const t = Math.max(0, Math.min(1, (x - flipStart) / pillW));
           const pillX = Math.max(0, Math.min(canvasW - pillW, x - t * pillW));
           const pillY = 0;
-          const r = getRect(rectsTopScratch, topRectN++);
+          const r = getRect(pillRectScratch, 0);
           r.x = pillX; r.y = pillY; r.w = pillW; r.h = pillH; r.color = color; r.rounded = true;
-          flagGi = writeText(
-            textTop,
-            flagGi,
+          pill.rects.setRects(pillRectScratch, 1);
+          const glyphs = writeText(
+            pill.text,
+            0,
             Math.round(pillX + padX),
             Math.round(pillY + pillH * 0.5 - cellSm.midlinePx),
             text,
             ON_ACCENT,
             true,
           );
+          pill.text.setGlyphs(glyphs);
         };
-        addFlag(xForTick(MARKER_TICKS), `M1 · ${MARKER_TICKS.toFixed(3)} ns`, MARKER);
-        addFlag(xForTick(cursor), `${cursor.toFixed(3)} ns`, HOT);
-        rectsTop.setRects(rectsTopScratch, topRectN);
-        textTop.setGlyphs(flagGi);
+        addFlag(xForTick(MARKER_TICKS), `M1 · ${MARKER_TICKS.toFixed(3)} ns`, MARKER, pillMarker);
+        addFlag(xForTick(cursor), `${cursor.toFixed(3)} ns`, HOT, pillCursor);
 
-        renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, linesFg, textBody, rectsTop, textTop }, vp);
+        renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, linesFg, textBody, pills: [pillMarker, pillCursor] }, vp);
         raf = requestAnimationFrame(frame);
       };
       raf = requestAnimationFrame(frame);

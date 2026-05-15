@@ -5,13 +5,19 @@ import { RectBatch } from "./rect";
 import { TextBatch } from "./text";
 import { Viewport } from "./data";
 
+export interface PillLayer {
+  rects: RectBatch;
+  text: TextBatch;
+}
+
 export interface FrameLayers {
   linesBg: LineBatch;
   rectsBg: RectBatch;
   linesFg: LineBatch;
   textBody: TextBatch;
-  rectsTop: RectBatch;
-  textTop: TextBatch;
+  // Each pill (marker, cursor, ...) gets its own rect+text pair so its rect
+  // covers any earlier pill's text — opaque painter's algorithm, no z buffer.
+  pills: PillLayer[];
 }
 
 function drawLines(pass: GPURenderPassEncoder, b: LineBatch): void {
@@ -66,9 +72,12 @@ export function renderFrame(
   drawText(pass, layers.textBody);
   drawLines(pass, layers.linesFg);
 
-  // Pill overlays draw last — opaque, on top of everything else.
-  drawRects(pass, layers.rectsTop);
-  drawText(pass, layers.textTop);
+  // Pill overlays draw last — opaque, on top of everything else. Per-pill
+  // rect+text pairs so each pill fully occludes earlier ones on overlap.
+  for (const pill of layers.pills) {
+    drawRects(pass, pill.rects);
+    drawText(pass, pill.text);
+  }
 
   pass.end();
 
