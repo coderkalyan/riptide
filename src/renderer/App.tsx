@@ -24,8 +24,17 @@ function activeSignalKind(ref: ActiveSignalRef): ActiveSignalKind {
 }
 
 const INITIAL_CURSOR_TICKS = 32.4;
-const MARKER_TICKS = 19.6;
+const MARKER_TICKS = 19.6; // initial M1 position
 const ZOOM_PER_DELTA_Y = 0.001; // Math.exp() factor per wheel deltaY unit
+const MAX_MARKERS = 16; // size of the pre-allocated pill/line render pool
+const MARKER_GRAB_PX = 5; // pointer slop for grabbing a marker line
+
+interface Marker {
+  id: number;     // unique, monotonic; also drives the Mn name
+  name: string;
+  tick: number;
+  color: number;  // packed rgba
+}
 
 function findSegmentAtTick(row: number, tick: number): Segment | undefined {
   return MOCK_SCENE.segments.find((segment) => {
@@ -116,6 +125,14 @@ const PANEL_2 = packRgba(0x22, 0x25, 0x2a, 0xff);
 const BORDER = packRgba(0x2f, 0x33, 0x3a, 0xff);
 const HOT = packRgba(0xf0, 0x6b, 0x5b, 0xff);
 const MARKER = packRgba(0x4f, 0xd2, 0xbd, 0xff);
+// Cycled per new marker so adjacent markers read apart. Avoids HOT (cursor red).
+const MARKER_PALETTE = [
+  MARKER,                            // teal
+  packRgba(0xe8, 0xb3, 0x4f, 0xff),  // amber
+  packRgba(0xb4, 0x8c, 0xff, 0xff),  // purple
+  packRgba(0x72, 0xf5, 0xb4, 0xff),  // green
+  packRgba(0x72, 0x7b, 0xf5, 0xff),  // blue
+];
 // Pick the higher-contrast text color (white vs near-black canvas bg) against
 // the pill's effective fill. Pills render at ~70% color over the dark bg when
 // not selected, so pre-blend before measuring luminance.
@@ -215,10 +232,65 @@ export function App() {
   const ticksPerPixelReportedRef = useRef(0);
   const snapCursorRef = useRef(snapCursor);
   useEffect(() => { snapCursorRef.current = snapCursor; }, [snapCursor]);
+
+  // Markers — both state (status bar, toolbar) and refs (RAF loop, pointer
+  // handlers). markerSeqRef issues monotonic ids/names so deletes never reuse a
+  // name. Initialized with M1 to match the prior single hardcoded marker.
+  const [markers, setMarkers] = useState<Marker[]>([
+    { id: 1, name: "M1", tick: MARKER_TICKS, color: MARKER_PALETTE[0] },
+  ]);
+  const markersRef = useRef(markers);
+  useEffect(() => { markersRef.current = markers; }, [markers]);
+  const markerSeqRef = useRef(2);
+  const [selectedMarkerId, setSelectedMarkerId] = useState<number | null>(1);
+  const selectedMarkerIdRef = useRef<number | null>(1);
+  useEffect(() => { selectedMarkerIdRef.current = selectedMarkerId; }, [selectedMarkerId]);
+  // Per-frame marker hit boxes (CSS px) + ruler height, for pointer grabbing.
+  const markerHitsRef = useRef<{ id: number; x0: number; x1: number; lineX: number }[]>([]);
+  const rulerHeightRef = useRef(0);
+  const draggingMarkerRef = useRef<number | null>(null);
+
+  const addMarkerAtCursor = () => {
+    const seq = markerSeqRef.current++;
+    const color = MARKER_PALETTE[(seq - 1) % MARKER_PALETTE.length];
+    setMarkers((ms) => [...ms, { id: seq, name: `M${seq}`, tick: cursorTicksRef.current, color }]);
+    setSelectedMarkerId(seq);
+  };
+  // Delete the selected marker; if none selected, clear all.
+  const clearMarkers = () => {
+    const sel = selectedMarkerIdRef.current;
+    if (sel != null && markersRef.current.some((m) => m.id === sel)) {
+      setMarkers((ms) => ms.filter((m) => m.id !== sel));
+    } else {
+      setMarkers([]);
+    }
+    setSelectedMarkerId(null);
+  };
   const selectedRowRef = useRef(MOCK_SCENE.activeSignals.find((r) => r.selected)?.row ?? -1);
   useEffect(() => {
     selectedRowRef.current = activeSignals.find((r) => r.selected)?.row ?? -1;
   }, [activeSignals]);
+
+  // Keyboard: `m` drops a marker at the cursor, Delete/Backspace removes the
+  // selected one. Ignore while typing in an input. Handlers read refs, so the
+  // once-bound closures stay correct without re-subscribing.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
+      if (e.key === "m" || e.key === "M") {
+        addMarkerAtCursor();
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        const sel = selectedMarkerIdRef.current;
+        if (sel == null) return;
+        setMarkers((ms) => ms.filter((m) => m.id !== sel));
+        setSelectedMarkerId(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -247,10 +319,16 @@ export function App() {
       const rectsBg = rectRenderer.createBatch();
       const textBody = textRenderer.createBatch();
       // One rect+text batch per overlay pill so opaque rects can fully occlude
-      // earlier pills' text (no z buffer needed). Order: marker first, cursor
-      // last → cursor wins on overlap.
-      const pillMarker = { rects: rectRenderer.createBatch(), text: textRenderer.createBatch() };
+      // earlier pills' text (no z buffer needed). A fixed pool of marker pills
+      // (reused across frames; unused ones draw nothing), then the cursor pill
+      // last so it wins on overlap. allPills is built once to avoid per-frame
+      // allocation; the cursor is always the final entry.
+      const markerPills = Array.from({ length: MAX_MARKERS }, () => ({
+        rects: rectRenderer.createBatch(),
+        text: textRenderer.createBatch(),
+      }));
       const pillCursor = { rects: rectRenderer.createBatch(), text: textRenderer.createBatch() };
+      const allPills = [...markerPills, pillCursor];
 
       // Pooled scratch arrays + spec objects. Reused across frames; never
       // shrunk so JS engines can keep the underlying objects hot.
@@ -344,6 +422,7 @@ export function App() {
         const canvasH = cached.canvasH;
         const rowHeightCSS = cached.rowH;
         const rulerHeightCSS = rowHeightCSS;
+        rulerHeightRef.current = rulerHeightCSS;
         const waveHeightCSS = Math.max(0, canvasH - rulerHeightCSS);
 
         const timelinePx = canvasW;
@@ -411,11 +490,18 @@ export function App() {
         }
         linesBg.setLines(linesBgScratch, bgLineN);
 
-        const lfg0 = getLine(linesFgScratch, 0);
-        lfg0.x = xForTick(MARKER_TICKS); lfg0.color = MARKER; lfg0.dashed = true;
-        const lfg1 = getLine(linesFgScratch, 1);
-        lfg1.x = xForTick(cursor); lfg1.color = HOT;
-        linesFg.setLines(linesFgScratch, 2);
+        const markers = markersRef.current;
+        const selId = selectedMarkerIdRef.current;
+        let fgLineN = 0;
+        for (const m of markers) {
+          if (fgLineN >= MAX_MARKERS) break;
+          const l = getLine(linesFgScratch, fgLineN++);
+          // Selected marker draws solid to stand out; others dashed.
+          l.x = xForTick(m.tick); l.color = m.color; l.dashed = m.id !== selId;
+        }
+        const lcur = getLine(linesFgScratch, fgLineN++);
+        lcur.x = xForTick(cursor); lcur.color = HOT;
+        linesFg.setLines(linesFgScratch, fgLineN);
 
         // Build glyph instances for multi-bit pill values.
         const cellLg = textRenderer.cellLg;
@@ -481,11 +567,28 @@ export function App() {
             true,
           );
           pill.text.setGlyphs(glyphs);
+          return { x0: pillX, x1: pillX + pillW };
         };
-        addFlag(xForTick(MARKER_TICKS), `M1 · ${MARKER_TICKS.toFixed(3)} ns`, MARKER, pillMarker);
+        // Marker flags + hit boxes. Selected marker drawn last so its pill wins
+        // any overlap with the others.
+        const hits = markerHitsRef.current;
+        hits.length = 0;
+        const ordered = selId == null ? markers : [...markers].sort((a, b) => Number(a.id === selId) - Number(b.id === selId));
+        let mi = 0;
+        for (const m of ordered) {
+          if (mi >= markerPills.length) break;
+          const lineX = xForTick(m.tick);
+          const box = addFlag(lineX, `${m.name} · ${m.tick.toFixed(3)} ns`, m.color, markerPills[mi]);
+          hits.push({ id: m.id, x0: box.x0, x1: box.x1, lineX });
+          mi++;
+        }
+        for (; mi < markerPills.length; mi++) {
+          markerPills[mi].rects.setRects(pillRectScratch, 0);
+          markerPills[mi].text.setGlyphs(0);
+        }
         addFlag(xForTick(cursor), `${cursor.toFixed(3)} ns`, HOT, pillCursor);
 
-        renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, linesFg, textBody, pills: [pillMarker, pillCursor] }, vp);
+        renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, linesFg, textBody, pills: allPills }, vp);
         raf = requestAnimationFrame(frame);
       };
       raf = requestAnimationFrame(frame);
@@ -525,14 +628,35 @@ export function App() {
       }
     };
 
-    const setCursorAtClientX = (clientX: number) => {
+    // Client X → tick, clamped to canvas (pointer capture fires outside host),
+    // honoring snap. Shared by cursor placement and marker dragging.
+    const tickAtClientX = (clientX: number) => {
       const rect = host.getBoundingClientRect();
-      // Clamp px to canvas; pointer capture lets events fire outside the host.
       const px = Math.max(0, Math.min(rect.width, clientX - rect.left));
       let tick = startTicksRef.current + px * ticksPerPixelRef.current;
       if (snapCursorRef.current) tick = snapToClockEdge(tick);
+      return tick;
+    };
+    const setCursorAtClientX = (clientX: number) => {
+      const tick = tickAtClientX(clientX);
       cursorTicksRef.current = tick;
       setCursorTicks(tick);
+    };
+    const moveMarker = (id: number, tick: number) => {
+      setMarkers((ms) => ms.map((m) => (m.id === id ? { ...m, tick } : m)));
+    };
+    // Hit-test markers under the pointer: its flag pill (only in the ruler
+    // band) or its line (anywhere, within slop). Returns the marker id or null.
+    const markerAt = (clientX: number, clientY: number): number | null => {
+      const rect = host.getBoundingClientRect();
+      const px = clientX - rect.left;
+      const py = clientY - rect.top;
+      for (const h of markerHitsRef.current) {
+        const inPill = py <= rulerHeightRef.current && px >= h.x0 && px <= h.x1;
+        const onLine = Math.abs(px - h.lineX) <= MARKER_GRAB_PX;
+        if (inPill || onLine) return h.id;
+      }
+      return null;
     };
 
     const onWheel = (e: WheelEvent) => {
@@ -559,16 +683,28 @@ export function App() {
 
     const onPointerDown = (e: PointerEvent) => {
       if (e.button !== 0) return;
-      draggingRef.current = true;
       host.setPointerCapture(e.pointerId);
-      setCursorAtClientX(e.clientX);
+      // Grab a marker if one is under the pointer; else move the cursor.
+      const grabbed = markerAt(e.clientX, e.clientY);
+      if (grabbed != null) {
+        draggingMarkerRef.current = grabbed;
+        setSelectedMarkerId(grabbed);
+      } else {
+        draggingRef.current = true;
+        setCursorAtClientX(e.clientX);
+      }
     };
     const onPointerMove = (e: PointerEvent) => {
+      if (draggingMarkerRef.current != null) {
+        moveMarker(draggingMarkerRef.current, tickAtClientX(e.clientX));
+        return;
+      }
       if (!draggingRef.current) return;
       setCursorAtClientX(e.clientX);
     };
     const onPointerUp = (e: PointerEvent) => {
-      if (!draggingRef.current) return;
+      if (draggingMarkerRef.current == null && !draggingRef.current) return;
+      draggingMarkerRef.current = null;
       draggingRef.current = false;
       host.releasePointerCapture(e.pointerId);
     };
@@ -590,6 +726,8 @@ export function App() {
   const handleColorChange = (row: number, color: string) => {
     setActiveSignals((refs) => refs.map((r) => (r.row === row ? { ...r, color } : r)));
   };
+
+  const selectedMarker = markers.find((m) => m.id === selectedMarkerId) ?? null;
 
   const TREE_MIN_PX = 160;
   const ACTIVE_MIN_PX = 200;
@@ -774,8 +912,12 @@ export function App() {
               <span className="btn sm"><ArrowRightToLine size={12} /></span>
             </div>
             <div className="divider" />
-            <span className="btn sm"><Flag size={12} /> Marker</span>
-            <span className="btn sm ghost"><X size={12} /> Clear</span>
+            <span className="btn sm" data-tip="add marker at cursor (m)" onClick={addMarkerAtCursor}><Flag size={12} /> Marker</span>
+            <span
+              className="btn sm ghost"
+              data-tip={selectedMarkerId != null ? "delete selected marker (del)" : "clear all markers"}
+              onClick={clearMarkers}
+            ><X size={12} /> Clear</span>
             <div className="divider" />
             <span className="btn sm ghost"><MessageSquare size={12} /> Annotate</span>
             <span className="btn sm ghost"><SplitSquareHorizontal size={12} /> Split</span>
@@ -792,8 +934,9 @@ export function App() {
 
       <div className="status">
         <span>cursor <b>{cursorTicks.toFixed(3)} ns</b></span>
-        <span>M1 <b>{MARKER_TICKS.toFixed(3)} ns</b></span>
-        <span>Δ <b>{(cursorTicks - MARKER_TICKS).toFixed(3)} ns</b></span>
+        {selectedMarker && <span>{selectedMarker.name} <b>{selectedMarker.tick.toFixed(3)} ns</b></span>}
+        {selectedMarker && <span>Δ <b>{(cursorTicks - selectedMarker.tick).toFixed(3)} ns</b></span>}
+        <span>markers <b>{markers.length}</b></span>
         <span>zoom <b>{formatZoom(ticksPerPixel)}</b></span>
         <span className="sp" />
         <span>147 signals</span>
