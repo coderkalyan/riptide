@@ -672,6 +672,10 @@ export function App() {
 
         // Major notch: bottom-aligned to the ruler's lower border.
         const notchY = rulerHeightCSS - NOTCH_HEIGHT;
+        // Second ruler mirrored at the bottom of the canvas (ticks + labels
+        // only — no flags). Its notches hang down from its top border.
+        const bottomRulerH = rowHeightCSS;
+        const bottomRulerTop = canvasH - bottomRulerH;
         const { ticks: rulerTicks, spacing: rulerStep } = dynamicRulerTicks(startTicks, visibleTicks);
         let bgRectN = 0;
         {
@@ -687,6 +691,17 @@ export function App() {
           rd.x = deadStartPx; rd.y = rulerHeightCSS;
           rd.w = canvasW - deadStartPx; rd.h = waveHeightCSS;
           rd.color = DEAD_ZONE_GRAY; rd.crosshatch = true;
+          // Bottom ruler band + top border + notches (drawn after the dead
+          // zone so its opaque fill covers any crosshatch beneath it).
+          const br0 = getRect(rectsBgScratch, bgRectN++);
+          br0.x = 0; br0.y = bottomRulerTop; br0.w = canvasW; br0.h = bottomRulerH; br0.color = PANEL_2;
+          const br1 = getRect(rectsBgScratch, bgRectN++);
+          br1.x = 0; br1.y = bottomRulerTop; br1.w = canvasW; br1.h = 1; br1.color = BORDER;
+          for (const t of rulerTicks) {
+            const r = getRect(rectsBgScratch, bgRectN++);
+            // Tick marks sit in the bottom half, anchored to the canvas edge.
+            r.x = xForTick(t); r.y = canvasH - NOTCH_HEIGHT; r.w = 2; r.h = NOTCH_HEIGHT; r.color = NOTCH_COLOR;
+          }
         }
         rectsBg.setRects(rectsBgScratch, bgRectN);
 
@@ -721,16 +736,12 @@ export function App() {
         const cellW = cellLg.widthPx;
         let gi = 0;
         const rulerLabelY = Math.round(rulerHeightCSS * 0.5 + 2);
+        const bottomLabelY = Math.round(bottomRulerTop + bottomRulerH * 0.5 + 2);
         for (const t of rulerTicks) {
-          gi = writeText(
-            textBody,
-            gi,
-            Math.round(xForTick(t) + 3),
-            rulerLabelY,
-            formatRulerLabel(t, rulerStep),
-            TEXT_SECONDARY,
-            true,
-          );
+          const lx = Math.round(xForTick(t) + 3);
+          const label = formatRulerLabel(t, rulerStep);
+          gi = writeText(textBody, gi, lx, rulerLabelY, label, TEXT_SECONDARY, true);
+          gi = writeText(textBody, gi, lx, bottomLabelY, label, TEXT_SECONDARY, true);
         }
         for (const lbl of MULTI_BIT_LABELS) {
           if (gi >= MAX_GLYPHS) break;
@@ -755,7 +766,7 @@ export function App() {
 
         const cellSm = textRenderer.cellSm;
         const padX = 5;
-        const pillH = 16;
+        const pillH = 14;
         const addFlag = (x: number, text: string, color: number, pill: { rects: typeof rectsBg; text: typeof textBody }) => {
           const pillW = text.length * cellSm.widthPx + padX * 2;
           // Default anchor: pill's left edge sits on the line. Near the right
@@ -948,8 +959,6 @@ export function App() {
     setActiveSignals((refs) => refs.map((r) => (r.row === row ? { ...r, color } : r)));
   };
 
-  const selectedMarker = markers.find((m) => m.id === selectedMarkerId) ?? null;
-
   const TREE_MIN_PX = 160;
   const ACTIVE_MIN_PX = 200;
   const TREE_COLLAPSED_PX = 28;
@@ -1019,6 +1028,8 @@ export function App() {
     userInteractedRef.current = false;
   };
 
+  const selectedMarker = markers.find((m) => m.id === selectedMarkerId) ?? null;
+
   return (
     <div className="app">
       <div className="titlebar">
@@ -1030,7 +1041,9 @@ export function App() {
         <div className="sp" />
       </div>
 
-      <div className="body" style={{ gridTemplateColumns: `${treeColW}px ${activeW}px 1fr` }}>
+      {/* Row 2 holds the status bar under the two left columns only; the waves
+          column spans both rows so its canvas runs full height beside it. */}
+      <div className="body" style={{ gridTemplateColumns: `${treeColW}px ${activeW}px 1fr`, gridTemplateRows: "minmax(0, 1fr) auto" }}>
         {!treeCollapsed && (
           <div className="col-resize" style={{ left: treeColW - 3 }} onPointerDown={startResize("tree")} />
         )}
@@ -1078,6 +1091,7 @@ export function App() {
             className="signals"
             ref={signalsRef}
             onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
+            onClick={(e) => { if (e.target === e.currentTarget) setActiveSignals((refs) => refs.map((r) => (r.selected ? { ...r, selected: false } : r))); }}
           >
             {activeSignals.map((ref, i) => {
               const sig = getSignal(MOCK_SCENE.hierarchy, ref.signalId);
@@ -1099,7 +1113,7 @@ export function App() {
           </div>
         </div>
 
-        <div className="col waves">
+        <div className="col waves" style={{ gridColumn: 3, gridRow: "1 / 3" }}>
           <div className="col-head toolbar">
             <h3>Waves</h3>
             <div className="divider" />
@@ -1158,14 +1172,14 @@ export function App() {
             </div>
           </div>
         </div>
-      </div>
 
-      <div className="status">
-        <span>cursor <b>{cursorTicks.toFixed(3)} ns</b></span>
-        {selectedMarker && <span>{selectedMarker.name} <b>{selectedMarker.tick.toFixed(3)} ns</b></span>}
-        {selectedMarker && <span>Δ <b>{(cursorTicks - selectedMarker.tick).toFixed(3)} ns</b></span>}
-        <span>markers <b>{markers.length}</b></span>
-        <span>zoom <b>{formatZoom(ticksPerPixel)}</b></span>
+        <div className="status" style={{ gridColumn: "1 / 3", gridRow: 2 }}>
+          <span>cursor <b>{cursorTicks.toFixed(3)} ns</b></span>
+          {selectedMarker && <span>{selectedMarker.name} <b>{selectedMarker.tick.toFixed(3)} ns</b></span>}
+          {selectedMarker && <span>Δ <b>{(cursorTicks - selectedMarker.tick).toFixed(3)} ns</b></span>}
+          <span>markers <b>{markers.length}</b></span>
+          <span>zoom <b>{formatZoom(ticksPerPixel)}</b></span>
+        </div>
       </div>
 
       {picker && (

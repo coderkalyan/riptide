@@ -45,22 +45,22 @@ struct RowInfo {
 // Pipeline-creation constant: 0 = single-bit, 1 = multi-bit. Folded at
 // pipeline-compile time so per-variant branches have no runtime cost.
 const VARIANT_SINGLE: u32 = 0u;
-const VARIANT_MULTI:  u32 = 1u;
+const VARIANT_MULTI: u32 = 1u;
 override VARIANT: u32 = 0u;
 
 // VertexData.flags layout (single source of truth — vs and fs both read these).
 // Bits [0..7] mirror segment.row_flags[16..23] (shade/edge/rising/falling/mute).
 // Bits [8..15] are per-sample decoded state. F_DRAW_LINE_HIGH is single-only.
-const F_SHADE:          u32 = 1u << 0u;
-const F_RIGHT_EDGE:     u32 = 1u << 1u;
-const F_RISING_EDGE:    u32 = 1u << 2u;
-const F_FALLING_EDGE:   u32 = 1u << 3u;
-const F_MUTE:           u32 = 1u << 4u;
-const F_CROSSHATCH:     u32 = 1u << 8u;
-const F_HATCH_COLOR:    u32 = 1u << 9u;
-const F_DRAW_LINE:      u32 = 1u << 10u;
+const F_SHADE: u32 = 1u << 0u;
+const F_RIGHT_EDGE: u32 = 1u << 1u;
+const F_RISING_EDGE: u32 = 1u << 2u;
+const F_FALLING_EDGE: u32 = 1u << 3u;
+const F_MUTE: u32 = 1u << 4u;
+const F_CROSSHATCH: u32 = 1u << 8u;
+const F_HATCH_COLOR: u32 = 1u << 9u;
+const F_DRAW_LINE: u32 = 1u << 10u;
 const F_DRAW_LINE_HIGH: u32 = 1u << 11u; // single-bit variant only
-const F_HIGHLIGHT:      u32 = 1u << 12u;
+const F_HIGHLIGHT: u32 = 1u << 12u;
 
 @group(0) @binding(0) var<uniform> viewport: Viewport;
 @group(0) @binding(1) var<storage, read> segments: array<Segment>;
@@ -85,7 +85,7 @@ fn decodeSample(row: u32, instance_index: u32) -> vec2<u32> {
     return vec2<u32>(lsb, msb);
 }
 
-fn sdf(point: vec2f, half_size: vec2f, radius: f32) -> f32 {
+fn corner_sdf(point: vec2f, half_size: vec2f, radius: f32) -> f32 {
     let q = abs(point) - half_size + radius;
     return length(max(q, vec2f(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - radius;
 }
@@ -99,6 +99,29 @@ fn hatch(pill_local_px: vec2f, dir: f32, hatch_spacing: f32) -> f32 {
     let aa = fwidth(stripe);
     let stripe_mask = 1.0 - smoothstep(hatch_thickness - aa, hatch_thickness + aa, stripe);
     return stripe_mask;
+}
+
+fn segment_sdf(point: vec2f, a: vec2f, b: vec2f) -> f32 {
+    let pa = point - a;
+    let ba = b - a;
+    let t = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+    return length(pa - ba * t);
+}
+
+fn caret_sdf(point: vec2f, apex: vec2f) -> f32 {
+    let arm_length_px = 10.0;
+    let half_angle_rad = radians(40.0);
+    let half_thickness_px = 1.0;
+    let rotation = radians(0.0);
+
+    var q = point - apex;
+    let c = cos(rotation);
+    let s = sin(rotation);
+    q = mat2x2f(c, -s, s, c) * q;
+    q.x = abs(q.x);
+
+    let e = arm_length_px * vec2f(sin(half_angle_rad), -cos(half_angle_rad));
+    return segment_sdf(q, vec2f(0.0), e) - half_thickness_px;
 }
 
 struct VertexData {
@@ -132,7 +155,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
     // before f32 cast so values > 2^24 don't lose integer precision.
     let dt = vec2f(
         f32(i32(segment.t_start) - viewport.start_ticks_int),
-        f32(i32(segment.t_end)   - viewport.start_ticks_int),
+        f32(i32(segment.t_end) - viewport.start_ticks_int),
     ) - viewport.start_ticks_frac;
     var pixel_bounds = dt / viewport.ticks_per_pixel;
 
@@ -157,11 +180,11 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
     // F_DRAW_LINE_HIGH is single-only (multi's fs ignores it but we gate the
     // write anyway to keep the bit-layout intent explicit).
     var flags = (segment.row_flags >> 16u) & 0xffu;
-    flags |= select(0u, F_CROSSHATCH,     msb_nonzero);
-    flags |= select(0u, F_HATCH_COLOR,    lsb_nonzero);
-    flags |= select(0u, F_DRAW_LINE,      !msb_nonzero);
+    flags |= select(0u, F_CROSSHATCH, msb_nonzero);
+    flags |= select(0u, F_HATCH_COLOR, lsb_nonzero);
+    flags |= select(0u, F_DRAW_LINE, !msb_nonzero);
     flags |= select(0u, F_DRAW_LINE_HIGH, lsb_nonzero && VARIANT == VARIANT_SINGLE);
-    flags |= select(0u, F_HIGHLIGHT,      highlight);
+    flags |= select(0u, F_HIGHLIGHT, highlight);
 
     return VertexData(vec4f(clip_x, clip_y, 0.0, 1.0), vertex_local_px, half_size_px, flags, row_colors[row]);
 }
@@ -176,14 +199,14 @@ fn fs_single(in: VertexData) -> @location(0) vec4f {
     let z_color = vec4f(1.0, 0.863, 0.0, 1.0);
     let mute_color = vec4f(0.47, 0.47, 0.47, 0.6);
 
-    let enable_fill       = (in.flags & F_SHADE)          != 0u;
-    let draw_edge         = (in.flags & F_RIGHT_EDGE)     != 0u;
-    let mute              = (in.flags & F_MUTE)           != 0u;
-    let enable_crosshatch = (in.flags & F_CROSSHATCH)     != 0u;
-    let crosshatch_color  = (in.flags & F_HATCH_COLOR)    != 0u;
-    let draw_line         = (in.flags & F_DRAW_LINE)      != 0u;
-    let draw_line_high    = (in.flags & F_DRAW_LINE_HIGH) != 0u;
-    let highlight         = (in.flags & F_HIGHLIGHT)      != 0u;
+    let enable_fill = (in.flags & F_SHADE) != 0u;
+    let draw_edge = (in.flags & F_RIGHT_EDGE) != 0u;
+    let mute = (in.flags & F_MUTE) != 0u;
+    let enable_crosshatch = (in.flags & F_CROSSHATCH) != 0u;
+    let crosshatch_color = (in.flags & F_HATCH_COLOR) != 0u;
+    let draw_line = (in.flags & F_DRAW_LINE) != 0u;
+    let draw_line_high = (in.flags & F_DRAW_LINE_HIGH) != 0u;
+    let highlight = (in.flags & F_HIGHLIGHT) != 0u;
 
     // Horizontal line mask.
     let line_lo_px = in.half_size_px.y - (line_thickness_px * 0.5);
@@ -231,14 +254,14 @@ fn fs_multi(in: VertexData) -> @location(0) vec4f {
     let z_color = vec4f(1.0, 0.863, 0.0, 0.7);
     let mute_color = vec4f(0.47, 0.47, 0.47, 0.6);
 
-    let enable_fill       = (in.flags & F_SHADE)       != 0u;
-    let mute              = (in.flags & F_MUTE)        != 0u;
-    let enable_crosshatch = (in.flags & F_CROSSHATCH)  != 0u;
-    let crosshatch_color  = (in.flags & F_HATCH_COLOR) != 0u;
-    let highlight         = (in.flags & F_HIGHLIGHT)   != 0u;
+    let enable_fill = (in.flags & F_SHADE) != 0u;
+    let mute = (in.flags & F_MUTE) != 0u;
+    let enable_crosshatch = (in.flags & F_CROSSHATCH) != 0u;
+    let crosshatch_color = (in.flags & F_HATCH_COLOR) != 0u;
+    let highlight = (in.flags & F_HIGHLIGHT) != 0u;
 
-    // Calculate masks for rounded corner, edge, fill based on SDF.
-    let d_px = sdf(in.pill_local_px, in.half_size_px, radius);
+    // Calculate masks for rounded corner, edge, fill based on corner_sdf.
+    let d_px = corner_sdf(in.pill_local_px, in.half_size_px, radius);
     let aa = fwidth(d_px);
     let border_mask = smoothstep(-border_width - aa, -border_width, d_px) * (1.0 - smoothstep(-aa, 0.0, d_px));
     let fill_mask = 1.0 - smoothstep(-border_width - aa, -border_width, d_px);
