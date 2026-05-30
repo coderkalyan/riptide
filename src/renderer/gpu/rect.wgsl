@@ -53,6 +53,30 @@ fn sdf_rounded(point: vec2f, half_size: vec2f, radius: f32) -> f32 {
     return length(max(q, vec2f(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - radius;
 }
 
+// Copied from digital.wgsl, extended with a rotation arg so the same chevron
+// can serve as a horizontal arrowhead (±90°) here.
+fn segment_sdf(point: vec2f, a: vec2f, b: vec2f) -> f32 {
+    let pa = point - a;
+    let ba = b - a;
+    let t = clamp(dot(pa, ba) / dot(ba, ba), 0.0, 1.0);
+    return length(pa - ba * t);
+}
+
+fn caret_sdf(point: vec2f, apex: vec2f, rotation: f32) -> f32 {
+    let arm_length_px = 5.0;
+    let half_angle_rad = radians(40.0);
+    let half_thickness_px = 1.0;
+
+    var q = point - apex;
+    let c = cos(rotation);
+    let s = sin(rotation);
+    q = mat2x2f(c, -s, s, c) * q;
+    q.x = abs(q.x);
+
+    let e = arm_length_px * vec2f(sin(half_angle_rad), cos(half_angle_rad));
+    return segment_sdf(q, vec2f(0.0), e) - half_thickness_px;
+}
+
 @vertex
 fn vs_rect(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VertexData {
     let r = rects[ii];
@@ -72,6 +96,18 @@ fn vs_rect(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
 
 @fragment
 fn fs_rect(in: VertexData) -> @location(0) vec4f {
+    // Caret/arrowhead mode (bit 2). Rotate the chevron to point horizontally:
+    // +90° = "<" (points left), -90° = ">" (points right, bit 3). apex at the
+    // rect center; 1px-wide coverage like the digital caret.
+    let caret = (in.flags & 4u) != 0u;
+    // Compute the caret coverage unconditionally: fwidth requires uniform
+    // control flow, so it cannot live inside the `if (caret)` branch.
+    let rot = select(radians(-90.0), radians(90.0), (in.flags & 8u) != 0u);
+    let caret_centered = in.local_px - in.half_size_px;
+    let caret_d = caret_sdf(caret_centered, vec2f(0.0, 0.0), rot);
+    let caret_aa = fwidth(caret_d);
+    let caret_cov = clamp(0.5 - caret_d / caret_aa, 0.0, 1.0);
+
     let crosshatch = (in.flags & 1u) != 0u;
     let rounded = (in.flags & 2u) != 0u;
     var a = in.color.a;
@@ -99,5 +135,8 @@ fn fs_rect(in: VertexData) -> @location(0) vec4f {
     let round_mask = select(1.0, corner_mask, in_corner);
     a *= select(1.0, round_mask, rounded);
 
-    return vec4f(in.color.rgb, a);
+    // Select the caret alpha for caret instances; the normal rect alpha
+    // otherwise. Both paths computed unconditionally (uniform fwidth).
+    let out_a = select(a, in.color.a * caret_cov, caret);
+    return vec4f(in.color.rgb, out_a);
 }

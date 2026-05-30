@@ -153,6 +153,9 @@ const DEAD_ZONE_GRAY = packRgba(0x78, 0x7c, 0x86, 0x70);
 const RESET_RED = packRgba(0xe8, 0x6a, 0x5a, 0x60);
 const NOTCH_COLOR = packRgba(0x86, 0x8c, 0x96, 0xff);
 const NOTCH_HEIGHT = 12;
+// Bottom ruler band height (CSS px). Matches the `.status` cursor bar
+// (index.html `.status { height: 24px }`), not the taller top ruler.
+const BOTTOM_RULER_HEIGHT = 24;
 
 // Pick a "nice" ruler-tick spacing — multiples of {1, 2, 5} × 10^n — so the
 // visible range gets ~8 labels.
@@ -545,7 +548,7 @@ export function App() {
 
       // Pooled scratch arrays + spec objects. Reused across frames; never
       // shrunk so JS engines can keep the underlying objects hot.
-      type RectMut = { x: number; y: number; w: number; h: number; color: number; crosshatch?: boolean; rounded?: boolean };
+      type RectMut = { x: number; y: number; w: number; h: number; color: number; crosshatch?: boolean; rounded?: boolean; caret?: boolean; caretRight?: boolean };
       type LineMut = { x: number; color: number; dashed?: boolean };
       const rectsBgScratch: RectMut[] = [];
       const linesBgScratch: LineMut[] = [];
@@ -556,6 +559,8 @@ export function App() {
         if (!r) { r = { x: 0, y: 0, w: 0, h: 0, color: 0 }; arr[i] = r; }
         r.crosshatch = undefined;
         r.rounded = undefined;
+        r.caret = undefined;
+        r.caretRight = undefined;
         return r;
       };
       const getLine = (arr: LineMut[], i: number): LineMut => {
@@ -674,9 +679,12 @@ export function App() {
         const notchY = rulerHeightCSS - NOTCH_HEIGHT;
         // Second ruler mirrored at the bottom of the canvas (ticks + labels
         // only — no flags). Its notches hang down from its top border.
-        const bottomRulerH = rowHeightCSS;
+        const bottomRulerH = BOTTOM_RULER_HEIGHT;
         const bottomRulerTop = canvasH - bottomRulerH;
         const { ticks: rulerTicks, spacing: rulerStep } = dynamicRulerTicks(startTicks, visibleTicks);
+        // Delta label for the marker↔cursor arrow, filled in while building the
+        // arrow rects below and emitted in the text pass.
+        let deltaLabel: { x: number; y: number; text: string; color: number } | null = null;
         let bgRectN = 0;
         {
           const r0 = getRect(rectsBgScratch, bgRectN++);
@@ -701,6 +709,63 @@ export function App() {
             const r = getRect(rectsBgScratch, bgRectN++);
             // Tick marks sit in the bottom half, anchored to the canvas edge.
             r.x = xForTick(t); r.y = canvasH - NOTCH_HEIGHT; r.w = 2; r.h = NOTCH_HEIGHT; r.color = NOTCH_COLOR;
+          }
+          // Double-headed arrow between a marker and the cursor, in the empty
+          // band above the notches. Hardcoded for testing: uses the selected
+          // marker (else the first). Arrowheads are caret_sdf chevrons (see
+          // rect.wgsl) rotated to point outward at each end.
+          const arrowMarker =
+            markersRef.current.find((m) => m.id === selectedMarkerIdRef.current) ?? markersRef.current[0];
+          if (arrowMarker) {
+            // xForTick gives the line's LEFT edge; the cursor/marker lines are
+            // 1.25*dpr CSS px wide, so add half that to land on their center.
+            const lineHalf = 1.25 * dpr * 0.5;
+            const mX = xForTick(arrowMarker.tick) + lineHalf;
+            const cX = xForTick(cursor) + lineHalf;
+            const leftX = Math.min(mX, cX);
+            const rightX = Math.max(mX, cX);
+            // Vertical center of the empty band [bottomRulerTop, notch top].
+            const arrowY = bottomRulerTop + (bottomRulerH - NOTCH_HEIGHT) * 0.5;
+            const headW = 12, headH = 10, shaftH = 2, gap = 6;
+            const color = arrowMarker.color;
+            // Inset the apexes a few px from the line locations.
+            const leftApex = leftX + gap;
+            const rightApex = rightX - gap;
+            // Delta label centered on the shaft. If it fits between the apexes,
+            // split the shaft around it (dimension-line style); else draw the
+            // shaft whole and skip the label.
+            const cellSm = textRenderer.cellSm;
+            const deltaText = `${Math.abs(cursor - arrowMarker.tick).toFixed(3)} ns`;
+            const textW = deltaText.length * cellSm.widthPx;
+            const labelPad = 5;
+            const midX = (leftApex + rightApex) * 0.5;
+            const splitL = midX - textW * 0.5 - labelPad;
+            const splitR = midX + textW * 0.5 + labelPad;
+            const labelFits = splitL > leftApex + 2 && splitR < rightApex - 2;
+            const drawShaft = (x0: number, x1: number) => {
+              if (x1 <= x0) return;
+              const sh = getRect(rectsBgScratch, bgRectN++);
+              sh.x = x0; sh.y = arrowY - shaftH * 0.5; sh.w = x1 - x0; sh.h = shaftH; sh.color = color;
+            };
+            if (labelFits) {
+              drawShaft(leftApex, splitL);
+              drawShaft(splitR, rightApex);
+              deltaLabel = {
+                x: Math.round(midX - textW * 0.5),
+                y: Math.round(arrowY - cellSm.midlinePx),
+                text: deltaText,
+                color,
+              };
+            } else {
+              drawShaft(leftApex, rightApex);
+            }
+            // Left head "<" (apex on leftApex), right head ">" on rightApex.
+            const lh = getRect(rectsBgScratch, bgRectN++);
+            lh.x = leftApex - headW * 0.5; lh.y = arrowY - headH * 0.5;
+            lh.w = headW; lh.h = headH; lh.color = color; lh.caret = true; lh.caretRight = false;
+            const rh = getRect(rectsBgScratch, bgRectN++);
+            rh.x = rightApex - headW * 0.5; rh.y = arrowY - headH * 0.5;
+            rh.w = headW; rh.h = headH; rh.color = color; rh.caret = true; rh.caretRight = true;
           }
         }
         rectsBg.setRects(rectsBgScratch, bgRectN);
@@ -742,6 +807,9 @@ export function App() {
           const label = formatRulerLabel(t, rulerStep);
           gi = writeText(textBody, gi, lx, rulerLabelY, label, TEXT_SECONDARY, true);
           gi = writeText(textBody, gi, lx, bottomLabelY, label, TEXT_SECONDARY, true);
+        }
+        if (deltaLabel) {
+          gi = writeText(textBody, gi, deltaLabel.x, deltaLabel.y, deltaLabel.text, deltaLabel.color, true);
         }
         for (const lbl of MULTI_BIT_LABELS) {
           if (gi >= MAX_GLYPHS) break;

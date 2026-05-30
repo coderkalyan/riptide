@@ -10,6 +10,8 @@ export interface RectSpec {
   color: number;         // packed rgba
   crosshatch?: boolean;
   rounded?: boolean;     // 3 CSS px radius (matches DOM .flag border-radius)
+  caret?: boolean;       // render a chevron arrowhead instead of a solid rect
+  caretRight?: boolean;  // caret points right (">"); else left ("<")
 }
 
 export interface RectBatch {
@@ -93,7 +95,8 @@ export async function createRectRenderer(
           scratchF32[off + 2] = r.w;
           scratchF32[off + 3] = r.h;
           scratch[off + 4] = r.color >>> 0;
-          scratch[off + 5] = (r.crosshatch ? 1 : 0) | (r.rounded ? 2 : 0);
+          scratch[off + 5] =
+            (r.crosshatch ? 1 : 0) | (r.rounded ? 2 : 0) | (r.caret ? 4 : 0) | (r.caretRight ? 8 : 0);
         }
         device.queue.writeBuffer(instanceBuf, 0, scratch, 0, count * RECT_U32);
       },
