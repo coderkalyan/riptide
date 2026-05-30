@@ -87,18 +87,26 @@
         }
         .pill .swatch { width:8px; height:8px; border-radius:50%; background: var(--hot); }
         .pill.marker .swatch { background: var(--marker); }
-        [data-tip] { position: relative; }
-        [data-tip]:hover::after {
-            content: attr(data-tip);
-            position: absolute; bottom: calc(100% + 6px); left: 50%;
-            transform: translateX(-50%);
-            height: 22px; padding: 0 9px;
+        /* Tooltips render through a portal at <body> (see GlobalTooltip), so
+           they escape every overflow/scroll ancestor and aren't clipped.
+           position:fixed + translateZ(0) composites them above the WebGPU
+           canvas, which Chromium otherwise paints over plain HTML. Styled like
+           the cursor flag: small rounded rect, no border. The element
+           top-center is the anchor; translate lifts the bubble above it. */
+        .tip-pop {
+            position: fixed; transform: translate(-50%, calc(-100% - 6px)) translateZ(0);
+            will-change: transform, opacity;
+            height: 18px; padding: 0 6px;
             font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
-            border: 1px solid var(--border); border-radius: 999px;
-            background: var(--panel); color: var(--text);
+            border-radius: 4px;
+            background: var(--panel-3); color: var(--text);
             display: inline-flex; align-items: center;
-            white-space: nowrap; pointer-events: none; z-index: 100;
+            white-space: nowrap; pointer-events: none; z-index: 1000;
+            /* Soft, evenly-spread shadow (no offset, slight blue-grey tint). */
+            box-shadow: 0 0 12px 2px rgba(15, 18, 26, 0.5);
+            opacity: 0; transition: opacity 90ms ease;
         }
+        .tip-pop.show { opacity: 1; }
         .search {
             height: 26px; padding: 0 10px 0 26px; border: 1px solid var(--border);
             border-radius: 6px; background: var(--panel) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238C8C84' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='7'/><path d='m20 20-3-3'/></svg>") no-repeat 8px center;
@@ -136,6 +144,13 @@
             font-size: 11.5px; flex: 0 0 auto;
         }
         .col-head h3 { margin:0; font-size: 11.5px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--text-2); }
+        /* Collapsed-panel title: same type as h3 but stacked vertically,
+           reading bottom-to-top, centered in the narrow column. */
+        .col-vtitle {
+            writing-mode: vertical-rl; transform: rotate(180deg);
+            align-self: center; margin-top: 10px; white-space: nowrap; user-select: none;
+            font-size: 11.5px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--text-2);
+        }
         .col-head .hint { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--muted); }
         .col-head .collapse { width: 22px; height: 22px; display:inline-flex; align-items:center; justify-content:center; border-radius: 4px; color: var(--muted); font-size: 14px; cursor: default; margin-left: 4px; }
         .col-head .collapse:hover { background: var(--panel); color: var(--text); }
@@ -149,12 +164,16 @@
             flex: 0 0 auto;
         }
         .col-sub .search { flex:1; height: 26px; font-size: 12.5px; min-width: 0; }
+        /* Bare icon that labels the toolbar group it precedes (e.g. markers). */
+        .seg-label { display:inline-flex; align-items:center; color: var(--muted); margin-right: 1px; }
 
-        .tree { padding: 4px 4px 12px; overflow:auto; flex:2; scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
-        .tree::-webkit-scrollbar { width: 6px; height: 6px; }
-        .tree::-webkit-scrollbar-track { background: transparent; }
-        .tree::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
-        .tree::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+        .tree { padding: 4px 4px 12px; overflow:auto; flex:2; }
+        /* Global scrollbar styling — thin bars, matching the signal tree. */
+        * { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
         .t-row {
             height: 22px; display:flex; align-items:center; gap:4px;
             padding: 0 6px; font-family: 'JetBrains Mono', monospace; font-size: 12px;
@@ -205,7 +224,10 @@
             overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
 
-        .signals { overflow: auto; flex:1; }
+        /* y-only scroll: rows ellipsis-truncate, so the list never needs an
+           x-scroll. overflow-x:hidden stops row tooltips (which extend past the
+           panel edge) from widening the scroll area. */
+        .signals { overflow-y: auto; overflow-x: hidden; flex:1; }
         .s-head {
             display:grid; grid-template-columns: 16px 16px 1fr auto 14px;
             gap: 6px; padding: 0 8px 5px; height: var(--row-h); align-items: flex-end;

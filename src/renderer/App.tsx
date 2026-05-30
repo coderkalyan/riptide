@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Clock, Flag, Magnet, Maximize, MessageSquare, Minus, PanelLeftClose, PanelLeftOpen, Plus, SplitSquareHorizontal, X } from "lucide-react";
 import { ActiveSignal, type ActiveSignalKind } from "./ActiveSignal";
 import { ColorPicker } from "./ColorPicker";
@@ -205,6 +206,59 @@ const CLOCK_EDGE_TICKS: number[] = [];
 for (let t = MOCK_CLOCK_TICK_NS; t < MOCK_END_TICKS; t += 2 * MOCK_CLOCK_TICK_NS) {
   CLOCK_EDGE_TICKS.push(t);
 }
+// Single delegated tooltip for every [data-tip] element. Rendered through a
+// portal at <body> so it escapes overflow/scroll ancestors and the WebGPU
+// canvas. Anchors to the hovered element's top-center; CSS lifts it above.
+function GlobalTooltip() {
+  // Kept mounted so opacity can transition on both enter and exit; `show`
+  // drives the fade, `tip` holds the last text/position (frozen during fade-out).
+  const [tip, setTip] = useState<{ text: string; x: number; y: number }>({ text: "", x: 0, y: 0 });
+  const [show, setShow] = useState(false);
+  const [left, setLeft] = useState(0);
+  const ref = useRef<HTMLDivElement>(null);
+  // Clamp the (centered) tooltip so it never spills off either screen edge —
+  // matters for buttons at the far left/right (e.g. the collapsed-tree expand).
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const halfW = el.offsetWidth / 2;
+    const m = 4;
+    const min = halfW + m;
+    const max = window.innerWidth - halfW - m;
+    setLeft(max < min ? min : Math.max(min, Math.min(max, tip.x)));
+  }, [tip.x, tip.text]);
+  useEffect(() => {
+    let current: HTMLElement | null = null;
+    const onOver = (e: MouseEvent) => {
+      const el = (e.target as HTMLElement | null)?.closest("[data-tip]") as HTMLElement | null;
+      if (el === current) return;
+      current = el;
+      const text = el?.getAttribute("data-tip") ?? "";
+      if (!el || text === "") { setShow(false); return; }
+      const r = el.getBoundingClientRect();
+      setTip({ text, x: r.left + r.width / 2, y: r.top });
+      setShow(true);
+    };
+    const onOut = (e: MouseEvent) => {
+      const to = e.relatedTarget as Node | null;
+      if (current && (!to || !current.contains(to))) {
+        current = null;
+        setShow(false);
+      }
+    };
+    document.addEventListener("mouseover", onOver);
+    document.addEventListener("mouseout", onOut);
+    return () => {
+      document.removeEventListener("mouseover", onOver);
+      document.removeEventListener("mouseout", onOut);
+    };
+  }, []);
+  return createPortal(
+    <div ref={ref} className={`tip-pop${show ? " show" : ""}`} style={{ left, top: tip.y }}>{tip.text}</div>,
+    document.body,
+  );
+}
+
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const signalsRef = useRef<HTMLDivElement>(null);
@@ -689,6 +743,7 @@ export function App() {
       if (grabbed != null) {
         draggingMarkerRef.current = grabbed;
         setSelectedMarkerId(grabbed);
+        host.style.cursor = "col-resize";
       } else {
         draggingRef.current = true;
         setCursorAtClientX(e.clientX);
@@ -699,14 +754,21 @@ export function App() {
         moveMarker(draggingMarkerRef.current, tickAtClientX(e.clientX));
         return;
       }
-      if (!draggingRef.current) return;
-      setCursorAtClientX(e.clientX);
+      if (draggingRef.current) {
+        setCursorAtClientX(e.clientX);
+        return;
+      }
+      // Hover feedback: show a grab cursor when a marker is grabbable here.
+      host.style.cursor = markerAt(e.clientX, e.clientY) != null ? "col-resize" : "";
     };
     const onPointerUp = (e: PointerEvent) => {
       if (draggingMarkerRef.current == null && !draggingRef.current) return;
+      const wasMarker = draggingMarkerRef.current != null;
       draggingMarkerRef.current = null;
       draggingRef.current = false;
       host.releasePointerCapture(e.pointerId);
+      // Settle the hover cursor at the release point (still over the line?).
+      if (wasMarker) host.style.cursor = markerAt(e.clientX, e.clientY) != null ? "col-resize" : "";
     };
 
     host.addEventListener("wheel", onWheel, { passive: false });
@@ -819,14 +881,19 @@ export function App() {
         <div className="col-resize" style={{ left: treeColW + activeW - 3 }} onPointerDown={startResize("active")} />
         <div className="col">
           {treeCollapsed ? (
-            <div className="col-head" style={{ justifyContent: "center" }}>
-              <span className="collapse" data-tip="expand panel" onClick={() => setTreeCollapsed(false)}>
-                <PanelLeftOpen size={14} strokeWidth={1.75} />
-              </span>
-            </div>
+            <>
+              <div className="col-head" style={{ justifyContent: "center" }}>
+                <span className="collapse" data-tip="expand panel" onClick={() => setTreeCollapsed(false)}>
+                  <PanelLeftOpen size={14} strokeWidth={1.75} />
+                </span>
+              </div>
+              <div className="col-vtitle">Signal Tree</div>
+            </>
           ) : (
             <>
-              <div className="col-head">
+              {/* Tighter right padding so the collapse button's right gap
+                  matches the centered expand button in the collapsed state. */}
+              <div className="col-head" style={{ paddingRight: 3 }}>
                 <h3>Signal Tree</h3>
                 <span className="sp" style={{ flex: 1 }} />
                 <span className="collapse" data-tip="collapse panel" onClick={() => setTreeCollapsed(true)}>
@@ -878,14 +945,14 @@ export function App() {
             <div className="divider" />
             <span className="pill"><span className="swatch" /><span className="mono">cursor {cursorTicks.toFixed(3)} ns</span></span>
             <div className="seg">
-              <span className="btn icon" data-tip="to beginning"><ChevronFirst size={14} /></span>
-              <span className="btn icon" data-tip="step backward"><ChevronLeft size={14} /></span>
+              <span className="btn icon" data-tip="jump to start"><ChevronFirst size={14} /></span>
+              <span className="btn icon" data-tip="step back"><ChevronLeft size={14} /></span>
               <span className="btn icon" data-tip="step forward"><ChevronRight size={14} /></span>
-              <span className="btn icon" data-tip="to end"><ChevronLast size={14} /></span>
+              <span className="btn icon" data-tip="jump to end"><ChevronLast size={14} /></span>
             </div>
             <span
               className={`btn sm icon${snapCursor ? " on" : ""}`}
-              data-tip="snap cursor to grid"
+              data-tip={snapCursor ? "disable grid snap" : "enable grid snap"}
               onClick={() => setSnapCursor((v) => !v)}
             >
               <Magnet size={14} />
@@ -893,12 +960,12 @@ export function App() {
             <span className="sp" style={{ flex: 1 }} />
             <div className="seg">
               <span className="btn icon" data-tip="zoom out" onClick={() => zoomBy(ZOOM_STEP)}><Minus size={14} /></span>
-              <span className="btn icon" data-tip="fit" onClick={fitView}><Maximize size={14} /></span>
+              <span className="btn icon" data-tip="zoom to fit" onClick={fitView}><Maximize size={14} /></span>
               <span className="btn icon" data-tip="zoom in" onClick={() => zoomBy(1 / ZOOM_STEP)}><Plus size={14} /></span>
             </div>
             <span
               className={`btn sm icon${clockAnchor ? " on" : ""}`}
-              data-tip="anchor timeline to clock"
+              data-tip={clockAnchor ? "align grid to timescale" : "align grid to clock"}
               onClick={() => setClockAnchor((v) => !v)}
             >
               <Clock size={14} />
@@ -908,16 +975,17 @@ export function App() {
           </div>
           <div className="col-sub">
             <div className="seg">
-              <span className="btn sm"><ArrowLeftToLine size={12} /></span>
-              <span className="btn sm"><ArrowRightToLine size={12} /></span>
+              <span className="btn sm" data-tip="previous transition"><ArrowLeftToLine size={12} /></span>
+              <span className="btn sm" data-tip="next transition"><ArrowRightToLine size={12} /></span>
             </div>
             <div className="divider" />
-            <span className="btn sm" data-tip="add marker at cursor (m)" onClick={addMarkerAtCursor}><Flag size={12} /> Marker</span>
+            <span className="seg-label" data-tip="markers"><Flag size={13} /></span>
+            <span className="btn sm" data-tip="add marker at cursor (m)" onClick={addMarkerAtCursor}><Plus size={12} /> Marker</span>
             <span
               className="btn sm ghost"
               data-tip={selectedMarkerId != null ? "delete selected marker (del)" : "clear all markers"}
               onClick={clearMarkers}
-            ><X size={12} /> Clear</span>
+            ><X size={12} /> {selectedMarkerId != null ? "Delete" : "Clear"}</span>
             <div className="divider" />
             <span className="btn sm ghost"><MessageSquare size={12} /> Annotate</span>
             <span className="btn sm ghost"><SplitSquareHorizontal size={12} /> Split</span>
@@ -938,11 +1006,6 @@ export function App() {
         {selectedMarker && <span>Δ <b>{(cursorTicks - selectedMarker.tick).toFixed(3)} ns</b></span>}
         <span>markers <b>{markers.length}</b></span>
         <span>zoom <b>{formatZoom(ticksPerPixel)}</b></span>
-        <span className="sp" />
-        <span>147 signals</span>
-        <span>{activeSignals.length} active</span>
-        <span>{activeSignals.filter((r) => r.derivedExpr).length} derived</span>
-        <span>top / keysched</span>
       </div>
 
       {picker && (
@@ -953,6 +1016,7 @@ export function App() {
           anchorRect={picker.anchorRect}
         />
       )}
+      <GlobalTooltip />
     </div>
   );
 }
