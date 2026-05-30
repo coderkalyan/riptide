@@ -58,7 +58,7 @@ const MUTE_OUT = V_OUT_VALID.map((v) => v !== 1);
 // ---- scene --------------------------------------------------------------
 
 function buildMock(): MockScene {
-  const b = new HierarchyBuilder().setFormat("fst").setTimescale({ value: 1, unit: "ns" });
+  const b = new HierarchyBuilder().setFormat("fst").setTimescale({ value: 1, unit: "ns", precision: { value: 10, unit: "ps" } });
   const expanded: NodeId[] = [];
   let handleCounter = 0;
   const h = () => `!${(handleCounter++).toString(36)}`;

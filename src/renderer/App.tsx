@@ -14,6 +14,7 @@ import { createLineRenderer } from "./gpu/lines";
 import { createRectRenderer } from "./gpu/rect";
 import { MOCK_SCENE, RESET_HELD_TICKS, type ActiveSignalRef, type Radix } from "./hier/mock";
 import { getSignal } from "./hier/hierarchy";
+import type { Timescale, TimeUnit } from "./hier/types";
 import { getMockSegments } from "./native";
 
 function activeSignalKind(ref: ActiveSignalRef): ActiveSignalKind {
@@ -191,17 +192,25 @@ function formatRulerLabel(t: number, spacing: number): string {
   return `${t.toFixed(decimals)} ns`;
 }
 
-function formatZoom(ticksPerPixel: number): string {
-  if (!isFinite(ticksPerPixel) || ticksPerPixel <= 0) return "— ns / — px";
-  const pxPerNs = 1 / ticksPerPixel;
-  if (pxPerNs >= 1) {
-    const d = pxPerNs >= 100 ? 0 : pxPerNs >= 10 ? 1 : 2;
-    return `1 ns / ${pxPerNs.toFixed(d)} px`;
-  }
-  const nsPerPx = ticksPerPixel;
-  const d = nsPerPx >= 100 ? 0 : nsPerPx >= 10 ? 1 : 2;
-  return `${nsPerPx.toFixed(d)} ns / 1 px`;
+// Verilog-style timescale label: `<time unit> / <time precision>`. Precision is
+// optional (VCD/FST may omit it) — fall back to just the time unit.
+function formatTimescale(ts: Timescale): string {
+  const unit = `${ts.value} ${ts.unit}`;
+  return ts.precision ? `${unit} / ${ts.precision.value} ${ts.precision.unit}` : unit;
 }
+
+const TIME_UNIT_EXP: Record<TimeUnit, number> = { s: 0, ms: -3, us: -6, ns: -9, ps: -12, fs: -15 };
+// Fractional digits the time unit needs to express one precision step. Verilog
+// precision is restricted to 1/10/100 of a unit, so this stays exact.
+function timeDecimals(ts: Timescale): number {
+  if (!ts.precision) return 0;
+  const exp = TIME_UNIT_EXP[ts.precision.unit] - TIME_UNIT_EXP[ts.unit];
+  return Math.max(0, -exp - (String(ts.precision.value).length - 1));
+}
+// Every time readout (cursor, markers, range, hover, deltas) zero-pads to the
+// file's time precision so values share one decimal width.
+const TIME_DECIMALS = timeDecimals(MOCK_SCENE.hierarchy.timescale);
+const formatTime = (tick: number): string => tick.toFixed(TIME_DECIMALS);
 
 function snapToClockEdge(tick: number): number {
   // Quantize to the clock period: rising edges land on odd multiples of
@@ -458,6 +467,51 @@ function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: Me
   );
 }
 
+// Inline click-to-edit number for the range label. Renders as plain text until
+// clicked, then swaps to a content-sized <input> in the same spot (no new
+// chrome). Enter/blur commits via onCommit; Esc cancels; a rejected commit
+// flashes a red border and keeps editing.
+function EditableNum({ value, onCommit, format, tip }: {
+  value: number;
+  onCommit: (n: number) => boolean;
+  format: (n: number) => string;
+  tip: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [err, setErr] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) { inputRef.current?.focus(); inputRef.current?.select(); }
+  }, [editing]);
+
+  if (!editing) {
+    return (
+      <span
+        className="num-edit"
+        data-tip={tip}
+        onClick={() => { setDraft(String(value)); setErr(false); setEditing(true); }}
+      >{format(value)}</span>
+    );
+  }
+  const tryCommit = () => onCommit(parseFloat(draft));
+  return (
+    <input
+      ref={inputRef}
+      className={`num-input${err ? " err" : ""}`}
+      value={draft}
+      style={{ width: `${Math.max(2, draft.length + 1)}ch` }}
+      onChange={(e) => { setDraft(e.target.value); setErr(false); }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") { if (tryCommit()) setEditing(false); else setErr(true); }
+        else if (e.key === "Escape") setEditing(false);
+      }}
+      onBlur={() => { tryCommit(); setEditing(false); }}
+    />
+  );
+}
+
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const signalsRef = useRef<HTMLDivElement>(null);
@@ -475,7 +529,7 @@ export function App() {
   const [activeSignals, setActiveSignals] = useState<ActiveSignalRef[]>(MOCK_SCENE.activeSignals);
   const [picker, setPicker] = useState<{ row: number; anchorRect: DOMRect } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  const [snapCursor, setSnapCursor] = useState(true);
+  const [snapCursor, setSnapCursor] = useState(false);
   const [clockAnchor, setClockAnchor] = useState(false);
   // Cursor needs both a ref (event handlers, frame loop) and state (active-
   // signal value column re-renders on cursor move).
@@ -489,9 +543,13 @@ export function App() {
   // (not synced from `hover` state) so the line tracks the pointer with no
   // React-commit lag. `hover` state only feeds the status-bar text.
   const hoverRef = useRef<{ tick: number; row: number } | null>(null);
-  // Mirror of `ticksPerPixelRef` for reactive zoom labels. Synced from RAF.
-  const [ticksPerPixel, setTicksPerPixel] = useState(0);
-  const ticksPerPixelReportedRef = useRef(0);
+  // Reactive mirror of the visible [start, end] tick window, synced from the
+  // RAF loop. Drives the editable range label; edits write it back via refs.
+  const [viewRange, setViewRange] = useState({ start: 0, end: MOCK_END_TICKS });
+  const viewReportedRef = useRef({ start: -1, end: -1 });
+  // Open VCD tabs (mock — no real file loading yet).
+  const [openFiles, setOpenFiles] = useState(["keysched.vcd", "alu_tb.vcd"]);
+  const [activeTab, setActiveTab] = useState(0);
   const snapCursorRef = useRef(snapCursor);
   useEffect(() => { snapCursorRef.current = snapCursor; }, [snapCursor]);
 
@@ -599,7 +657,7 @@ export function App() {
       // Pooled scratch arrays + spec objects. Reused across frames; never
       // shrunk so JS engines can keep the underlying objects hot.
       type RectMut = { x: number; y: number; w: number; h: number; color: number; crosshatch?: boolean; rounded?: boolean; caret?: boolean; caretRight?: boolean };
-      type LineMut = { x: number; color: number; dashed?: boolean };
+      type LineMut = { x: number; color: number; dashed?: boolean; fullHeight?: boolean };
       const rectsBgScratch: RectMut[] = [];
       const linesBgScratch: LineMut[] = [];
       const linesFgScratch: LineMut[] = [];
@@ -617,6 +675,7 @@ export function App() {
         let l = arr[i];
         if (!l) { l = { x: 0, color: 0 }; arr[i] = l; }
         l.dashed = undefined;
+        l.fullHeight = undefined;
         return l;
       };
 
@@ -702,12 +761,15 @@ export function App() {
           startTicksRef.current = 0;
         }
         const ticksPerPixel = ticksPerPixelRef.current;
-        if (ticksPerPixel !== ticksPerPixelReportedRef.current) {
-          ticksPerPixelReportedRef.current = ticksPerPixel;
-          setTicksPerPixel(ticksPerPixel);
-        }
         const startTicks = startTicksRef.current;
         const visibleTicks = timelinePx * ticksPerPixel;
+        // Report the visible window to React (throttled) for the range label.
+        const viewEnd = startTicks + visibleTicks;
+        const rep = viewReportedRef.current;
+        if (Math.abs(rep.start - startTicks) > 1e-6 || Math.abs(rep.end - viewEnd) > 1e-6) {
+          rep.start = startTicks; rep.end = viewEnd;
+          setViewRange({ start: startTicks, end: viewEnd });
+        }
         const cursor = cursorTicksRef.current;
         const xForTick = (tick: number) => (tick - startTicks) / ticksPerPixel;
         vp.ticks_per_pixel = ticksPerPixel;
@@ -836,7 +898,7 @@ export function App() {
             drawSpanArrow(
               Math.min(mX, cX),
               Math.max(mX, cX),
-              `${Math.abs(cursor - arrowMarker.tick).toFixed(3)} ns`,
+              `${formatTime(Math.abs(cursor - arrowMarker.tick))} ns`,
               arrowMarker.color,
             );
           }
@@ -869,7 +931,7 @@ export function App() {
         const hov = hoverRef.current;
         if (hov && fgLineN < MAX_MARKERS) {
           const lh = getLine(linesFgScratch, fgLineN++);
-          lh.x = xForTick(hov.tick); lh.color = GRID_GRAY; lh.dashed = true;
+          lh.x = xForTick(hov.tick); lh.color = GRID_GRAY; lh.dashed = true; lh.fullHeight = true;
         }
         const lcur = getLine(linesFgScratch, fgLineN++);
         lcur.x = xForTick(cursor); lcur.color = HOT;
@@ -882,7 +944,7 @@ export function App() {
         const rulerLabelY = Math.round(rulerHeightCSS * 0.5 + 2);
         const bottomLabelY = Math.round(bottomRulerTop + bottomRulerH * 0.5 + 2);
         for (const t of rulerTicks) {
-          const lx = Math.round(xForTick(t) + 3);
+          const lx = Math.round(xForTick(t) + 5);
           const label = formatRulerLabel(t, rulerStep);
           gi = writeText(textBody, gi, lx, rulerLabelY, label, TEXT_SECONDARY, true);
           gi = writeText(textBody, gi, lx, bottomLabelY, label, TEXT_SECONDARY, true);
@@ -949,7 +1011,7 @@ export function App() {
         for (const m of ordered) {
           if (mi >= markerPills.length) break;
           const lineX = xForTick(m.tick);
-          const box = addFlag(lineX, `${m.name} · ${m.tick.toFixed(3)} ns`, m.color, markerPills[mi]);
+          const box = addFlag(lineX, `${m.name} · ${formatTime(m.tick)} ns`, m.color, markerPills[mi]);
           hits.push({ id: m.id, x0: box.x0, x1: box.x1, lineX });
           mi++;
         }
@@ -957,7 +1019,7 @@ export function App() {
           markerPills[mi].rects.setRects(pillRectScratch, 0);
           markerPills[mi].text.setGlyphs(0);
         }
-        addFlag(xForTick(cursor), `${cursor.toFixed(3)} ns`, HOT, pillCursor);
+        addFlag(xForTick(cursor), `${formatTime(cursor)} ns`, HOT, pillCursor);
 
         renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, linesFg, textBody, pills: allPills }, vp);
         raf = requestAnimationFrame(frame);
@@ -1210,14 +1272,39 @@ export function App() {
     startTicksRef.current = 0;
     userInteractedRef.current = false;
   };
+  const closeTab = (i: number) => {
+    setOpenFiles((fs) => fs.filter((_, k) => k !== i));
+    // Keep the active index valid: shift down if it was at/after the closed tab.
+    setActiveTab((a) => (a >= i && a > 0 ? a - 1 : a));
+  };
+  // Commit an edited [start, end] window from the range label. Returns false on
+  // invalid input (non-finite, negative, start >= end) so the field can flash.
+  const applyRange = (start: number, end: number): boolean => {
+    const host = hostRef.current;
+    if (!host) return false;
+    const timelinePx = host.getBoundingClientRect().width;
+    if (timelinePx <= 0 || !isFinite(start) || !isFinite(end) || start < 0 || end <= start) return false;
+    userInteractedRef.current = true;
+    ticksPerPixelRef.current = (end - start) / timelinePx;
+    startTicksRef.current = start;
+    // clampPan: keep the window within data bounds (mirrors the wheel handler).
+    const visible = timelinePx * ticksPerPixelRef.current;
+    if (visible < MOCK_END_TICKS) {
+      startTicksRef.current = Math.max(0, Math.min(MOCK_END_TICKS - visible, startTicksRef.current));
+    } else {
+      startTicksRef.current = 0;
+    }
+    setViewRange({ start: startTicksRef.current, end: startTicksRef.current + visible });
+    return true;
+  };
 
   const selectedMarker = markers.find((m) => m.id === selectedMarkerId) ?? null;
-  // Resolve the live pointer readout: signal name + single-point value query at
-  // the hovered tick. null signal (off-row) collapses the readout entirely.
+  // Live pointer readout. Time shows whenever the pointer is over the canvas;
+  // the signal value is a single-point query that only resolves when the
+  // pointer is over an actual signal row (off-row → null).
   const hoverSig = hover ? activeSignals.find((r) => r.row === hover.row) ?? null : null;
-  const hoverReadout = hover && hoverSig
+  const hoverValue = hover && hoverSig
     ? {
-      tick: hover.tick,
       name: getSignal(MOCK_SCENE.hierarchy, hoverSig.signalId).name,
       value: formatSegmentValue(
         findSegmentAtTick(hoverSig.row, hover.tick),
@@ -1236,8 +1323,20 @@ export function App() {
         <MenuBar />
         <div className="divider" />
         <div className="tabs">
-          <span className="tchip active"><i className="dot" />keysched.vcd</span>
-          <span className="tchip inactive">alu_tb.vcd</span>
+          {openFiles.map((f, i) => (
+            <span
+              key={f}
+              className={`tab${i === activeTab ? " active" : ""}`}
+              onClick={() => setActiveTab(i)}
+            >
+              {f}
+              <span
+                className="tab-close"
+                data-tip="close file"
+                onClick={(e) => { e.stopPropagation(); closeTab(i); }}
+              ><X size={11} /></span>
+            </span>
+          ))}
         </div>
         <div className="sp" />
       </div>
@@ -1332,7 +1431,7 @@ export function App() {
           <div className="col-head toolbar">
             <h3>Waves</h3>
             <div className="divider" />
-            <span className="pill"><span className="swatch" /><span className="mono">cursor {cursorTicks.toFixed(3)} ns</span></span>
+            <span className="pill"><span className="swatch" /><span className="mono">cursor {formatTime(cursorTicks)} ns</span></span>
             <div className="seg">
               <span className="btn icon" data-tip="jump to start"><ChevronFirst size={14} /></span>
               <span className="btn icon" data-tip="step back"><ChevronLeft size={14} /></span>
@@ -1344,6 +1443,23 @@ export function App() {
               <span className="btn icon" data-tip="next transition"><ArrowRightToLine size={14} /></span>
             </div>
             <span className="sp" style={{ flex: 1 }} />
+            <span className="hint mono">
+              {formatTimescale(MOCK_SCENE.hierarchy.timescale)} ·{" "}
+              <EditableNum
+                value={viewRange.start}
+                format={formatTime}
+                onCommit={(n) => applyRange(n, viewRange.end)}
+                tip="edit range"
+              />
+              {" – "}
+              <EditableNum
+                value={viewRange.end}
+                format={formatTime}
+                onCommit={(n) => applyRange(viewRange.start, n)}
+                tip="edit range"
+              /> ns
+            </span>
+            <div className="divider" />
             <div className="seg">
               <span className="btn icon" data-tip="zoom out" onClick={() => zoomBy(ZOOM_STEP)}><Minus size={14} /></span>
               <span className="btn icon" data-tip="zoom to fit" onClick={fitView}><Maximize size={14} /></span>
@@ -1365,8 +1481,6 @@ export function App() {
                 <Clock size={14} />
               </span>
             </div>
-            <div className="divider" />
-            <span className="hint mono">{formatZoom(ticksPerPixel)} · 0 – {MOCK_END_TICKS} ns</span>
           </div>
           <div className="col-sub">
             <span className="sub-label">MARKERS</span>
@@ -1380,7 +1494,7 @@ export function App() {
                   data-tip={m.id === selectedMarkerId ? "click to deselect" : "click to select"}
                   onClick={() => setSelectedMarkerId((sel) => (sel === m.id ? null : m.id))}
                 >
-                  {m.name} · {m.tick.toFixed(3)} ns
+                  {m.name} · {formatTime(m.tick)} ns
                   <span
                     className="rm"
                     data-tip="delete marker"
@@ -1400,10 +1514,15 @@ export function App() {
         </div>
 
         <div className="status" style={{ gridColumn: "1 / 3", gridRow: 2 }}>
-          {hoverReadout ? (
+          {hover ? (
             <>
-              <span>time <b>{hoverReadout.tick.toFixed(3)} ns</b></span>
-              <span>{hoverReadout.name} = <b>{hoverReadout.value}</b></span>
+              <span>time <b>{formatTime(hover.tick)} ns</b></span>
+              <span className="sep">·</span>
+              {hoverValue ? (
+                <span>{hoverValue.name} = <b>{hoverValue.value}</b></span>
+              ) : (
+                <span className="muted">hover over a signal to inspect</span>
+              )}
             </>
           ) : (
             <span className="muted">hover over a signal to inspect</span>

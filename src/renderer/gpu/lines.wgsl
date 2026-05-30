@@ -21,7 +21,7 @@ struct Viewport {
 struct Line {
     x_px: f32,       // CSS px, left edge of the line
     color_rgba: u32, // 8-bit packed rgba
-    flags: u32,      // bit 0 = dashed
+    flags: u32,      // bit 0 = dashed, bit 1 = full height (top at y=0)
     _pad: u32,
 }
 
@@ -55,7 +55,7 @@ fn vs_line(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
     // Line is left-aligned, anchored at x_px. Top starts inside the flag pill
     // (8 CSS px = pill_h/2 in App.tsx) so the line appears to enter the pill.
     let x_px = line.x_px + corner_x * thickness;
-    let y_top = 8.0;
+    let y_top = select(8.0, 0.0, (line.flags & 2u) != 0u);
     let y_px = y_top + corner_y * (viewport.height - y_top);
 
     let clip_x = x_px / viewport.width * 2.0 - 1.0;

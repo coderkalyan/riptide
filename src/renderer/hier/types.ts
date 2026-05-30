@@ -139,9 +139,14 @@ export interface Hierarchy {
   timescale: Timescale;
 }
 
+export type TimeUnit = "s" | "ms" | "us" | "ns" | "ps" | "fs";
+
 export interface Timescale {
   value: number;
-  unit: "s" | "ms" | "us" | "ns" | "ps" | "fs";
+  unit: TimeUnit;
+  // Verilog `timescale` carries two magnitudes: the time unit (above) and the
+  // time precision (rounding granularity). Optional — VCD/FST dumps may omit it.
+  precision?: { value: number; unit: TimeUnit };
 }
 
 // ---- derivations -------------------------------------------------------

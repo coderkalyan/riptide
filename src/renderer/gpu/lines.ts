@@ -9,6 +9,9 @@ export interface LineSpec {
   x: number;      // CSS px, left edge
   color: number;  // packed rgba (see packRgba in text.ts)
   dashed?: boolean;
+  // Extend to the very top (y=0) instead of starting inside the flag pill.
+  // Used by the hover guide, which has no pill to anchor into.
+  fullHeight?: boolean;
 }
 
 export interface LineBatch {
@@ -89,7 +92,7 @@ export async function createLineRenderer(
           const l = lines[i];
           scratchF32[off + 0] = l.x;
           scratch[off + 1] = l.color >>> 0;
-          scratch[off + 2] = l.dashed ? 1 : 0;
+          scratch[off + 2] = (l.dashed ? 1 : 0) | (l.fullHeight ? 2 : 0);
           scratch[off + 3] = 0;
         }
         device.queue.writeBuffer(instanceBuf, 0, scratch, 0, count * LINE_U32);

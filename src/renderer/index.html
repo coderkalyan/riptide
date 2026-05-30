@@ -44,17 +44,24 @@
         .title { font-weight: 600; font-size: 12.5px; letter-spacing:.1px; }
         .title .sub { color: var(--muted); font-weight: 400; margin-left:6px; }
         .titlebar .sp { flex:1; }
-        .tabs { display:flex; align-items:center; gap:4px; }
-        .tchip {
+        /* Tabs hug the bottom of the titlebar (squared bottom corners sit on the
+           bottom border) so they read as tabs, not floating chips. */
+        .tabs { display:flex; align-items:flex-end; align-self:stretch; gap:2px; }
+        /* Active tab reads via higher-contrast shading (no accent border);
+           inactive tabs are dimmed, hover-lit. */
+        .tab {
             font-family: 'JetBrains Mono', monospace; font-size: 11px;
-            padding: 2px 8px; border: 1px solid var(--border);
-            border-radius: 999px; color: var(--text-2); background: var(--panel);
+            display:inline-flex; align-items:center; gap:6px; height: 26px;
+            padding: 0 7px 0 9px; border-radius: 5px 5px 0 0;
+            color: var(--muted); cursor: default; user-select: none;
         }
-        .tchip .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background: var(--ok); margin-right:6px; vertical-align: 1px;}
-        /* Active VCD tab: brighter text + accent ring; inactive tab reads as a
-           dimmed background tab. */
-        .tchip.active { color: var(--text); border-color: var(--accent); background: var(--panel-3); }
-        .tchip.inactive { color: var(--muted); background: transparent; }
+        .tab:hover { background: var(--panel-2); color: var(--text-2); }
+        .tab.active { color: var(--text); background: var(--border-strong); }
+        .tab-close {
+            display:inline-flex; align-items:center; justify-content:center;
+            margin-left: 2px; border-radius: 3px; opacity: 0.5;
+        }
+        .tab-close:hover { opacity: 1; background: var(--panel); }
 
         /* Inline menu group inside the titlebar (next to the Riptide wordmark). */
         .menubar {
@@ -194,6 +201,21 @@
             font-size: 11.5px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--text-2);
         }
         .col-head .hint { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--muted); }
+        /* Inline editable numbers in the range label. Text and input share the
+           same font/size/metrics so swapping causes no layout shift. */
+        .num-edit {
+            cursor: text; border: 1px solid transparent; border-radius: 3px;
+            padding: 0 2px; margin: 0 -3px;
+        }
+        .num-edit:hover { color: var(--text); background: var(--panel-2); border-color: var(--border-strong); }
+        .num-input {
+            font-family: 'JetBrains Mono', monospace; font-size: 10.5px;
+            color: var(--text); background: var(--panel-2);
+            border: 1px solid var(--accent); border-radius: 3px;
+            padding: 0 2px; margin: 0 -3px; height: 15px; box-sizing: border-box;
+            outline: none; text-align: center; vertical-align: baseline;
+        }
+        .num-input.err { border-color: var(--hot); }
         .col-head .collapse { width: 22px; height: 22px; display:inline-flex; align-items:center; justify-content:center; border-radius: 4px; color: var(--muted); font-size: 14px; cursor: default; margin-left: 4px; }
         .col-head .collapse:hover { background: var(--panel); color: var(--text); }
         .col-head.toolbar { height: 34px; padding: 0 8px; gap: 6px; justify-content: flex-start; }
@@ -319,7 +341,7 @@
         .s-row:hover { background: var(--panel-2); }
         .s-row.sel { background: var(--accent-soft); }
         .pin {
-            width: 10px; height: 10px; border-radius: 50%;
+            width: 8px; height: 8px; border-radius: 50%;
             display: inline-block; cursor: pointer; flex-shrink: 0;
             background: var(--muted);
         }
@@ -428,6 +450,7 @@
         .status .dotted { display:inline-flex; align-items:center; gap:5px; }
         .status .dot { width:7px; height:7px; border-radius:50%; background: var(--ok); }
         .status .muted { color: var(--muted); }
+        .status .sep { color: var(--muted); }
         </style>
     </head>
     <body>
