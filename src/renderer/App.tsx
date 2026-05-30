@@ -471,11 +471,10 @@ function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: Me
 // clicked, then swaps to a content-sized <input> in the same spot (no new
 // chrome). Enter/blur commits via onCommit; Esc cancels; a rejected commit
 // flashes a red border and keeps editing.
-function EditableNum({ value, onCommit, format, tip }: {
+function EditableNum({ value, onCommit, format }: {
   value: number;
   onCommit: (n: number) => boolean;
   format: (n: number) => string;
-  tip: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -490,7 +489,6 @@ function EditableNum({ value, onCommit, format, tip }: {
     return (
       <span
         className="num-edit"
-        data-tip={tip}
         onClick={() => { setDraft(String(value)); setErr(false); setEditing(true); }}
       >{format(value)}</span>
     );
@@ -1297,6 +1295,14 @@ export function App() {
     setViewRange({ start: startTicksRef.current, end: startTicksRef.current + visible });
     return true;
   };
+  // Commit an edited cursor time from the cursor pill. Rejects non-finite or
+  // negative input so the field flashes.
+  const applyCursor = (n: number): boolean => {
+    if (!isFinite(n) || n < 0) return false;
+    cursorTicksRef.current = n;
+    setCursorTicks(n);
+    return true;
+  };
 
   const selectedMarker = markers.find((m) => m.id === selectedMarkerId) ?? null;
   // Live pointer readout. Time shows whenever the pointer is over the canvas;
@@ -1429,9 +1435,7 @@ export function App() {
 
         <div className="col waves" style={{ gridColumn: 3, gridRow: "1 / 3" }}>
           <div className="col-head toolbar">
-            <h3>Waves</h3>
-            <div className="divider" />
-            <span className="pill"><span className="swatch" /><span className="mono">cursor {formatTime(cursorTicks)} ns</span></span>
+            <span className="pill"><span className="swatch" /><span className="mono">cursor at <EditableNum value={cursorTicks} format={formatTime} onCommit={applyCursor} /> ns</span></span>
             <div className="seg">
               <span className="btn icon" data-tip="jump to start"><ChevronFirst size={14} /></span>
               <span className="btn icon" data-tip="step back"><ChevronLeft size={14} /></span>
@@ -1449,14 +1453,12 @@ export function App() {
                 value={viewRange.start}
                 format={formatTime}
                 onCommit={(n) => applyRange(n, viewRange.end)}
-                tip="edit range"
               />
               {" – "}
               <EditableNum
                 value={viewRange.end}
                 format={formatTime}
                 onCommit={(n) => applyRange(viewRange.start, n)}
-                tip="edit range"
               /> ns
             </span>
             <div className="divider" />
@@ -1503,7 +1505,6 @@ export function App() {
                 </span>
               ))}
             </div>
-            <span className="sp" style={{ flex: 1 }} />
           </div>
 
           <div className="wv-canvas">

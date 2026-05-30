@@ -27,9 +27,9 @@ const ICON = {
 const KIND_TIP: Record<ActiveSignalKind, string> = {
   clock: "clock",
   reset: "reset",
-  valid: "valid / enable",
-  derived: "derived signal",
-  signal: "data signal",
+  valid: "valid",
+  derived: "derived",
+  signal: "data",
 };
 
 export function ActiveSignal(props: ActiveSignalProps) {
