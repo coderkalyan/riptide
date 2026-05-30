@@ -9,9 +9,10 @@ export interface Segment {
   // [15:0] row index
   // [  16] shade
   // [  17] right edge
-  // [  18] rising edge
+  // [  18] rising edge (caret left arm, at right boundary)
   // [  19] falling edge
   // [  20] mute segment
+  // [  21] rising edge left (caret right arm, at left boundary)
   rowFlags: number;
 }
 
@@ -42,6 +43,7 @@ const FLAG_RIGHT_EDGE = 1 << 17;
 const FLAG_RISING_EDGE = 1 << 18;
 // const FLAG_FALLING_EDGE = 1 << 19;  // unused
 const FLAG_MUTE = 1 << 20;
+const FLAG_RISING_EDGE_LEFT = 1 << 21;
 
 export function maskForWidth(width: number): number {
   if (width <= 0 || width > 32) throw new Error(`Invalid bit width: ${width}`);
@@ -160,6 +162,9 @@ export function buildClockSegments(row: number): Segment[] {
     const start = i * half;
     const hasNext = i + 1 < count;
     const rising = val === 0 && hasNext;
+    // High half-period draws the right arm of the rising-edge caret at its
+    // left boundary (every val===1 segment follows a low one).
+    const risingLeft = val === 1;
     segs.push({
       tStart: start,
       tEnd: start + half,
@@ -168,7 +173,8 @@ export function buildClockSegments(row: number): Segment[] {
       rowFlags:
         (row & 0xffff) |
         (hasNext ? FLAG_RIGHT_EDGE : 0) |
-        (rising ? FLAG_RISING_EDGE : 0),
+        (rising ? FLAG_RISING_EDGE : 0) |
+        (risingLeft ? FLAG_RISING_EDGE_LEFT : 0),
     });
   }
   return segs;

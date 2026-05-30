@@ -25,9 +25,10 @@ struct Segment {
     // [15:0] = row index
     // [  16] = enable shading
     // [  17] = enable right edge
-    // [  18] = rising edge arrow
+    // [  18] = rising edge arrow (caret left arm, at right boundary)
     // [  19] = falling edge arrow
     // [  20] = mute segment
+    // [  21] = rising edge left (caret right arm, at left boundary)
     row_flags: u32,
 }
 
@@ -56,6 +57,7 @@ const F_RIGHT_EDGE: u32 = 1u << 1u;
 const F_RISING_EDGE: u32 = 1u << 2u;
 const F_FALLING_EDGE: u32 = 1u << 3u;
 const F_MUTE: u32 = 1u << 4u;
+const F_RISING_EDGE_LEFT: u32 = 1u << 5u; // companion: rising edge at left boundary
 const F_CROSSHATCH: u32 = 1u << 8u;
 const F_HATCH_COLOR: u32 = 1u << 9u;
 const F_DRAW_LINE: u32 = 1u << 10u;
@@ -109,7 +111,7 @@ fn segment_sdf(point: vec2f, a: vec2f, b: vec2f) -> f32 {
 }
 
 fn caret_sdf(point: vec2f, apex: vec2f) -> f32 {
-    let arm_length_px = 10.0;
+    let arm_length_px = 8.0;
     let half_angle_rad = radians(40.0);
     let half_thickness_px = 1.0;
     let rotation = radians(0.0);
@@ -120,7 +122,7 @@ fn caret_sdf(point: vec2f, apex: vec2f) -> f32 {
     q = mat2x2f(c, -s, s, c) * q;
     q.x = abs(q.x);
 
-    let e = arm_length_px * vec2f(sin(half_angle_rad), -cos(half_angle_rad));
+    let e = arm_length_px * vec2f(sin(half_angle_rad), cos(half_angle_rad));
     return segment_sdf(q, vec2f(0.0), e) - half_thickness_px;
 }
 
@@ -207,6 +209,8 @@ fn fs_single(in: VertexData) -> @location(0) vec4f {
     let draw_line = (in.flags & F_DRAW_LINE) != 0u;
     let draw_line_high = (in.flags & F_DRAW_LINE_HIGH) != 0u;
     let highlight = (in.flags & F_HIGHLIGHT) != 0u;
+    let rising = (in.flags & F_RISING_EDGE) != 0u;
+    let rising_left = (in.flags & F_RISING_EDGE_LEFT) != 0u;
 
     // Horizontal line mask.
     let line_lo_px = in.half_size_px.y - (line_thickness_px * 0.5);
@@ -220,7 +224,25 @@ fn fs_single(in: VertexData) -> @location(0) vec4f {
     let edge_left_x = in.half_size_px.x - line_thickness_px;
     let edge_mask_raw = select(0.0, 1.0, in.pill_local_px.x >= edge_left_x);
     let edge_mask = select(0.0, edge_mask_raw, draw_edge);
-    let stroke_mask = max(line_mask * f32(draw_line), edge_mask);
+
+    // Rising-edge caret: a downward chevron centered on the top of the rising
+    // edge. The edge straddles two segments, so each draws one half clipped to
+    // its quad — the low segment (F_RISING_EDGE) renders the left arm at its
+    // top-right corner, the high segment (F_RISING_EDGE_LEFT) the right arm at
+    // its top-left corner. apex.x is the shared edge x, apex.y the row top.
+    // The visible edge line is the low segment's right edge, occupying
+    // [T - line_thickness, T]; bias the tip left by half a line width so it
+    // centers on the line rather than on the boundary tick T.
+    let caret = rising || rising_left;
+    let apex_x = select(-in.half_size_px.x, in.half_size_px.x, rising) - line_thickness_px * 0.5;
+    let caret_apex = vec2f(apex_x, -in.half_size_px.y);
+    let caret_d = caret_sdf(in.pill_local_px, caret_apex);
+    // 1px-wide coverage: feather over a single pixel centered on the zero
+    // crossing (smoothstep(-aa, aa, …) spreads over 2px and reads as blur).
+    let caret_aa = fwidth(caret_d);
+    let caret_mask = select(0.0, clamp(0.5 - caret_d / caret_aa, 0.0, 1.0), caret);
+
+    let stroke_mask = max(max(line_mask * f32(draw_line), edge_mask), caret_mask);
 
     // Calculate shading.
     let hatch_primary = select(select(x_color, z_color, crosshatch_color), mute_color, mute);

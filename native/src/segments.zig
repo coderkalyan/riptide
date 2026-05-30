@@ -10,6 +10,7 @@ pub const FLAG_RIGHT_EDGE: u32 = 1 << 17;
 pub const FLAG_RISING_EDGE: u32 = 1 << 18;
 pub const FLAG_FALLING_EDGE: u32 = 1 << 19;
 pub const FLAG_MUTE: u32 = 1 << 20;
+pub const FLAG_RISING_EDGE_LEFT: u32 = 1 << 21;
 
 // Segment is now lean: timing + sample_index into per-row value pools + flags.
 // 4 × u32 = 16 bytes. The actual bit values live in shared x0/x1 pools indexed
@@ -183,9 +184,13 @@ pub const Scene = struct {
             const start = i * half;
             const has_next = i + 1 < count;
             const rising = val == 0 and has_next;
+            // The high half-period owns the right arm of the rising-edge caret,
+            // drawn at its left boundary (every val==1 segment follows a low).
+            const rising_left = val == 1;
             const flags = (row & 0xffff) |
                 (if (has_next) FLAG_RIGHT_EDGE else @as(u32, 0)) |
-                (if (rising) FLAG_RISING_EDGE else @as(u32, 0));
+                (if (rising) FLAG_RISING_EDGE else @as(u32, 0)) |
+                (if (rising_left) FLAG_RISING_EDGE_LEFT else @as(u32, 0));
             const bits = Bits{ .lsb = val, .msb = 0 };
             try self.pushSegment(target, row, 1, start, start + half, bits, flags);
         }
