@@ -30,11 +30,11 @@ function createWindow(): void {
   }
   // win.webContents.openDevTools({ mode: "detach" });
   //
-  setTimeout(() => {
-    win.capturePage().then(image => {
-      fs.writeFileSync('screenshot.png', image.toPNG())
-    })
-  }, 1000)
+  // setTimeout(() => {
+  //   win.capturePage().then(image => {
+  //     fs.writeFileSync('screenshot.png', image.toPNG())
+  //   })
+  // }, 1000)
 }
 
 app.whenReady().then(createWindow);

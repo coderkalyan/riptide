@@ -28,6 +28,8 @@ function activeSignalKind(ref: ActiveSignalRef): ActiveSignalKind {
 const INITIAL_CURSOR_TICKS = 32.4;
 const MARKER_TICKS = 19.6; // initial M1 position
 const ZOOM_PER_DELTA_Y = 0.001; // Math.exp() factor per wheel deltaY unit
+const ZOOM_ANIM_MS = 120; // duration of button-driven zoom in/out/fit easing
+const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
 const MAX_MARKERS = 16; // size of the pre-allocated pill/line render pool
 const MARKER_GRAB_PX = 5; // pointer slop for grabbing a marker line
 
@@ -521,6 +523,12 @@ export function App() {
   // these). `userInteractedRef` flips on first interaction, freezing auto-fit.
   const startTicksRef = useRef(0);
   const ticksPerPixelRef = useRef(0); // initialized to fit on first frame
+  // Button-driven zoom (in/out/fit) eases the viewport toward a target over
+  // ZOOM_ANIM_MS. The rAF loop advances it; wheel zoom clears it (stays instant).
+  // releaseFit re-enables auto-fit once a "fit" animation lands.
+  const zoomAnimRef = useRef<{
+    tpp0: number; start0: number; tppT: number; startT: number; t0: number; releaseFit: boolean;
+  } | null>(null);
   const userInteractedRef = useRef(false);
   const draggingRef = useRef(false);
 
@@ -738,7 +746,7 @@ export function App() {
       };
       dprMql.addEventListener("change", onDprChange);
 
-      const frame = () => {
+      const frame = (now: number) => {
         // All measurements are in CSS pixels (cached, refreshed by
         // ResizeObserver). Multiply by DPR to get physical canvas pixels —
         // the only unit the GPU shader knows about.
@@ -757,6 +765,18 @@ export function App() {
         if (!userInteractedRef.current || ticksPerPixelRef.current <= 0) {
           ticksPerPixelRef.current = MOCK_END_TICKS / timelinePx;
           startTicksRef.current = 0;
+        }
+        // Advance a button-driven zoom animation. tpp eases geometrically
+        // (constant-ratio zoom feels uniform); start eases linearly.
+        const anim = zoomAnimRef.current;
+        if (anim) {
+          const e = easeOutCubic(Math.min(1, (now - anim.t0) / ZOOM_ANIM_MS));
+          ticksPerPixelRef.current = anim.tpp0 * Math.pow(anim.tppT / anim.tpp0, e);
+          startTicksRef.current = anim.start0 + (anim.startT - anim.start0) * e;
+          if (e >= 1) {
+            if (anim.releaseFit) userInteractedRef.current = false;
+            zoomAnimRef.current = null;
+          }
         }
         const ticksPerPixel = ticksPerPixelRef.current;
         const startTicks = startTicksRef.current;
@@ -1092,6 +1112,7 @@ export function App() {
 
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
+      zoomAnimRef.current = null; // wheel zoom/pan is instant; drop any easing
       userInteractedRef.current = true;
       const rect = host.getBoundingClientRect();
       const timelinePx = rect.width;
@@ -1246,29 +1267,37 @@ export function App() {
   };
 
   const ZOOM_STEP = 1.25;
+  // Button zoom: ease toward a center-anchored target instead of snapping.
+  // Reads live refs as the start so mid-animation clicks chain smoothly.
   const zoomBy = (factor: number) => {
     const host = hostRef.current;
     if (!host) return;
     const timelinePx = host.getBoundingClientRect().width;
     userInteractedRef.current = true;
+    const tpp0 = ticksPerPixelRef.current > 0 ? ticksPerPixelRef.current : MOCK_END_TICKS / timelinePx;
+    const start0 = startTicksRef.current;
     const centerX = timelinePx * 0.5;
-    const worldTickAtCenter = startTicksRef.current + centerX * ticksPerPixelRef.current;
-    ticksPerPixelRef.current *= factor;
-    startTicksRef.current = worldTickAtCenter - centerX * ticksPerPixelRef.current;
-    const visible = timelinePx * ticksPerPixelRef.current;
-    if (visible < MOCK_END_TICKS) {
-      startTicksRef.current = Math.max(0, Math.min(MOCK_END_TICKS - visible, startTicksRef.current));
-    } else {
-      startTicksRef.current = 0;
-    }
+    const worldTickAtCenter = start0 + centerX * tpp0;
+    const tppT = tpp0 * factor;
+    let startT = worldTickAtCenter - centerX * tppT;
+    const visible = timelinePx * tppT;
+    startT = visible < MOCK_END_TICKS ? Math.max(0, Math.min(MOCK_END_TICKS - visible, startT)) : 0;
+    zoomAnimRef.current = { tpp0, start0, tppT, startT, t0: performance.now(), releaseFit: false };
   };
   const fitView = () => {
     const host = hostRef.current;
     if (!host) return;
     const timelinePx = host.getBoundingClientRect().width;
-    ticksPerPixelRef.current = MOCK_END_TICKS / timelinePx;
-    startTicksRef.current = 0;
-    userInteractedRef.current = false;
+    const tpp0 = ticksPerPixelRef.current > 0 ? ticksPerPixelRef.current : MOCK_END_TICKS / timelinePx;
+    userInteractedRef.current = true; // hold off auto-fit until the animation lands
+    zoomAnimRef.current = {
+      tpp0,
+      start0: startTicksRef.current,
+      tppT: MOCK_END_TICKS / timelinePx,
+      startT: 0,
+      t0: performance.now(),
+      releaseFit: true,
+    };
   };
   const closeTab = (i: number) => {
     setOpenFiles((fs) => fs.filter((_, k) => k !== i));
@@ -1282,6 +1311,7 @@ export function App() {
     if (!host) return false;
     const timelinePx = host.getBoundingClientRect().width;
     if (timelinePx <= 0 || !isFinite(start) || !isFinite(end) || start < 0 || end <= start) return false;
+    zoomAnimRef.current = null;
     userInteractedRef.current = true;
     ticksPerPixelRef.current = (end - start) / timelinePx;
     startTicksRef.current = start;

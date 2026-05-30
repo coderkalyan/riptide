@@ -1,7 +1,7 @@
 // Vertical lines for timeline grid + cursors/markers. Start partway down
 // into the flag pill (so the line visually anchors the pill) but not at
 // y=0, which would leave AA slivers above the pill's rounded corners.
-// Instanced quad per line: 2*dpr CSS px wide. x_px is the LEFT edge.
+// Instanced quad per line: 2.5 CSS px wide. x_px is the LEFT edge.
 
 struct Viewport {
     ticks_per_pixel: f32,
@@ -47,7 +47,7 @@ fn unpack_rgba(p: u32) -> vec4f {
 @vertex
 fn vs_line(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VertexData {
     let line = lines[ii];
-    let thickness = 1.25 * viewport.dpr;
+    let thickness = 2.5; // CSS px (dpr-independent; clip→framebuffer scales by dpr)
 
     let corner_x = f32(vi & 1u);
     let corner_y = f32((vi >> 1u) & 1u);

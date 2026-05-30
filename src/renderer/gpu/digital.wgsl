@@ -92,8 +92,7 @@ fn corner_sdf(point: vec2f, half_size: vec2f, radius: f32) -> f32 {
     return length(max(q, vec2f(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - radius;
 }
 
-fn hatch(pill_local_px: vec2f, dir: f32, hatch_spacing: f32) -> f32 {
-    let hatch_spacing_px = hatch_spacing * viewport.dpr;
+fn hatch(pill_local_px: vec2f, dir: f32, hatch_spacing_px: f32) -> f32 {
     let hatch_thickness = 1.0 / 3.0;
 
     let hatch_coord = (pill_local_px.x + pill_local_px.y * dir) / hatch_spacing_px;
@@ -135,12 +134,14 @@ struct VertexData {
 }
 
 // Shared vertex shader. Branches on VARIANT (override constant) for the only
-// two real differences between single- and multi-bit: a 1*dpr right-edge
+// two real differences between single- and multi-bit: a 2 CSS px right-edge
 // inset, and packing F_DRAW_LINE_HIGH (single-only).
+// All size literals here are CSS px (dpr-independent); the CSS→clip→framebuffer
+// transform already scales by dpr, so sizes must NOT be multiplied by dpr.
 @vertex
 fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> VertexData {
-    let xgap_px = select(0.0, 1.0 * viewport.dpr, VARIANT == VARIANT_MULTI);
-    let ygap_px = 2.0 * viewport.dpr;
+    let xgap_px = select(0.0, 2.0, VARIANT == VARIANT_MULTI);
+    let ygap_px = 4.0;
 
     let segment = segments[ii];
     let row = segment.row_flags & 0xffffu;
@@ -193,7 +194,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
 
 @fragment
 fn fs_single(in: VertexData) -> @location(0) vec4f {
-    let line_thickness_px = 1.0 * viewport.dpr;
+    let line_thickness_px = 2.0;
     let primary_color = in.primary_color;
     let hi_alpha = 0.7;
     let lo_alpha = 0.2;
@@ -252,7 +253,7 @@ fn fs_single(in: VertexData) -> @location(0) vec4f {
     shade_color = vec4f(shade_color.rgb, shade_color.a * shade_alpha);
 
     let crosshatch_dir = 1.0;
-    let hatch_spacing = 4.0;
+    let hatch_spacing = 8.0;
     let stripe_mask = hatch(in.pill_local_px, crosshatch_dir, hatch_spacing);
     let hatch_alpha = hatch_primary.a * stripe_mask;
     let hatch_color = vec4f(hatch_primary.rgb, hatch_alpha);
@@ -269,8 +270,8 @@ fn fs_single(in: VertexData) -> @location(0) vec4f {
 
 @fragment
 fn fs_multi(in: VertexData) -> @location(0) vec4f {
-    let radius = 2.0 * viewport.dpr;
-    let border_width = 1.0 * viewport.dpr;
+    let radius = 4.0;
+    let border_width = 2.0;
     let primary_color = in.primary_color;
     let x_color = vec4f(0.9608, 0.4471, 0.4471, 0.7);
     let z_color = vec4f(1.0, 0.863, 0.0, 0.7);
@@ -295,7 +296,7 @@ fn fs_multi(in: VertexData) -> @location(0) vec4f {
     let shade_color = vec4f(line_color.rgb, line_color.a * shade_alpha);
 
     let crosshatch_dir = 1.0;
-    let hatch_spacing = 4.0;
+    let hatch_spacing = 8.0;
     let stripe_mask = hatch(in.pill_local_px, crosshatch_dir, hatch_spacing);
     let hatch_alpha = hatch_primary.a * stripe_mask;
     let hatch_color = vec4f(hatch_primary.rgb, hatch_alpha);

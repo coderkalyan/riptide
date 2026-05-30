@@ -114,7 +114,7 @@ fn fs_rect(in: VertexData) -> @location(0) vec4f {
 
     // Crosshatch — same diagonal pattern as digital, with a lower on-threshold
     // for thinner stripes. Branch is uniform per primitive (flat flags).
-    let spacing = 4.0 * viewport.dpr;
+    let spacing = 8.0; // CSS px (dpr-independent; clip→framebuffer scales by dpr)
     let thickness = 0.2;
     let coord = (in.local_px.x + in.local_px.y) / spacing;
     let stripe = abs(fract(coord) - 0.5) * 2.0;
