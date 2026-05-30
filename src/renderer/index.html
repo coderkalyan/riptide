@@ -44,12 +44,17 @@
         .title { font-weight: 600; font-size: 12.5px; letter-spacing:.1px; }
         .title .sub { color: var(--muted); font-weight: 400; margin-left:6px; }
         .titlebar .sp { flex:1; }
+        .tabs { display:flex; align-items:center; gap:4px; }
         .tchip {
             font-family: 'JetBrains Mono', monospace; font-size: 11px;
             padding: 2px 8px; border: 1px solid var(--border);
             border-radius: 999px; color: var(--text-2); background: var(--panel);
         }
         .tchip .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background: var(--ok); margin-right:6px; vertical-align: 1px;}
+        /* Active VCD tab: brighter text + accent ring; inactive tab reads as a
+           dimmed background tab. */
+        .tchip.active { color: var(--text); border-color: var(--accent); background: var(--panel-3); }
+        .tchip.inactive { color: var(--muted); background: transparent; }
 
         /* Inline menu group inside the titlebar (next to the Riptide wordmark). */
         .menubar {
@@ -64,7 +69,11 @@
             min-width: 196px; padding: 4px;
             background: var(--panel-2); border: 1px solid var(--border);
             border-radius: 8px; box-shadow: var(--shadow-1);
+            /* Fade in/out like the tooltip; kept mounted so the exit animates.
+               pointer-events gated so the hidden popup never blocks clicks. */
+            opacity: 0; pointer-events: none; transition: opacity 90ms ease;
         }
+        .menu-pop.show { opacity: 1; pointer-events: auto; }
         .menu-item {
             display:flex; align-items:center; justify-content:space-between; gap: 28px;
             height: 26px; padding: 0 8px; border-radius: 5px;
@@ -148,6 +157,11 @@
             overflow: hidden;
             position: relative;
         }
+        /* Panel collapse/expand: animate the grid column width (and the
+           resize handles that track it). Only active while toggling — live
+           drag-resize leaves it off so dragging stays 1:1 with the pointer. */
+        .body.tree-anim { transition: grid-template-columns 120ms ease; }
+        .body.tree-anim .col-resize { transition: left 120ms ease; }
         .col-resize {
             position: absolute;
             top: 0; bottom: 0;
@@ -159,8 +173,12 @@
         .col .col-head + .col-sub + .tree + .col-head,
         .col .col-head + .col-sub + .derived-list + .col-head,
         .col > .col-head:not(:first-child) { border-top: 1px solid var(--border); }
-        .col { border-right: 1px solid var(--border); min-width: 0; display:flex; flex-direction: column; }
+        .col { border-right: 1px solid var(--border); min-width: 0; display:flex; flex-direction: column; overflow: hidden; }
         .col:last-child { border-right: none; }
+        /* Fixed-width wrapper for the expanded panel content: holds its full
+           width during the collapse/expand width animation so the content
+           clips at the column edge instead of reflowing (avoids a content pop). */
+        .col-inner { flex: 1 1 auto; min-height: 0; display:flex; flex-direction: column; }
         .col-head {
             height: 34px; padding: 0 10px;
             display:flex; align-items:center; justify-content:space-between;
@@ -190,6 +208,30 @@
         .col-sub .search { flex:1; height: 26px; font-size: 12.5px; min-width: 0; }
         /* Bare icon that labels the toolbar group it precedes (e.g. markers). */
         .seg-label { display:inline-flex; align-items:center; color: var(--muted); margin-right: 1px; }
+        /* Uppercase text label for a toolbar group (e.g. MARKERS). */
+        .sub-label {
+            font-size: 10px; font-weight: 600; letter-spacing: 0.08em;
+            color: var(--muted); text-transform: uppercase; user-select: none;
+        }
+        /* Marker pills mirror the canvas flags: --mk is the marker's color. */
+        .marker-pills { display:flex; align-items:center; gap:5px; overflow:hidden; }
+        .marker-pill {
+            height: 21px; padding: 0 5px 0 8px; border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace; font-size: 11px;
+            display:inline-flex; align-items:center; gap:4px; cursor:pointer;
+            color: var(--mk); background: var(--panel);
+            border: 1px solid var(--mk); user-select: none;
+        }
+        .marker-pill:hover { background: var(--panel-2); }
+        /* Selected pill reads solid in its own color, like the selected flag. */
+        .marker-pill.on {
+            background: var(--mk); border-color: var(--mk); color: #141517;
+        }
+        .marker-pill .rm {
+            display:inline-flex; align-items:center; justify-content:center;
+            margin-left: 6px; border-radius: 50%; opacity: 0.55;
+        }
+        .marker-pill .rm:hover { opacity: 1; }
 
         .tree { padding: 4px 4px 12px; overflow:auto; flex:2; }
         /* Scope expand/collapse height animation: grid rows 0fr↔1fr animates
@@ -385,6 +427,7 @@
         .status .sp { flex:1; }
         .status .dotted { display:inline-flex; align-items:center; gap:5px; }
         .status .dot { width:7px; height:7px; border-radius:50%; background: var(--ok); }
+        .status .muted { color: var(--muted); }
         </style>
     </head>
     <body>

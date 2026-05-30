@@ -84,7 +84,7 @@ function TreeNode({
       <span className="chev" />
       <span className={`icon ${kind}`}><Activity size={12} /></span>
       <span className="lbl">{node.name}</span>
-      <span className="plus" data-tip="add to active signals"><Plus size={12} /></span>
+      <span className="plus" data-tip="add to viewer"><Plus size={12} /></span>
     </div>
   );
 }

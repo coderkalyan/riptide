@@ -23,6 +23,15 @@ const ICON = {
   signal: <Activity size={12} />,
 } as const;
 
+// Human-readable label for the type icon's tooltip.
+const KIND_TIP: Record<ActiveSignalKind, string> = {
+  clock: "clock",
+  reset: "reset",
+  valid: "valid / enable",
+  derived: "derived signal",
+  signal: "data signal",
+};
+
 export function ActiveSignal(props: ActiveSignalProps) {
   const cls = ["s-row", props.selected ? "sel" : "", props.nested ? "nested" : ""]
     .filter(Boolean)
@@ -35,7 +44,7 @@ export function ActiveSignal(props: ActiveSignalProps) {
         data-tip="change color"
         onClick={(e) => { e.stopPropagation(); props.onPinClick?.(e); }}
       />
-      <span className={"s-icon " + props.kind}>{ICON[props.kind]}</span>
+      <span className={"s-icon " + props.kind} data-tip={KIND_TIP[props.kind]}>{ICON[props.kind]}</span>
       <span className="n">{props.name}</span>
       <span className="v">{props.value}</span>
       <span className="kebab" data-tip="drag to reorder"><ListChevronsUpDown size={12} /></span>

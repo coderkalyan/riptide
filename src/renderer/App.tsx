@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Clock, Flag, Magnet, Maximize, Minus, PanelLeftClose, PanelLeftOpen, Plus, X } from "lucide-react";
+import { ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Clock, Magnet, Maximize, Minus, PanelLeftClose, PanelLeftOpen, Plus, X } from "lucide-react";
 import { ActiveSignal, type ActiveSignalKind } from "./ActiveSignal";
 import { ColorPicker } from "./ColorPicker";
 import { SignalTreeView } from "./SignalTree";
@@ -148,6 +148,12 @@ function pickTextColor(hex: string): number {
   const fillLum = (1 - PILL_BLEND) * BG_LUM + PILL_BLEND * colorLum;
   return fillLum > 0.5 ? TEXT_DARK : TEXT_WHITE;
 }
+// Unpack a packRgba color (r in LSB) back to a CSS hex string for DOM pills, so
+// marker pills in the toolbar match the marker flags drawn on the canvas.
+function markerColorCss(packed: number): string {
+  const r = packed & 0xff, g = (packed >> 8) & 0xff, b = (packed >> 16) & 0xff;
+  return `#${(0x1000000 | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+}
 const GRID_GRAY = packRgba(0x86, 0x8c, 0x96, 0x70);
 const DEAD_ZONE_GRAY = packRgba(0x78, 0x7c, 0x86, 0x70);
 const RESET_RED = packRgba(0xe8, 0x6a, 0x5a, 0x60);
@@ -267,64 +273,78 @@ function GlobalTooltip() {
 // the menu (no wired actions yet).
 type MenuItem = { label: string; kbd?: string } | "sep";
 const MENUS: { name: string; items: MenuItem[] }[] = [
-  { name: "File", items: [
-    { label: "New Window", kbd: "⌘N" },
-    { label: "Open VCD…", kbd: "⌘O" },
-    { label: "Open Recent" },
-    "sep",
-    { label: "Reload Trace", kbd: "⌘R" },
-    { label: "Export Image…" },
-    "sep",
-    { label: "Close Window", kbd: "⌘W" },
-  ] },
-  { name: "Edit", items: [
-    { label: "Undo", kbd: "⌘Z" },
-    { label: "Redo", kbd: "⇧⌘Z" },
-    "sep",
-    { label: "Cut", kbd: "⌘X" },
-    { label: "Copy", kbd: "⌘C" },
-    { label: "Paste", kbd: "⌘V" },
-    "sep",
-    { label: "Find…", kbd: "⌘F" },
-  ] },
-  { name: "View", items: [
-    { label: "Zoom In", kbd: "⌘+" },
-    { label: "Zoom Out", kbd: "⌘−" },
-    { label: "Zoom to Fit", kbd: "⌘0" },
-    "sep",
-    { label: "Toggle Signal Tree" },
-    { label: "Toggle Active Signals" },
-    "sep",
-    { label: "Reset Layout" },
-  ] },
-  { name: "Signals", items: [
-    { label: "Add Signal…", kbd: "⌘⏎" },
-    { label: "Group Selected" },
-    { label: "Remove from View" },
-    "sep",
-    { label: "Set Radix" },
-    { label: "Change Color…" },
-  ] },
-  { name: "Markers", items: [
-    { label: "Add Marker", kbd: "M" },
-    { label: "Delete Marker", kbd: "⌫" },
-    { label: "Clear All Markers" },
-    "sep",
-    { label: "Next Marker", kbd: "]" },
-    { label: "Previous Marker", kbd: "[" },
-  ] },
-  { name: "Window", items: [
-    { label: "Minimize", kbd: "⌘M" },
-    { label: "Zoom" },
-    "sep",
-    { label: "Bring All to Front" },
-  ] },
-  { name: "Help", items: [
-    { label: "Documentation" },
-    { label: "Keyboard Shortcuts", kbd: "⌘/" },
-    "sep",
-    { label: "About Riptide" },
-  ] },
+  {
+    name: "File", items: [
+      { label: "New Window", kbd: "⌘N" },
+      { label: "Open VCD…", kbd: "⌘O" },
+      { label: "Open Recent" },
+      "sep",
+      { label: "Reload Trace", kbd: "⌘R" },
+      { label: "Export Image…" },
+      "sep",
+      { label: "Close Window", kbd: "⌘W" },
+    ]
+  },
+  {
+    name: "Edit", items: [
+      { label: "Undo", kbd: "⌘Z" },
+      { label: "Redo", kbd: "⇧⌘Z" },
+      "sep",
+      { label: "Cut", kbd: "⌘X" },
+      { label: "Copy", kbd: "⌘C" },
+      { label: "Paste", kbd: "⌘V" },
+      "sep",
+      { label: "Find…", kbd: "⌘F" },
+    ]
+  },
+  {
+    name: "View", items: [
+      { label: "Zoom In", kbd: "⌘+" },
+      { label: "Zoom Out", kbd: "⌘−" },
+      { label: "Zoom to Fit", kbd: "⌘0" },
+      "sep",
+      { label: "Toggle Signal Tree" },
+      { label: "Toggle Active Signals" },
+      "sep",
+      { label: "Reset Layout" },
+    ]
+  },
+  {
+    name: "Signals", items: [
+      { label: "Add Signal…", kbd: "⌘⏎" },
+      { label: "Group Selected" },
+      { label: "Remove from View" },
+      "sep",
+      { label: "Set Radix" },
+      { label: "Change Color…" },
+    ]
+  },
+  {
+    name: "Markers", items: [
+      { label: "Add Marker", kbd: "M" },
+      { label: "Delete Marker", kbd: "⌫" },
+      { label: "Clear All Markers" },
+      "sep",
+      { label: "Next Marker", kbd: "]" },
+      { label: "Previous Marker", kbd: "[" },
+    ]
+  },
+  {
+    name: "Window", items: [
+      { label: "Minimize", kbd: "⌘M" },
+      { label: "Zoom" },
+      "sep",
+      { label: "Bring All to Front" },
+    ]
+  },
+  {
+    name: "Help", items: [
+      { label: "Documentation" },
+      { label: "Keyboard Shortcuts", kbd: "⌘/" },
+      "sep",
+      { label: "About Riptide" },
+    ]
+  },
 ];
 
 function MenuBar() {
@@ -345,7 +365,14 @@ function MenuBar() {
   }, [open]);
 
   const pick = (name: string, el: HTMLElement) => setOpen({ name, rect: el.getBoundingClientRect() });
-  const menu = open ? MENUS.find((m) => m.name === open.name) : null;
+  // Frozen snapshot of the currently/last-open menu. Stays mounted while `open`
+  // is null so the popup can fade out (the `show` class drives the opacity).
+  const [pop, setPop] = useState<{ rect: DOMRect; items: MenuItem[] } | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const menu = MENUS.find((m) => m.name === open.name);
+    if (menu) setPop({ rect: open.rect, items: menu.items });
+  }, [open]);
   return (
     <div className="menubar">
       {MENUS.map((m) => (
@@ -361,9 +388,12 @@ function MenuBar() {
           onMouseEnter={(e) => { if (open) pick(m.name, e.currentTarget); }}
         >{m.name}</span>
       ))}
-      {open && menu && createPortal(
-        <div className="menu-pop" style={{ left: open.rect.left, top: open.rect.bottom + 4 }}>
-          {menu.items.map((it, i) => it === "sep"
+      {createPortal(
+        <div
+          className={`menu-pop${open ? " show" : ""}`}
+          style={{ left: pop?.rect.left ?? 0, top: (pop?.rect.bottom ?? 0) + 4 }}
+        >
+          {(pop?.items ?? []).map((it, i) => it === "sep"
             ? <div key={i} className="menu-sep" />
             : (
               <div key={i} className="menu-item" onClick={() => setOpen(null)}>
@@ -394,6 +424,13 @@ const ACTIVE_SIGNAL_MENU: MenuItem[] = [
 ];
 
 function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: MenuItem[]; onClose: () => void }) {
+  // Mount hidden, then flip `show` next frame so the opacity transition runs
+  // (the `.menu-pop` base style is now opacity:0 / pointer-events:none).
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    const r = requestAnimationFrame(() => setShow(true));
+    return () => cancelAnimationFrame(r);
+  }, []);
   useEffect(() => {
     const onDown = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest(".menu-pop")) onClose(); };
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -407,7 +444,7 @@ function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: Me
     };
   }, [onClose]);
   return createPortal(
-    <div className="menu-pop" style={{ left: x, top: y }}>
+    <div className={`menu-pop${show ? " show" : ""}`} style={{ left: x, top: y }}>
       {items.map((it, i) => it === "sep"
         ? <div key={i} className="menu-sep" />
         : (
@@ -444,6 +481,14 @@ export function App() {
   // signal value column re-renders on cursor move).
   const [cursorTicks, setCursorTicks] = useState(INITIAL_CURSOR_TICKS);
   const cursorTicksRef = useRef(INITIAL_CURSOR_TICKS);
+  // Live pointer readout for the status bar: the unsnapped tick under the
+  // pointer and the signal row it's over (null when off the wave area). Drives
+  // a per-move single-point value query, independent of the selected cursor.
+  const [hover, setHover] = useState<{ tick: number; row: number } | null>(null);
+  // Ref drives the rAF guide line; written synchronously in the pointer handler
+  // (not synced from `hover` state) so the line tracks the pointer with no
+  // React-commit lag. `hover` state only feeds the status-bar text.
+  const hoverRef = useRef<{ tick: number; row: number } | null>(null);
   // Mirror of `ticksPerPixelRef` for reactive zoom labels. Synced from RAF.
   const [ticksPerPixel, setTicksPerPixel] = useState(0);
   const ticksPerPixelReportedRef = useRef(0);
@@ -482,6 +527,10 @@ export function App() {
       setMarkers([]);
     }
     setSelectedMarkerId(null);
+  };
+  const deleteMarker = (id: number) => {
+    setMarkers((ms) => ms.filter((m) => m.id !== id));
+    setSelectedMarkerId((sel) => (sel === id ? null : sel));
   };
   const selectedRowRef = useRef(MOCK_SCENE.activeSignals.find((r) => r.selected)?.row ?? -1);
   useEffect(() => {
@@ -775,11 +824,11 @@ export function App() {
             }
           }
 
-          // Marker↔cursor delta. Hardcoded for testing: uses the selected
-          // marker (else the first). xForTick gives each line's LEFT edge, so
-          // add half the 1.25*dpr line width to center on it.
+          // Marker↔cursor delta — only when a marker is actually selected.
+          // xForTick gives each line's LEFT edge, so add half the 1.25*dpr line
+          // width to center on it.
           const arrowMarker =
-            markersRef.current.find((m) => m.id === selectedMarkerIdRef.current) ?? markersRef.current[0];
+            markersRef.current.find((m) => m.id === selectedMarkerIdRef.current);
           if (arrowMarker) {
             const lineHalf = 1.25 * dpr * 0.5;
             const mX = xForTick(arrowMarker.tick) + lineHalf;
@@ -815,6 +864,12 @@ export function App() {
           const l = getLine(linesFgScratch, fgLineN++);
           // Selected marker draws solid to stand out; others dashed.
           l.x = xForTick(m.tick); l.color = m.color; l.dashed = m.id !== selId;
+        }
+        // Gray dashed guide under the live pointer (not the selected cursor).
+        const hov = hoverRef.current;
+        if (hov && fgLineN < MAX_MARKERS) {
+          const lh = getLine(linesFgScratch, fgLineN++);
+          lh.x = xForTick(hov.tick); lh.color = GRID_GRAY; lh.dashed = true;
         }
         const lcur = getLine(linesFgScratch, fgLineN++);
         lcur.x = xForTick(cursor); lcur.color = HOT;
@@ -1011,7 +1066,25 @@ export function App() {
         setCursorAtClientX(e.clientX);
       }
     };
+    // Map the pointer to (unsnapped tick, signal row) for the status readout.
+    // Rows stack below the top ruler at rowHeight === rulerHeight each.
+    const updateHover = (clientX: number, clientY: number) => {
+      const rect = host.getBoundingClientRect();
+      const rh = rulerHeightRef.current;
+      const py = clientY - rect.top;
+      const px = Math.max(0, Math.min(rect.width, clientX - rect.left));
+      const tick = startTicksRef.current + px * ticksPerPixelRef.current;
+      // row === -1 means "over the canvas but not on a signal" — the guide line
+      // still draws; only the status readout needs a real row.
+      let row = rh > 0 ? Math.floor(py / rh) - 1 : -1;
+      if (py < rh || row < 0 || row >= MOCK_SCENE.activeSignals.length) row = -1;
+      // Ref drives the rAF guide line (synchronous, no React round-trip);
+      // state drives the status-bar text (a commit behind is fine there).
+      hoverRef.current = { tick, row };
+      setHover({ tick, row });
+    };
     const onPointerMove = (e: PointerEvent) => {
+      updateHover(e.clientX, e.clientY);
       if (draggingMarkerRef.current != null) {
         moveMarker(draggingMarkerRef.current, tickAtClientX(e.clientX));
         return;
@@ -1038,12 +1111,15 @@ export function App() {
     host.addEventListener("pointermove", onPointerMove);
     host.addEventListener("pointerup", onPointerUp);
     host.addEventListener("pointercancel", onPointerUp);
+    const onPointerLeave = () => { hoverRef.current = null; setHover(null); };
+    host.addEventListener("pointerleave", onPointerLeave);
     return () => {
       host.removeEventListener("wheel", onWheel);
       host.removeEventListener("pointerdown", onPointerDown);
       host.removeEventListener("pointermove", onPointerMove);
       host.removeEventListener("pointerup", onPointerUp);
       host.removeEventListener("pointercancel", onPointerUp);
+      host.removeEventListener("pointerleave", onPointerLeave);
     };
   }, []);
 
@@ -1054,10 +1130,25 @@ export function App() {
   const TREE_MIN_PX = 160;
   const ACTIVE_MIN_PX = 200;
   const TREE_COLLAPSED_PX = 28;
-  const [treeW, setTreeW] = useState(236);
-  const [activeW, setActiveW] = useState(296);
+  const TREE_DEFAULT_PX = 236;
+  const ACTIVE_DEFAULT_PX = 296;
+  const [treeW, setTreeW] = useState(TREE_DEFAULT_PX);
+  const [activeW, setActiveW] = useState(ACTIVE_DEFAULT_PX);
   const [treeCollapsed, setTreeCollapsed] = useState(false);
   const treeColW = treeCollapsed ? TREE_COLLAPSED_PX : treeW;
+  // Enable the width transition only for the duration of a collapse/expand
+  // toggle (or a double-click width reset), so live drag-resize stays instant.
+  const [treeAnim, setTreeAnim] = useState(false);
+  const treeAnimTimer = useRef<number | null>(null);
+  const pulseLayoutAnim = () => {
+    setTreeAnim(true);
+    if (treeAnimTimer.current != null) clearTimeout(treeAnimTimer.current);
+    treeAnimTimer.current = window.setTimeout(() => setTreeAnim(false), 140);
+  };
+  const toggleTree = (collapsed: boolean) => {
+    setTreeCollapsed(collapsed);
+    pulseLayoutAnim();
+  };
   const startResize = (which: "tree" | "active") => (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     const startX = e.clientX;
@@ -1121,6 +1212,21 @@ export function App() {
   };
 
   const selectedMarker = markers.find((m) => m.id === selectedMarkerId) ?? null;
+  // Resolve the live pointer readout: signal name + single-point value query at
+  // the hovered tick. null signal (off-row) collapses the readout entirely.
+  const hoverSig = hover ? activeSignals.find((r) => r.row === hover.row) ?? null : null;
+  const hoverReadout = hover && hoverSig
+    ? {
+      tick: hover.tick,
+      name: getSignal(MOCK_SCENE.hierarchy, hoverSig.signalId).name,
+      value: formatSegmentValue(
+        findSegmentAtTick(hoverSig.row, hover.tick),
+        getSignal(MOCK_SCENE.hierarchy, hoverSig.signalId).bitWidth,
+        hoverSig.radix,
+        ENUM_LABELS_BY_ROW.get(hoverSig.row),
+      ),
+    }
+    : null;
 
   return (
     <div className="app">
@@ -1129,41 +1235,58 @@ export function App() {
         <div className="title">Riptide</div>
         <MenuBar />
         <div className="divider" />
-        <span className="tchip">keysched.vcd</span>
+        <div className="tabs">
+          <span className="tchip active"><i className="dot" />keysched.vcd</span>
+          <span className="tchip inactive">alu_tb.vcd</span>
+        </div>
         <div className="sp" />
       </div>
 
       {/* Row 2 holds the status bar under the two left columns only; the waves
           column spans both rows so its canvas runs full height beside it. */}
-      <div className="body" style={{ gridTemplateColumns: `${treeColW}px ${activeW}px 1fr`, gridTemplateRows: "minmax(0, 1fr) auto" }}>
+      <div className={`body${treeAnim ? " tree-anim" : ""}`} style={{ gridTemplateColumns: `${treeColW}px ${activeW}px 1fr`, gridTemplateRows: "minmax(0, 1fr) auto" }}>
         {!treeCollapsed && (
-          <div className="col-resize" style={{ left: treeColW - 3 }} onPointerDown={startResize("tree")} />
+          <div
+            className="col-resize"
+            style={{ left: treeColW - 3 }}
+            onPointerDown={startResize("tree")}
+            onDoubleClick={() => { setTreeW(TREE_DEFAULT_PX); pulseLayoutAnim(); }}
+          />
         )}
-        <div className="col-resize" style={{ left: treeColW + activeW - 3 }} onPointerDown={startResize("active")} />
+        <div
+          className="col-resize"
+          style={{ left: treeColW + activeW - 3 }}
+          onPointerDown={startResize("active")}
+          onDoubleClick={() => { setActiveW(ACTIVE_DEFAULT_PX); pulseLayoutAnim(); }}
+        />
         <div className="col">
-          {treeCollapsed ? (
+          {/* Show the collapsed strip only once the width animation finishes;
+              during it, keep the expanded content (clipped) so it slides away
+              without popping. On expand, the expanded content is shown
+              immediately and revealed as the column grows. */}
+          {treeCollapsed && !treeAnim ? (
             <>
               <div className="col-head" style={{ justifyContent: "center" }}>
-                <span className="collapse" data-tip="expand panel" onClick={() => setTreeCollapsed(false)}>
+                <span className="collapse" data-tip="expand panel" onClick={() => toggleTree(false)}>
                   <PanelLeftOpen size={14} strokeWidth={1.75} />
                 </span>
               </div>
               <div className="col-vtitle">Signal Tree</div>
             </>
           ) : (
-            <>
+            <div className="col-inner" style={{ width: treeW }}>
               {/* Tighter right padding so the collapse button's right gap
                   matches the centered expand button in the collapsed state. */}
               <div className="col-head" style={{ paddingRight: 3 }}>
                 <h3>Signal Tree</h3>
                 <span className="sp" style={{ flex: 1 }} />
-                <span className="collapse" data-tip="collapse panel" onClick={() => setTreeCollapsed(true)}>
+                <span className="collapse" data-tip="collapse panel" onClick={() => toggleTree(true)}>
                   <PanelLeftClose size={14} strokeWidth={1.75} />
                 </span>
               </div>
               <div className="col-sub"><input className="search" placeholder="filter scope/name" /></div>
               <SignalTreeView hierarchy={MOCK_SCENE.hierarchy} initialExpanded={MOCK_SCENE.initialExpanded} />
-            </>
+            </div>
           )}
         </div>
 
@@ -1217,13 +1340,8 @@ export function App() {
               <span className="btn icon" data-tip="jump to end"><ChevronLast size={14} /></span>
             </div>
             <div className="seg">
-              <span
-                className={`btn icon${snapCursor ? " on" : ""}`}
-                data-tip={snapCursor ? "disable grid snap" : "enable grid snap"}
-                onClick={() => setSnapCursor((v) => !v)}
-              >
-                <Magnet size={14} />
-              </span>
+              <span className="btn icon" data-tip="previous transition"><ArrowLeftToLine size={14} /></span>
+              <span className="btn icon" data-tip="next transition"><ArrowRightToLine size={14} /></span>
             </div>
             <span className="sp" style={{ flex: 1 }} />
             <div className="seg">
@@ -1232,6 +1350,13 @@ export function App() {
               <span className="btn icon" data-tip="zoom in" onClick={() => zoomBy(1 / ZOOM_STEP)}><Plus size={14} /></span>
             </div>
             <div className="seg">
+              <span
+                className={`btn icon${snapCursor ? " on" : ""}`}
+                data-tip={snapCursor ? "disable grid snap" : "enable grid snap"}
+                onClick={() => setSnapCursor((v) => !v)}
+              >
+                <Magnet size={14} />
+              </span>
               <span
                 className={`btn icon${clockAnchor ? " on" : ""}`}
                 data-tip={clockAnchor ? "align grid to timescale" : "align grid to clock"}
@@ -1244,17 +1369,26 @@ export function App() {
             <span className="hint mono">{formatZoom(ticksPerPixel)} · 0 – {MOCK_END_TICKS} ns</span>
           </div>
           <div className="col-sub">
-            <div className="seg">
-              <span className="btn sm" data-tip="previous transition"><ArrowLeftToLine size={12} /></span>
-              <span className="btn sm" data-tip="next transition"><ArrowRightToLine size={12} /></span>
+            <span className="sub-label">MARKERS</span>
+            <span className="btn sm icon" data-tip="add marker at cursor" onClick={addMarkerAtCursor}><Plus size={12} /></span>
+            <div className="marker-pills">
+              {markers.map((m) => (
+                <span
+                  key={m.id}
+                  className={`marker-pill${m.id === selectedMarkerId ? " on" : ""}`}
+                  style={{ ["--mk" as string]: markerColorCss(m.color) }}
+                  data-tip={m.id === selectedMarkerId ? "click to deselect" : "click to select"}
+                  onClick={() => setSelectedMarkerId((sel) => (sel === m.id ? null : m.id))}
+                >
+                  {m.name} · {m.tick.toFixed(3)} ns
+                  <span
+                    className="rm"
+                    data-tip="delete marker"
+                    onClick={(e) => { e.stopPropagation(); deleteMarker(m.id); }}
+                  ><X size={10} /></span>
+                </span>
+              ))}
             </div>
-            <div className="divider" />
-            <span className="btn sm icon ghost" data-tip="add marker at cursor" onClick={addMarkerAtCursor}><Flag size={12} /></span>
-            <span
-              className="btn sm ghost"
-              data-tip={selectedMarkerId != null ? "delete selected marker (del)" : "clear all markers"}
-              onClick={clearMarkers}
-            ><X size={12} /> {selectedMarkerId != null ? "Delete" : "Clear"}</span>
             <span className="sp" style={{ flex: 1 }} />
           </div>
 
@@ -1266,11 +1400,14 @@ export function App() {
         </div>
 
         <div className="status" style={{ gridColumn: "1 / 3", gridRow: 2 }}>
-          <span>cursor <b>{cursorTicks.toFixed(3)} ns</b></span>
-          {selectedMarker && <span>{selectedMarker.name} <b>{selectedMarker.tick.toFixed(3)} ns</b></span>}
-          {selectedMarker && <span>Δ <b>{(cursorTicks - selectedMarker.tick).toFixed(3)} ns</b></span>}
-          <span>markers <b>{markers.length}</b></span>
-          <span>zoom <b>{formatZoom(ticksPerPixel)}</b></span>
+          {hoverReadout ? (
+            <>
+              <span>time <b>{hoverReadout.tick.toFixed(3)} ns</b></span>
+              <span>{hoverReadout.name} = <b>{hoverReadout.value}</b></span>
+            </>
+          ) : (
+            <span className="muted">hover over a signal to inspect</span>
+          )}
         </div>
       </div>
 
