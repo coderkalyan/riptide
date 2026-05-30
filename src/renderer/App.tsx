@@ -151,6 +151,7 @@ function pickTextColor(hex: string): number {
 const GRID_GRAY = packRgba(0x86, 0x8c, 0x96, 0x70);
 const DEAD_ZONE_GRAY = packRgba(0x78, 0x7c, 0x86, 0x70);
 const RESET_RED = packRgba(0xe8, 0x6a, 0x5a, 0x60);
+const RESET_TEXT = packRgba(0xf0, 0x6b, 0x5b, 0xff); // solid, for the "RESET" label
 const NOTCH_COLOR = packRgba(0x86, 0x8c, 0x96, 0xff);
 const NOTCH_HEIGHT = 12;
 // Bottom ruler band height (CSS px). Matches the `.status` cursor bar
@@ -682,9 +683,9 @@ export function App() {
         const bottomRulerH = BOTTOM_RULER_HEIGHT;
         const bottomRulerTop = canvasH - bottomRulerH;
         const { ticks: rulerTicks, spacing: rulerStep } = dynamicRulerTicks(startTicks, visibleTicks);
-        // Delta label for the marker↔cursor arrow, filled in while building the
-        // arrow rects below and emitted in the text pass.
-        let deltaLabel: { x: number; y: number; text: string; color: number } | null = null;
+        // Labels for the bottom-ruler span arrows (marker↔cursor, reset),
+        // collected while building the arrow rects and emitted in the text pass.
+        const rulerArrowLabels: { x: number; y: number; text: string; color: number }[] = [];
         let bgRectN = 0;
         {
           const r0 = getRect(rectsBgScratch, bgRectN++);
@@ -710,33 +711,17 @@ export function App() {
             // Tick marks sit in the bottom half, anchored to the canvas edge.
             r.x = xForTick(t); r.y = canvasH - NOTCH_HEIGHT; r.w = 2; r.h = NOTCH_HEIGHT; r.color = NOTCH_COLOR;
           }
-          // Double-headed arrow between a marker and the cursor, in the empty
-          // band above the notches. Hardcoded for testing: uses the selected
-          // marker (else the first). Arrowheads are caret_sdf chevrons (see
-          // rect.wgsl) rotated to point outward at each end.
-          const arrowMarker =
-            markersRef.current.find((m) => m.id === selectedMarkerIdRef.current) ?? markersRef.current[0];
-          if (arrowMarker) {
-            // xForTick gives the line's LEFT edge; the cursor/marker lines are
-            // 1.25*dpr CSS px wide, so add half that to land on their center.
-            const lineHalf = 1.25 * dpr * 0.5;
-            const mX = xForTick(arrowMarker.tick) + lineHalf;
-            const cX = xForTick(cursor) + lineHalf;
-            const leftX = Math.min(mX, cX);
-            const rightX = Math.max(mX, cX);
-            // Vertical center of the empty band [bottomRulerTop, notch top].
-            const arrowY = bottomRulerTop + (bottomRulerH - NOTCH_HEIGHT) * 0.5;
+          // Double-headed span arrow in the empty band above the notches:
+          // open caret_sdf chevrons (see rect.wgsl) at each end, a shaft split
+          // around a centered label (dimension-line style). Used for both the
+          // marker↔cursor delta and the reset-held region.
+          const arrowY = bottomRulerTop + (bottomRulerH - NOTCH_HEIGHT) * 0.5;
+          const drawSpanArrow = (leftX: number, rightX: number, label: string, color: number) => {
             const headW = 12, headH = 10, shaftH = 2, gap = 6;
-            const color = arrowMarker.color;
-            // Inset the apexes a few px from the line locations.
             const leftApex = leftX + gap;
             const rightApex = rightX - gap;
-            // Delta label centered on the shaft. If it fits between the apexes,
-            // split the shaft around it (dimension-line style); else draw the
-            // shaft whole and skip the label.
             const cellSm = textRenderer.cellSm;
-            const deltaText = `${Math.abs(cursor - arrowMarker.tick).toFixed(3)} ns`;
-            const textW = deltaText.length * cellSm.widthPx;
+            const textW = label.length * cellSm.widthPx;
             const labelPad = 5;
             const midX = (leftApex + rightApex) * 0.5;
             const splitL = midX - textW * 0.5 - labelPad;
@@ -750,12 +735,12 @@ export function App() {
             if (labelFits) {
               drawShaft(leftApex, splitL);
               drawShaft(splitR, rightApex);
-              deltaLabel = {
+              rulerArrowLabels.push({
                 x: Math.round(midX - textW * 0.5),
                 y: Math.round(arrowY - cellSm.midlinePx),
-                text: deltaText,
+                text: label,
                 color,
-              };
+              });
             } else {
               drawShaft(leftApex, rightApex);
             }
@@ -766,6 +751,45 @@ export function App() {
             const rh = getRect(rectsBgScratch, bgRectN++);
             rh.x = rightApex - headW * 0.5; rh.y = arrowY - headH * 0.5;
             rh.w = headW; rh.h = headH; rh.color = color; rh.caret = true; rh.caretRight = true;
+          };
+
+          // Reset-held region: red crosshatch over the bottom ruler band,
+          // styled like the beyond-end-of-time gray crosshatch.
+          {
+            const rx0 = xForTick(RESET_HELD_TICKS.tStart);
+            const rx1 = xForTick(RESET_HELD_TICKS.tEnd);
+            const rc = getRect(rectsBgScratch, bgRectN++);
+            rc.x = rx0; rc.y = bottomRulerTop; rc.w = rx1 - rx0; rc.h = bottomRulerH;
+            rc.color = RESET_RED; rc.crosshatch = true;
+            // "RESET" label centered in the band, if it fits.
+            const cellSm = textRenderer.cellSm;
+            const label = "RESET";
+            const textW = label.length * cellSm.widthPx;
+            if (rx1 - rx0 > textW + 4) {
+              rulerArrowLabels.push({
+                x: Math.round((rx0 + rx1) * 0.5 - textW * 0.5),
+                y: Math.round(arrowY - cellSm.midlinePx),
+                text: label,
+                color: RESET_TEXT,
+              });
+            }
+          }
+
+          // Marker↔cursor delta. Hardcoded for testing: uses the selected
+          // marker (else the first). xForTick gives each line's LEFT edge, so
+          // add half the 1.25*dpr line width to center on it.
+          const arrowMarker =
+            markersRef.current.find((m) => m.id === selectedMarkerIdRef.current) ?? markersRef.current[0];
+          if (arrowMarker) {
+            const lineHalf = 1.25 * dpr * 0.5;
+            const mX = xForTick(arrowMarker.tick) + lineHalf;
+            const cX = xForTick(cursor) + lineHalf;
+            drawSpanArrow(
+              Math.min(mX, cX),
+              Math.max(mX, cX),
+              `${Math.abs(cursor - arrowMarker.tick).toFixed(3)} ns`,
+              arrowMarker.color,
+            );
           }
         }
         rectsBg.setRects(rectsBgScratch, bgRectN);
@@ -808,8 +832,8 @@ export function App() {
           gi = writeText(textBody, gi, lx, rulerLabelY, label, TEXT_SECONDARY, true);
           gi = writeText(textBody, gi, lx, bottomLabelY, label, TEXT_SECONDARY, true);
         }
-        if (deltaLabel) {
-          gi = writeText(textBody, gi, deltaLabel.x, deltaLabel.y, deltaLabel.text, deltaLabel.color, true);
+        for (const al of rulerArrowLabels) {
+          gi = writeText(textBody, gi, al.x, al.y, al.text, al.color, true);
         }
         for (const lbl of MULTI_BIT_LABELS) {
           if (gi >= MAX_GLYPHS) break;
