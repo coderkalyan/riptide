@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Clock, Flag, Magnet, Maximize, MessageSquare, Minus, PanelLeftClose, PanelLeftOpen, Plus, SplitSquareHorizontal, X } from "lucide-react";
+import { ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Clock, Flag, Magnet, Maximize, Minus, PanelLeftClose, PanelLeftOpen, Plus, X } from "lucide-react";
 import { ActiveSignal, type ActiveSignalKind } from "./ActiveSignal";
 import { ColorPicker } from "./ColorPicker";
 import { SignalTreeView } from "./SignalTree";
@@ -259,6 +259,164 @@ function GlobalTooltip() {
   );
 }
 
+// Mock menubar dropdowns. Items are representative only — clicking just closes
+// the menu (no wired actions yet).
+type MenuItem = { label: string; kbd?: string } | "sep";
+const MENUS: { name: string; items: MenuItem[] }[] = [
+  { name: "File", items: [
+    { label: "New Window", kbd: "⌘N" },
+    { label: "Open VCD…", kbd: "⌘O" },
+    { label: "Open Recent" },
+    "sep",
+    { label: "Reload Trace", kbd: "⌘R" },
+    { label: "Export Image…" },
+    "sep",
+    { label: "Close Window", kbd: "⌘W" },
+  ] },
+  { name: "Edit", items: [
+    { label: "Undo", kbd: "⌘Z" },
+    { label: "Redo", kbd: "⇧⌘Z" },
+    "sep",
+    { label: "Cut", kbd: "⌘X" },
+    { label: "Copy", kbd: "⌘C" },
+    { label: "Paste", kbd: "⌘V" },
+    "sep",
+    { label: "Find…", kbd: "⌘F" },
+  ] },
+  { name: "View", items: [
+    { label: "Zoom In", kbd: "⌘+" },
+    { label: "Zoom Out", kbd: "⌘−" },
+    { label: "Zoom to Fit", kbd: "⌘0" },
+    "sep",
+    { label: "Toggle Signal Tree" },
+    { label: "Toggle Active Signals" },
+    "sep",
+    { label: "Reset Layout" },
+  ] },
+  { name: "Signals", items: [
+    { label: "Add Signal…", kbd: "⌘⏎" },
+    { label: "Group Selected" },
+    { label: "Remove from View" },
+    "sep",
+    { label: "Set Radix" },
+    { label: "Change Color…" },
+  ] },
+  { name: "Markers", items: [
+    { label: "Add Marker", kbd: "M" },
+    { label: "Delete Marker", kbd: "⌫" },
+    { label: "Clear All Markers" },
+    "sep",
+    { label: "Next Marker", kbd: "]" },
+    { label: "Previous Marker", kbd: "[" },
+  ] },
+  { name: "Window", items: [
+    { label: "Minimize", kbd: "⌘M" },
+    { label: "Zoom" },
+    "sep",
+    { label: "Bring All to Front" },
+  ] },
+  { name: "Help", items: [
+    { label: "Documentation" },
+    { label: "Keyboard Shortcuts", kbd: "⌘/" },
+    "sep",
+    { label: "About Riptide" },
+  ] },
+];
+
+function MenuBar() {
+  const [open, setOpen] = useState<{ name: string; rect: DOMRect } | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (!t.closest(".menubar") && !t.closest(".menu-pop")) setOpen(null);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(null); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const pick = (name: string, el: HTMLElement) => setOpen({ name, rect: el.getBoundingClientRect() });
+  const menu = open ? MENUS.find((m) => m.name === open.name) : null;
+  return (
+    <div className="menubar">
+      {MENUS.map((m) => (
+        <span
+          key={m.name}
+          className={`m${open?.name === m.name ? " open" : ""}`}
+          onClick={(e) => {
+            // Capture the rect synchronously — e.currentTarget is nulled before
+            // a functional setState updater would run, which would crash.
+            const rect = e.currentTarget.getBoundingClientRect();
+            setOpen((o) => (o?.name === m.name ? null : { name: m.name, rect }));
+          }}
+          onMouseEnter={(e) => { if (open) pick(m.name, e.currentTarget); }}
+        >{m.name}</span>
+      ))}
+      {open && menu && createPortal(
+        <div className="menu-pop" style={{ left: open.rect.left, top: open.rect.bottom + 4 }}>
+          {menu.items.map((it, i) => it === "sep"
+            ? <div key={i} className="menu-sep" />
+            : (
+              <div key={i} className="menu-item" onClick={() => setOpen(null)}>
+                <span>{it.label}</span>
+                {it.kbd && <span className="menu-kbd">{it.kbd}</span>}
+              </div>
+            ))}
+        </div>,
+        document.body,
+      )}
+    </div>
+  );
+}
+
+// Mock right-click menu for active-signal rows. Visual-only, items just close.
+const ACTIVE_SIGNAL_MENU: MenuItem[] = [
+  { label: "Change Color…" },
+  { label: "Set Radix" },
+  { label: "Rename…" },
+  "sep",
+  { label: "Group with Selected" },
+  { label: "Insert Divider" },
+  "sep",
+  { label: "Move to Top" },
+  { label: "Move to Bottom" },
+  "sep",
+  { label: "Remove from View", kbd: "⌫" },
+];
+
+function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: MenuItem[]; onClose: () => void }) {
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest(".menu-pop")) onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("blur", onClose);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("blur", onClose);
+    };
+  }, [onClose]);
+  return createPortal(
+    <div className="menu-pop" style={{ left: x, top: y }}>
+      {items.map((it, i) => it === "sep"
+        ? <div key={i} className="menu-sep" />
+        : (
+          <div key={i} className="menu-item" onClick={onClose}>
+            <span>{it.label}</span>
+            {it.kbd && <span className="menu-kbd">{it.kbd}</span>}
+          </div>
+        ))}
+    </div>,
+    document.body,
+  );
+}
+
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const signalsRef = useRef<HTMLDivElement>(null);
@@ -275,6 +433,7 @@ export function App() {
 
   const [activeSignals, setActiveSignals] = useState<ActiveSignalRef[]>(MOCK_SCENE.activeSignals);
   const [picker, setPicker] = useState<{ row: number; anchorRect: DOMRect } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [snapCursor, setSnapCursor] = useState(true);
   const [clockAnchor, setClockAnchor] = useState(false);
   // Cursor needs both a ref (event handlers, frame loop) and state (active-
@@ -864,14 +1023,11 @@ export function App() {
     <div className="app">
       <div className="titlebar">
         <div className="dots"><i className="r" /><i className="y" /><i className="g" /></div>
-        <div className="title">Riptide <span className="sub">— keysched.vcd</span></div>
+        <div className="title">Riptide</div>
+        <MenuBar />
+        <div className="divider" />
+        <span className="tchip">keysched.vcd</span>
         <div className="sp" />
-      </div>
-
-      <div className="menubar">
-        <span className="m">File</span><span className="m">Edit</span><span className="m">View</span>
-        <span className="m">Signals</span><span className="m">Markers</span><span className="m">Window</span><span className="m">Help</span>
-        <span className="sp" />
       </div>
 
       <div className="body" style={{ gridTemplateColumns: `${treeColW}px ${activeW}px 1fr` }}>
@@ -918,7 +1074,11 @@ export function App() {
             <span>Value</span>
             <span />
           </div>
-          <div className="signals" ref={signalsRef}>
+          <div
+            className="signals"
+            ref={signalsRef}
+            onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
+          >
             {activeSignals.map((ref, i) => {
               const sig = getSignal(MOCK_SCENE.hierarchy, ref.signalId);
               return (
@@ -950,26 +1110,30 @@ export function App() {
               <span className="btn icon" data-tip="step forward"><ChevronRight size={14} /></span>
               <span className="btn icon" data-tip="jump to end"><ChevronLast size={14} /></span>
             </div>
-            <span
-              className={`btn sm icon${snapCursor ? " on" : ""}`}
-              data-tip={snapCursor ? "disable grid snap" : "enable grid snap"}
-              onClick={() => setSnapCursor((v) => !v)}
-            >
-              <Magnet size={14} />
-            </span>
+            <div className="seg">
+              <span
+                className={`btn icon${snapCursor ? " on" : ""}`}
+                data-tip={snapCursor ? "disable grid snap" : "enable grid snap"}
+                onClick={() => setSnapCursor((v) => !v)}
+              >
+                <Magnet size={14} />
+              </span>
+            </div>
             <span className="sp" style={{ flex: 1 }} />
             <div className="seg">
               <span className="btn icon" data-tip="zoom out" onClick={() => zoomBy(ZOOM_STEP)}><Minus size={14} /></span>
               <span className="btn icon" data-tip="zoom to fit" onClick={fitView}><Maximize size={14} /></span>
               <span className="btn icon" data-tip="zoom in" onClick={() => zoomBy(1 / ZOOM_STEP)}><Plus size={14} /></span>
             </div>
-            <span
-              className={`btn sm icon${clockAnchor ? " on" : ""}`}
-              data-tip={clockAnchor ? "align grid to timescale" : "align grid to clock"}
-              onClick={() => setClockAnchor((v) => !v)}
-            >
-              <Clock size={14} />
-            </span>
+            <div className="seg">
+              <span
+                className={`btn icon${clockAnchor ? " on" : ""}`}
+                data-tip={clockAnchor ? "align grid to timescale" : "align grid to clock"}
+                onClick={() => setClockAnchor((v) => !v)}
+              >
+                <Clock size={14} />
+              </span>
+            </div>
             <div className="divider" />
             <span className="hint mono">{formatZoom(ticksPerPixel)} · 0 – {MOCK_END_TICKS} ns</span>
           </div>
@@ -979,16 +1143,12 @@ export function App() {
               <span className="btn sm" data-tip="next transition"><ArrowRightToLine size={12} /></span>
             </div>
             <div className="divider" />
-            <span className="seg-label" data-tip="markers"><Flag size={13} /></span>
-            <span className="btn sm" data-tip="add marker at cursor (m)" onClick={addMarkerAtCursor}><Plus size={12} /> Marker</span>
+            <span className="btn sm icon ghost" data-tip="add marker at cursor" onClick={addMarkerAtCursor}><Flag size={12} /></span>
             <span
               className="btn sm ghost"
               data-tip={selectedMarkerId != null ? "delete selected marker (del)" : "clear all markers"}
               onClick={clearMarkers}
             ><X size={12} /> {selectedMarkerId != null ? "Delete" : "Clear"}</span>
-            <div className="divider" />
-            <span className="btn sm ghost"><MessageSquare size={12} /> Annotate</span>
-            <span className="btn sm ghost"><SplitSquareHorizontal size={12} /> Split</span>
             <span className="sp" style={{ flex: 1 }} />
           </div>
 
@@ -1015,6 +1175,9 @@ export function App() {
           onClose={() => setPicker(null)}
           anchorRect={picker.anchorRect}
         />
+      )}
+      {ctxMenu && (
+        <ContextMenu x={ctxMenu.x} y={ctxMenu.y} items={ACTIVE_SIGNAL_MENU} onClose={() => setCtxMenu(null)} />
       )}
       <GlobalTooltip />
     </div>

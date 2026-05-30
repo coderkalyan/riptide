@@ -51,13 +51,29 @@
         }
         .tchip .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background: var(--ok); margin-right:6px; vertical-align: 1px;}
 
+        /* Inline menu group inside the titlebar (next to the Riptide wordmark). */
         .menubar {
-            height: 34px; display:flex; align-items:center; gap: 2px; padding: 0 8px;
-            background: var(--panel); border-bottom: 1px solid var(--border);
+            display:flex; align-items:center; gap: 2px; margin-left: 6px;
             font-size: 12.5px;
         }
-        .menubar span.m { padding: 3px 8px; border-radius: 4px; color: var(--text-2); }
-        .menubar span.m:hover { background: var(--panel-2); color: var(--text); }
+        .menubar span.m { padding: 3px 8px; border-radius: 4px; color: var(--text-2); cursor: default; user-select: none; }
+        .menubar span.m:hover, .menubar span.m.open { background: var(--panel-3); color: var(--text); }
+        /* Mock dropdown menus (portal-rendered, above the canvas). */
+        .menu-pop {
+            position: fixed; z-index: 1000; transform: translateZ(0);
+            min-width: 196px; padding: 4px;
+            background: var(--panel-2); border: 1px solid var(--border);
+            border-radius: 8px; box-shadow: var(--shadow-1);
+        }
+        .menu-item {
+            display:flex; align-items:center; justify-content:space-between; gap: 28px;
+            height: 26px; padding: 0 8px; border-radius: 5px;
+            font-size: 12.5px; color: var(--text-2); cursor: default; white-space: nowrap;
+        }
+        .menu-item:hover { background: var(--accent); color: var(--on-accent); }
+        .menu-kbd { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); }
+        .menu-item:hover .menu-kbd { color: var(--on-accent); }
+        .menu-sep { height: 1px; margin: 4px 6px; background: var(--border); }
         .menubar .sp { flex:1; }
         .menubar .kbd { font-family: 'JetBrains Mono', monospace; font-size:11px; color: var(--muted); padding: 3px 8px; border: 1px dashed var(--border); border-radius: 5px; }
 
@@ -114,6 +130,13 @@
             font-family: inherit;
         }
         .search::placeholder { color: var(--muted); }
+        /* Replace the browser's default (orange) focus outline with a themed
+           accent border + soft ring. */
+        .search:focus, input:focus, textarea:focus { outline: none; }
+        .search:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+        }
         .toolbar .sp { flex: 1; }
 
         .body {
@@ -168,6 +191,12 @@
         .seg-label { display:inline-flex; align-items:center; color: var(--muted); margin-right: 1px; }
 
         .tree { padding: 4px 4px 12px; overflow:auto; flex:2; }
+        /* Scope expand/collapse height animation: grid rows 0fr↔1fr animates
+           to/from the children's natural height. inner needs min-height:0 +
+           overflow:hidden so it can collapse and clip during the transition. */
+        .t-children { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 180ms ease; }
+        .t-children.open { grid-template-rows: 1fr; }
+        .t-children-inner { overflow: hidden; min-height: 0; }
         /* Global scrollbar styling — thin bars, matching the signal tree. */
         * { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }

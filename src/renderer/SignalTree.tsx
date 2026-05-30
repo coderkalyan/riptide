@@ -58,16 +58,22 @@ function TreeNode({
           <span className="icon module"><Package size={12} /></span>
           <span className="lbl">{node.name}</span>
         </div>
-        {isOpen && node.children.map((childId) => (
-          <TreeNode
-            key={childId}
-            id={childId}
-            depth={depth + 1}
-            hierarchy={hierarchy}
-            expanded={expanded}
-            toggle={toggle}
-          />
-        ))}
+        {/* Children stay mounted so the height transition runs on collapse too;
+            the grid 0fr↔1fr animates to/from auto height. */}
+        <div className={`t-children${isOpen ? " open" : ""}`}>
+          <div className="t-children-inner">
+            {node.children.map((childId) => (
+              <TreeNode
+                key={childId}
+                id={childId}
+                depth={depth + 1}
+                hierarchy={hierarchy}
+                expanded={expanded}
+                toggle={toggle}
+              />
+            ))}
+          </div>
+        </div>
       </>
     );
   }
