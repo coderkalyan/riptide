@@ -14,6 +14,7 @@ import type { Hierarchy, NodeId } from "./types";
 import { pathOf } from "./types";
 import { getScope } from "./hierarchy";
 import type { ActiveRole, ActiveSignalRef, Radix, VcdType } from "./scene";
+import { SIDECAR_PATH } from "../runtime";
 
 // Renderer runs with nodeIntegration; mirror native.ts's runtime require so
 // esbuild leaves the node builtins alone instead of trying to bundle them. The
@@ -126,6 +127,8 @@ export function buildPathIndex(h: Hierarchy): Map<string, NodeId[]> {
 export function sidecarPath(): string {
   const override = (typeof process !== "undefined" && process.env && process.env.RIPTIDE_SIDECAR) || "";
   if (override) return override;
+  // Next to the trace named in the window URL (set by the main process).
+  if (SIDECAR_PATH) return SIDECAR_PATH;
   return path.join(process.cwd(), "riptide.sidecar.json");
 }
 

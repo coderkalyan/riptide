@@ -7,11 +7,11 @@ const hier = @import("hier.zig");
 
 const Bits = seg.Bits;
 
-// The mock scene now lives entirely in a bundled VCD fixture rather than in
-// hand-built tide.Builder calls. We parse it with tide-vcd, mirror its hierarchy
-// into hier.Hierarchy, and stream its value-change events into a tide.Database.
-// Regenerate the fixture with native/scripts/gen_mock_vcd.py.
-const VCD = @embedFile("mock.vcd");
+// The scene is loaded from a VCD file on disk (path supplied by JS — the bundled
+// native/src/mock.vcd by default, or a user-opened file). We parse it with
+// tide-vcd, mirror its hierarchy into hier.Hierarchy, and stream its
+// value-change events into a tide.Database. Regenerate the bundled fixture with
+// native/scripts/gen_mock_vcd.py.
 
 // Everything produced from one parse of the fixture. Both the renderer's
 // segment queries and its SignalTree read from this; it is built once and cached
@@ -125,8 +125,15 @@ fn walkInto(
     }
 }
 
-pub fn load(gpa: Allocator) !Loaded {
-    var p = try tide_vcd.Parser.init(gpa, VCD);
+pub fn load(gpa: Allocator, path: []const u8) !Loaded {
+    // Read the whole VCD into a NUL-terminated buffer (tide-vcd's Parser borrows
+    // the body/date/version slices, so it must outlive the parser — freed below
+    // after load completes and the db/hierarchy own copies of everything).
+    const io = std.Io.Threaded.global_single_threaded.io();
+    const data = try std.Io.Dir.cwd().readFileAllocOptions(io, path, gpa, .unlimited, .of(u8), 0);
+    defer gpa.free(data);
+
+    var p = try tide_vcd.Parser.init(gpa, data);
     defer p.deinit(gpa);
 
     // Signal ids run 1..=count (0 is the .null sentinel). Index a per-id width

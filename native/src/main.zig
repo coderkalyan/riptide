@@ -74,6 +74,12 @@ fn jsNull(env: c.napi_env) c.napi_value {
     return r;
 }
 
+fn jsUndefined(env: c.napi_env) c.napi_value {
+    var r: c.napi_value = undefined;
+    _ = c.napi_get_undefined(env, &r);
+    return r;
+}
+
 fn jsArr(env: c.napi_env, len: u32) c.napi_value {
     var r: c.napi_value = undefined;
     _ = c.napi_create_array_with_length(env, len, &r);
@@ -94,14 +100,13 @@ fn jsHandle(env: c.napi_env, id: tide.Signal.Id) c.napi_value {
 
 // ---- cached tide state --------------------------------------------------
 
-// One parse of the bundled VCD fixture backs both the segment queries and the
-// hierarchy; cache it so we parse once for the module's lifetime.
+// The current trace's parsed scene (db + hierarchy), set by loadVcd and reused
+// across napi calls. loadVcd must run before any query (the renderer calls it at
+// startup with the trace path from the window URL).
 var cached: ?mock_db.Loaded = null;
 
 fn getLoaded() *const mock_db.Loaded {
-    if (cached == null) {
-        cached = mock_db.load(page) catch @panic("mock_db.load failed");
-    }
+    if (cached == null) @panic("getLoaded: loadVcd must be called before querying");
     return &cached.?;
 }
 
@@ -111,6 +116,35 @@ fn getDb() *const tide.Database {
 
 fn getHier() *const hier.Hierarchy {
     return &getLoaded().hierarchy;
+}
+
+// loadVcd(path: string): parse `path` and make it the current trace. Throws a JS
+// error (rather than crashing) on a missing/unparseable file, leaving any
+// previously loaded trace intact.
+fn loadVcd(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.napi_value {
+    var argc: usize = 1;
+    var argv: [1]c.napi_value = undefined;
+    _ = c.napi_get_cb_info(env, info, &argc, &argv, null, null);
+    if (argc < 1) {
+        _ = c.napi_throw_error(env, null, "loadVcd: missing path argument");
+        return jsUndefined(env);
+    }
+    var buf: [4096]u8 = undefined;
+    var len: usize = 0;
+    if (c.napi_get_value_string_utf8(env, argv[0], &buf, buf.len, &len) != c.napi_ok) {
+        _ = c.napi_throw_error(env, null, "loadVcd: path is not a string");
+        return jsUndefined(env);
+    }
+    const loaded = mock_db.load(page, buf[0..len]) catch |e| {
+        var msg: [512]u8 = undefined;
+        const m: [:0]const u8 = std.fmt.bufPrintZ(&msg, "loadVcd failed for '{s}': {s}", .{ buf[0..len], @errorName(e) }) catch "loadVcd failed";
+        _ = c.napi_throw_error(env, null, m.ptr);
+        return jsUndefined(env);
+    };
+    // Swap only on success so a bad open leaves the prior trace intact.
+    if (cached) |*old| old.deinit();
+    cached = loaded;
+    return jsUndefined(env);
 }
 
 // ---- getMockSegments ----------------------------------------------------
@@ -334,6 +368,7 @@ fn registerFn(env: c.napi_env, exports: c.napi_value, name: [*:0]const u8, cb: c
 }
 
 export fn napi_register_module_v1(env: c.napi_env, exports: c.napi_value) c.napi_value {
+    registerFn(env, exports, "loadVcd", loadVcd);
     registerFn(env, exports, "getMockSegments", getMockSegments);
     registerFn(env, exports, "getHierarchy", getHierarchy);
     registerFn(env, exports, "getValueAt", getValueAt);
