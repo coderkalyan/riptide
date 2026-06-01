@@ -94,21 +94,23 @@ fn jsHandle(env: c.napi_env, id: tide.Signal.Id) c.napi_value {
 
 // ---- cached tide state --------------------------------------------------
 
-var cached_db: ?tide.Database = null;
-var cached_hier: ?hier.Hierarchy = null;
+// One parse of the bundled VCD fixture backs both the segment queries and the
+// hierarchy; cache it so we parse once for the module's lifetime.
+var cached: ?mock_db.Loaded = null;
+
+fn getLoaded() *const mock_db.Loaded {
+    if (cached == null) {
+        cached = mock_db.load(page) catch @panic("mock_db.load failed");
+    }
+    return &cached.?;
+}
 
 fn getDb() *const tide.Database {
-    if (cached_db == null) {
-        cached_db = mock_db.build(page) catch @panic("mock_db.build failed");
-    }
-    return &cached_db.?;
+    return &getLoaded().db;
 }
 
 fn getHier() *const hier.Hierarchy {
-    if (cached_hier == null) {
-        cached_hier = mock_db.buildHierarchy(page) catch @panic("buildHierarchy failed");
-    }
-    return &cached_hier.?;
+    return &getLoaded().hierarchy;
 }
 
 // ---- getMockSegments ----------------------------------------------------
@@ -170,8 +172,9 @@ fn getMockSegments(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.n
     var arr_len: u32 = 0;
     _ = c.napi_get_array_length(env, argv[0], &arr_len);
 
-    const db = getDb();
-    const end_t: u32 = mock_db.MOCK_END_TICKS;
+    const loaded = getLoaded();
+    const db = &loaded.db;
+    const end_t: u32 = loaded.end_t;
 
     var scene = seg.Scene.init(page);
     defer scene.deinit();
@@ -313,10 +316,6 @@ fn getHierarchy(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.napi
         _ = c.napi_set_element(env, nodes, @intCast(i), buildNodeObj(env, n));
     }
     setProp(env, root, "nodes", nodes);
-
-    // tide's mock hierarchy doesn't carry a source format; report a plausible
-    // one. Enum types / timescale precision are overlaid TS-side (see README).
-    setProp(env, root, "format", jsStr(env, "fst"));
 
     const ts = jsObj(env);
     setProp(env, ts, "value", jsU32(env, 1));

@@ -41,12 +41,12 @@ export interface Scene {
 }
 
 // ---- per-row display config --------------------------------------------
-// `handle` strings match tide.Signal.Id values assigned in mock_db.zig (Row
-// enum 0..13). Everything here is presentation metadata that tide's mock
-// hierarchy does not carry; it is overlaid on top of the native hierarchy.
+// Each row binds to a signal by its full hierarchy `path`; the tide handle is
+// resolved from the loaded VCD hierarchy at scene-build time (tide-vcd assigns
+// ids in declaration order, so we can't hardcode them). Everything else here is
+// presentation metadata that the VCD does not carry, overlaid onto the node.
 
 interface RowConfig {
-  handle: string;
   row: number;
   radix: Radix;
   color: string;
@@ -55,26 +55,26 @@ interface RowConfig {
   selected?: boolean;
   role?: ActiveRole;
   derivedExpr?: string;
-  gateHandle?: string;       // mute this row when the gate signal isn't logic-1
+  gatePath?: string;         // mute this row when the gate signal isn't logic-1
   enumTypeId?: number;       // overlay onto the signal node (tide lacks enums)
 }
 
 const W = "top.keysched.waves";
 const ROWS: (RowConfig & { path: string })[] = [
-  { handle: "0",  row: 0,  radix: "bin", role: "clock", pinned: true,                 color: "#72F5DF", path: `${W}.clk`,              vcdType: "net" },
-  { handle: "1",  row: 1,  radix: "bin", role: "reset",                               color: "#F06B5B", path: `${W}.rst`,              vcdType: "reg" },
-  { handle: "2",  row: 2,  radix: "dec", selected: true, enumTypeId: 1,               color: "#B48CFF", path: `${W}.state[1:0]`,       vcdType: "reg" },
-  { handle: "3",  row: 3,  radix: "dec",                                              color: "#B48CFF", path: `${W}.cycle_count[7:0]`, vcdType: "reg" },
-  { handle: "4",  row: 4,  radix: "bin", role: "valid",                               color: "#F4A698", path: `${W}.in_valid`,         vcdType: "reg" },
-  { handle: "5",  row: 5,  radix: "hex", gateHandle: "4",                             color: "#F4A698", path: `${W}.in_data[7:0]`,     vcdType: "reg" },
-  { handle: "6",  row: 6,  radix: "hex", gateHandle: "4",                             color: "#F4A698", path: `${W}.in_addr[15:0]`,    vcdType: "reg" },
-  { handle: "7",  row: 7,  radix: "bin", role: "valid",                               color: "#57C88A", path: `${W}.out_valid`,        vcdType: "reg" },
-  { handle: "8",  row: 8,  radix: "hex", gateHandle: "7",                             color: "#57C88A", path: `${W}.out_data[31:0]`,   vcdType: "reg" },
-  { handle: "9",  row: 9,  radix: "dec",                                              color: "#E6B14E", path: `${W}.fifo_level[3:0]`,  vcdType: "reg" },
-  { handle: "10", row: 10, radix: "bin",                                              color: "#E6B14E", path: `${W}.fifo_empty`,       vcdType: "net" },
-  { handle: "11", row: 11, radix: "hex",                                              color: "#4FD2BD", path: `${W}.dbus[7:0]`,        vcdType: "net" },
-  { handle: "12", row: 12, radix: "bin", derivedExpr: "in_valid | out_valid",         color: "#4FD2BD", path: "derived.busy",         vcdType: "derived" },
-  { handle: "13", row: 13, radix: "bin", derivedExpr: "state == DONE",                color: "#4FD2BD", path: "derived.done",         vcdType: "derived" },
+  { row: 0,  radix: "bin", role: "clock", pinned: true,                 color: "#72F5DF", path: `${W}.clk`,              vcdType: "net" },
+  { row: 1,  radix: "bin", role: "reset",                               color: "#F06B5B", path: `${W}.rst`,              vcdType: "reg" },
+  { row: 2,  radix: "dec", selected: true, enumTypeId: 1,               color: "#B48CFF", path: `${W}.state[1:0]`,       vcdType: "reg" },
+  { row: 3,  radix: "dec",                                              color: "#B48CFF", path: `${W}.cycle_count[7:0]`, vcdType: "reg" },
+  { row: 4,  radix: "bin", role: "valid",                               color: "#F4A698", path: `${W}.in_valid`,         vcdType: "reg" },
+  { row: 5,  radix: "hex", gatePath: `${W}.in_valid`,                   color: "#F4A698", path: `${W}.in_data[7:0]`,     vcdType: "reg" },
+  { row: 6,  radix: "hex", gatePath: `${W}.in_valid`,                   color: "#F4A698", path: `${W}.in_addr[15:0]`,    vcdType: "reg" },
+  { row: 7,  radix: "bin", role: "valid",                               color: "#57C88A", path: `${W}.out_valid`,        vcdType: "reg" },
+  { row: 8,  radix: "hex", gatePath: `${W}.out_valid`,                  color: "#57C88A", path: `${W}.out_data[31:0]`,   vcdType: "reg" },
+  { row: 9,  radix: "dec",                                              color: "#E6B14E", path: `${W}.fifo_level[3:0]`,  vcdType: "reg" },
+  { row: 10, radix: "bin",                                              color: "#E6B14E", path: `${W}.fifo_empty`,       vcdType: "net" },
+  { row: 11, radix: "hex",                                              color: "#4FD2BD", path: `${W}.dbus[7:0]`,        vcdType: "net" },
+  { row: 12, radix: "bin", derivedExpr: "in_valid | out_valid",         color: "#4FD2BD", path: "derived.busy",         vcdType: "derived" },
+  { row: 13, radix: "bin", derivedExpr: "state == DONE",                color: "#4FD2BD", path: "derived.done",         vcdType: "derived" },
 ];
 
 // Enum types live TS-side (tide's mock hierarchy carries the integer value but
@@ -93,10 +93,10 @@ const ENUM_TYPES: EnumType[] = [
 
 const INITIAL_EXPANDED_PATHS = ["top", "top.keysched", "top.keysched.waves", "derived"];
 
-function lookupByHandle(h: Hierarchy, handle: string): NodeId {
-  const ids = h.byHandle.get(handle);
-  if (!ids || ids.length === 0) throw new Error(`Unknown signal handle: ${handle}`);
-  return ids[0];
+function signalAt(h: Hierarchy, path: string): Signal {
+  const node = h.nodes.get(lookupByPath(h, path));
+  if (!node || node.kind !== "signal") throw new Error(`Not a signal: ${path}`);
+  return node;
 }
 
 function lookupByPath(h: Hierarchy, path: string): NodeId {
@@ -119,33 +119,32 @@ function lookupByPath(h: Hierarchy, path: string): NodeId {
   return found!;
 }
 
-// Gate handles keyed by signal path. Trace semantics (mute a row while its gate
-// signal isn't logic-1), applied whether the active signals come from a sidecar
-// or the curated default — so the sidecar never has to carry gate info.
+// Gate signal path keyed by the gated signal's path. Trace semantics (mute a
+// row while its gate isn't logic-1), applied whether active signals come from a
+// sidecar or the curated default — so the sidecar never has to carry gate info.
 const GATE_BY_PATH = new Map<string, string>();
-for (const r of ROWS) if (r.gateHandle) GATE_BY_PATH.set(r.path, r.gateHandle);
-
-function handleOf(h: Hierarchy, id: NodeId): string {
-  const node = h.nodes.get(id);
-  return node && node.kind === "signal" ? (node as Signal).handle : "";
-}
+for (const r of ROWS) if (r.gatePath) GATE_BY_PATH.set(r.path, r.gatePath);
 
 // Native pack specs from the active signal list — what tide should query + how
-// to pack each row. kind/shade come from the role; gate is path-keyed.
+// to pack each row. kind/shade from role; gate is path-keyed, handle resolved
+// from the loaded hierarchy.
 function specsFromActive(h: Hierarchy, active: ActiveSignalRef[]): NativePackSpec[] {
-  return active.map((s) => ({
-    row: s.row,
-    handle: handleOf(h, s.signalId),
-    kind: s.role === "clock" ? "clk" : "data",
-    shaded: s.role !== "clock",
-    gateHandle: GATE_BY_PATH.get(s.path) ?? null,
-  }));
+  return active.map((s) => {
+    const gatePath = GATE_BY_PATH.get(s.path);
+    return {
+      row: s.row,
+      handle: signalAt(h, s.path).handle,
+      kind: s.role === "clock" ? "clk" : "data",
+      shaded: s.role !== "clock",
+      gateHandle: gatePath ? signalAt(h, gatePath).handle : null,
+    };
+  });
 }
 
 // Curated default active signals (used when no sidecar is present).
 function defaultActiveSignals(hierarchy: Hierarchy): ActiveSignalRef[] {
   return ROWS.map((r) => ({
-    signalId: lookupByHandle(hierarchy, r.handle),
+    signalId: lookupByPath(hierarchy, r.path),
     row: r.row,
     radix: r.radix,
     color: r.color,
@@ -168,15 +167,20 @@ export function buildPackSpecs(): NativePackSpec[] {
 function buildScene(sc: Sidecar | null): Scene {
   const hierarchy = getHierarchy();
 
-  // Overlay TS-only metadata that tide's mock hierarchy doesn't carry. Enum
-  // association is keyed by handle here, independent of the sidecar.
-  hierarchy.format = "fst";
+  // Overlay TS-only metadata that the VCD/tide hierarchy doesn't carry. Enum
+  // association is keyed by path, independent of the sidecar.
   hierarchy.timescale = { value: 1, unit: "ns", precision: { value: 10, unit: "ps" } };
   for (const t of ENUM_TYPES) hierarchy.enumTypes.set(t.id, t);
   for (const r of ROWS) {
     if (r.enumTypeId == null) continue;
-    const node = hierarchy.nodes.get(lookupByHandle(hierarchy, r.handle));
-    if (node && node.kind === "signal") (node as Signal).enumTypeId = r.enumTypeId;
+    signalAt(hierarchy, r.path).enumTypeId = r.enumTypeId;
+  }
+  // tide-vcd has no `package` scope kind, so the VCD declares `derived` as a
+  // module; restore the package styling the UI expects (shim — see
+  // TIDE_INTEGRATION.md).
+  for (const id of hierarchy.rootIds) {
+    const node = hierarchy.nodes.get(id);
+    if (node && node.kind === "scope" && node.name === "derived") node.scopeType = "package";
   }
 
   // Active signals + tree expansion come from the sidecar when one exists; else
