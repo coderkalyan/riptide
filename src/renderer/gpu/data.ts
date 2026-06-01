@@ -29,6 +29,7 @@ export interface Viewport {
   dpr: number;
   selected_row: number;
   wave_y_offset: number;
+  dim_mask: number;        // bitmask of rows to dim to 50% (row i → bit i)
 }
 
 export const MOCK_CLOCK_TICK_NS = 5;
@@ -200,5 +201,7 @@ export function writeViewportInto(f32: Float32Array, i32: Int32Array, vp: Viewpo
   f32[6] = vp.dpr;
   i32[7] = vp.selected_row;
   f32[8] = vp.wave_y_offset;
-  // f32[9..11] left zero (pad).
+  // i32[9] reused as dim_mask (u32 bitfield; bit pattern matches when read as u32).
+  i32[9] = vp.dim_mask | 0;
+  // f32[10..11] left zero (pad).
 }

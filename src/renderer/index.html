@@ -116,7 +116,10 @@
             height: 24px; padding: 0 10px; font-family: 'JetBrains Mono', monospace;
             font-size: 11px; border: 1px solid var(--border); border-radius: 6px;
             display:inline-flex; align-items:center; gap: 6px; background: var(--panel);
+            cursor: default;
         }
+        /* Clickable (jump-to-cursor) — highlight on hover like the toolbar buttons. */
+        .pill:hover { background: var(--panel-2); }
         .pill .swatch { width:8px; height:8px; border-radius:50%; background: var(--hot); }
         .pill.marker .swatch { background: var(--marker); }
         /* Tooltips render through a portal at <body> (see GlobalTooltip), so
@@ -192,7 +195,7 @@
             background: var(--panel-2); border-bottom: 1px solid var(--border);
             font-size: 11.5px; flex: 0 0 auto;
         }
-        .col-head h3 { margin:0; font-size: 11.5px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--text-2); }
+        .col-head h3 { margin:0; font-size: 11.5px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--text-2); white-space: nowrap; }
         /* Collapsed-panel title: same type as h3 but stacked vertically,
            reading bottom-to-top, centered in the narrow column. */
         .col-vtitle {
@@ -200,7 +203,7 @@
             align-self: center; margin-top: 10px; white-space: nowrap; user-select: none;
             font-size: 11.5px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--text-2);
         }
-        .col-head .hint { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--muted); }
+        .col-head .hint { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--muted); white-space: nowrap; }
         /* Inline editable numbers in the range label. Text and input share the
            same font/size/metrics so swapping causes no layout shift. */
         .num-edit {
@@ -347,7 +350,7 @@
             border-bottom: 1px solid var(--border);
             font-family: 'JetBrains Mono', monospace; font-size: 12px;
         }
-        .s-row .pin, .s-row .s-icon, .s-row .kebab { flex: none; }
+        .s-row .pin, .s-row .s-icon, .s-row .eye { flex: none; }
         .s-row:hover { background: var(--panel-2); }
         .s-row.sel { background: var(--accent-soft); }
         .pin {
@@ -399,10 +402,25 @@
             font-family: 'JetBrains Mono', monospace;
         }
         .radix:hover { background: var(--panel-2); }
-        .kebab { display:inline-flex; align-items:center; justify-content:center; color: var(--muted); cursor: default; opacity: 0; }
-        .s-row:hover .kebab { opacity: 1; }
-        .s-row .kebab:hover { color: var(--text); }
+        /* Visibility toggle. Hidden by default; on row hover it fades in white.
+           Once toggled off (.off → eye-off icon) it stays visible but dim. */
+        .eye { display:inline-flex; align-items:center; justify-content:center; color: var(--muted); cursor: default; opacity: 0; }
+        .s-row:hover .eye { opacity: 1; color: var(--text); }
+        .eye.off { opacity: 1; color: var(--muted); }
+        .s-row:hover .eye.off { color: var(--text); }
         .s-row.nested { padding-left: 22px; background: color-mix(in srgb, var(--panel-2) 60%, transparent); }
+        /* Collapse: swatch + icon vanish instantly; the name slides left from
+           where it sat (8px pin + 6 gap + 12 icon + 6 gap = 32px) into place.
+           Expand is the reverse: the name slides right into its expanded slot
+           (120ms), then the swatch + icon (+ value) fade back in (120→240ms). */
+        @keyframes s-name-slide-in  { from { transform: translateX(32px); }  to { transform: translateX(0); } }
+        @keyframes s-name-slide-out { from { transform: translateX(-32px); } to { transform: translateX(0); } }
+        @keyframes s-chrome-fade-in { from { opacity: 0; } to { opacity: 1; } }
+        .s-row.collapsed.sliding .n { animation: s-name-slide-in 120ms ease; }
+        .s-row.sliding:not(.collapsed) .n { animation: s-name-slide-out 120ms ease; }
+        .s-row.sliding:not(.collapsed) .pin,
+        .s-row.sliding:not(.collapsed) .s-icon,
+        .s-row.sliding:not(.collapsed) .v { animation: s-chrome-fade-in 120ms ease 120ms backwards; }
 
         .waves { position: relative; }
         .wv-sub {
@@ -454,13 +472,28 @@
             border-top: 1px solid var(--border); border-right: 1px solid var(--border);
             font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-2);
             flex: 0 0 auto;
+            /* Query against the bar's own width so it can degrade to a compact
+               readout when the left columns (esp. a compact Active Signals
+               pane) leave too little room. overflow:hidden + the ellipsis on
+               .st-val guarantee it never spills regardless of value length. */
+            container-type: inline-size;
+            overflow: hidden;
         }
         .status b { color: var(--text); font-weight: 600; }
         .status .sp { flex:1; }
+        .status .st-item { white-space: nowrap; }
+        .status .st-val { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
         .status .dotted { display:inline-flex; align-items:center; gap:5px; }
         .status .dot { width:7px; height:7px; border-radius:50%; background: var(--ok); }
         .status .muted { color: var(--muted); }
         .status .sep { color: var(--muted); }
+        /* Tight: drop the "time" / "ns" / "name =" titles, tighten the gap
+           around the interpunct, so just the time number and value remain.
+           The value still ellipsises below this too. */
+        @container (max-width: 360px) {
+            .status { gap: 6px; font-size: 10px; }
+            .status .lbl-t, .status .unit, .status .lbl-v { display: none; }
+        }
         </style>
     </head>
     <body>

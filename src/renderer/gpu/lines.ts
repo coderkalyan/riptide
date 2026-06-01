@@ -6,7 +6,7 @@ const LINE_U32 = 4; // 16 B per line (pos + color + flags + pad)
 const LINE_BYTES = LINE_U32 * 4;
 
 export interface LineSpec {
-  x: number;      // CSS px, left edge
+  x: number;      // CSS px, center of the line
   color: number;  // packed rgba (see packRgba in text.ts)
   dashed?: boolean;
   // Extend to the very top (y=0) instead of starting inside the flag pill.

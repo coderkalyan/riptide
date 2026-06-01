@@ -1,7 +1,7 @@
 // Vertical lines for timeline grid + cursors/markers. Start partway down
 // into the flag pill (so the line visually anchors the pill) but not at
 // y=0, which would leave AA slivers above the pill's rounded corners.
-// Instanced quad per line: 2.5 CSS px wide. x_px is the LEFT edge.
+// Instanced quad per line: 2.5 CSS px wide, centered on x_px.
 
 struct Viewport {
     ticks_per_pixel: f32,
@@ -19,7 +19,7 @@ struct Viewport {
 }
 
 struct Line {
-    x_px: f32,       // CSS px, left edge of the line
+    x_px: f32,       // CSS px, center of the line
     color_rgba: u32, // 8-bit packed rgba
     flags: u32,      // bit 0 = dashed, bit 1 = full height (top at y=0)
     _pad: u32,
@@ -52,9 +52,10 @@ fn vs_line(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
     let corner_x = f32(vi & 1u);
     let corner_y = f32((vi >> 1u) & 1u);
 
-    // Line is left-aligned, anchored at x_px. Top starts inside the flag pill
-    // (8 CSS px = pill_h/2 in App.tsx) so the line appears to enter the pill.
-    let x_px = line.x_px + corner_x * thickness;
+    // Line is centered on x_px (so x_px lands on the tick/pointer pixel, not
+    // 1.25 px to its left). Top starts inside the flag pill (8 CSS px =
+    // pill_h/2 in App.tsx) so the line appears to enter the pill.
+    let x_px = line.x_px + (corner_x - 0.5) * thickness;
     let y_top = select(8.0, 0.0, (line.flags & 2u) != 0u);
     let y_px = y_top + corner_y * (viewport.height - y_top);
 

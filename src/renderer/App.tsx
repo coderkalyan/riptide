@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Clock, Magnet, Maximize, Minus, PanelLeftClose, PanelLeftOpen, Plus, X } from "lucide-react";
+import { ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Clock, Grid2x2, Maximize, Minus, PanelLeftClose, PanelLeftOpen, Plus, X } from "lucide-react";
 import { ActiveSignal, type ActiveSignalKind } from "./ActiveSignal";
 import { ColorPicker } from "./ColorPicker";
 import { SignalTreeView } from "./SignalTree";
@@ -56,18 +56,54 @@ function formatSegmentValue(
   if (!segment) return "-";
   const hasX = (segment.valueMsb & ~segment.valueLsb) >>> 0;
   const hasZ = (segment.valueMsb & segment.valueLsb) >>> 0;
-  // Any X/Z: fall back to per-bit binary (radix can't represent non-2-state).
+  // Any X/Z: render in the signal's own radix (matching its 2-state segments)
+  // rather than always falling back to binary.
   if (hasX || hasZ) {
-    const chars: string[] = [];
-    for (let bit = bitWidth - 1; bit >= 0; bit--) {
+    // Per-bit 2-state classification: "0" | "1" | "X" | "Z".
+    const bitChar = (bit: number): string => {
       const l = (segment.valueLsb >>> bit) & 1;
       const m = (segment.valueMsb >>> bit) & 1;
-      if (m === 0 && l === 0) chars.push("0");
-      else if (m === 0 && l === 1) chars.push("1");
-      else if (m === 1 && l === 0) chars.push("x");
-      else chars.push("z");
+      if (m === 0) return l === 0 ? "0" : "1";
+      return l === 0 ? "X" : "Z";
+    };
+    if (bitWidth === 1) return bitChar(0);
+    // Classify the whole value (any defined bit / any X / any Z).
+    let anyX = false, anyZ = false, anyDef = false;
+    for (let bit = 0; bit < bitWidth; bit++) {
+      const c = bitChar(bit);
+      if (c === "X") anyX = true;
+      else if (c === "Z") anyZ = true;
+      else anyDef = true;
     }
-    return bitWidth === 1 ? chars[0] : `0b${chars.join("")}`;
+    // Uniformly-unknown value reads better as a bare "X"/"Z" than a prefixed
+    // "0xXX" (the 0x's x collides with the digits). Hex/dec only — binary keeps
+    // its per-bit form. The 0x prefix is only kept below when a real digit
+    // anchors it.
+    if ((radix === "hex" || radix === "dec") && !anyDef && !(anyX && anyZ)) {
+      return anyZ ? "Z" : "X";
+    }
+    if (radix === "hex") {
+      // Group into nibbles (MSB first). A nibble of pure X or pure Z prints
+      // "X"/"Z"; a nibble mixing unknown with known bits also prints "X".
+      const digits: string[] = [];
+      for (let hi = bitWidth - 1; hi >= 0; hi -= 4) {
+        let nib = 0, nibX = false, nibZ = false, allDef = true;
+        for (let b = hi; b > hi - 4 && b >= 0; b--) {
+          const c = bitChar(b);
+          nib = (nib << 1) | (c === "1" ? 1 : 0);
+          if (c === "X") { nibX = true; allDef = false; }
+          else if (c === "Z") { nibZ = true; allDef = false; }
+        }
+        if (allDef) digits.push(nib.toString(16).toUpperCase());
+        else if (nibX && nibZ) digits.push("X");
+        else digits.push(nibZ ? "Z" : "X");
+      }
+      return `0x${digits.join("")}`;
+    }
+    // Binary (and the decimal mixed-value fallback): per-bit.
+    const chars: string[] = [];
+    for (let bit = bitWidth - 1; bit >= 0; bit--) chars.push(bitChar(bit));
+    return `0b${chars.join("")}`;
   }
   const val = segment.valueLsb >>> 0;
   if (enumLabels) {
@@ -157,6 +193,15 @@ function markerColorCss(packed: number): string {
   const r = packed & 0xff, g = (packed >> 8) & 0xff, b = (packed >> 16) & 0xff;
   return `#${(0x1000000 | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
 }
+// Blend a packed color 50% toward the waveform bg (rgb 27/29/33 = the
+// 0.106/0.114/0.129 the digital shader composites against), keeping alpha.
+// Used to fade value-label text on eye-dimmed rows so the text dims with the
+// waveform (the shader handles the pill itself).
+function dimToBg(packed: number): number {
+  const r = packed & 0xff, g = (packed >> 8) & 0xff, b = (packed >> 16) & 0xff, a = (packed >>> 24) & 0xff;
+  const mix = (c: number, bg: number) => Math.round(c + (bg - c) * 0.5);
+  return packRgba(mix(r, 27), mix(g, 29), mix(b, 33), a);
+}
 const GRID_GRAY = packRgba(0x86, 0x8c, 0x96, 0x70);
 const DEAD_ZONE_GRAY = packRgba(0x78, 0x7c, 0x86, 0x70);
 const RESET_RED = packRgba(0xe8, 0x6a, 0x5a, 0x60);
@@ -179,19 +224,61 @@ function rulerSpacing(visibleTicks: number): number {
   return 5 * base;
 }
 
-function dynamicRulerTicks(startTicks: number, visibleTicks: number): { ticks: number[]; spacing: number } {
+function dynamicRulerTicks(startTicks: number, visibleTicks: number): { ticks: number[]; labels: string[] } {
   const spacing = rulerSpacing(visibleTicks);
   const first = Math.ceil(startTicks / spacing) * spacing;
   const ticks: number[] = [];
+  const labels: string[] = [];
   // Tolerance avoids dropping ticks at the right edge due to fp accumulation.
   const end = startTicks + visibleTicks + spacing * 1e-6;
-  for (let t = first; t <= end; t += spacing) ticks.push(t);
-  return { ticks, spacing };
+  for (let t = first; t <= end; t += spacing) {
+    ticks.push(t);
+    labels.push(formatRulerLabel(t, spacing));
+  }
+  return { ticks, labels };
 }
 
 function formatRulerLabel(t: number, spacing: number): string {
   const decimals = spacing >= 1 ? 0 : Math.max(0, -Math.floor(Math.log10(spacing)));
   return `${t.toFixed(decimals)} ns`;
+}
+
+// Clock period in ticks (full cycle = two half-period segments). Cycle `c`'s
+// rising edge lands at tick `MOCK_CLOCK_TICK_NS + (c-1)*PERIOD` (5, 15, 25…),
+// matching `CLOCK_EDGE_TICKS`.
+const CLOCK_PERIOD_NS = 2 * MOCK_CLOCK_TICK_NS;
+
+// Count clock rising edges in the open-low/closed-high span (a, b] — i.e. the
+// number of rising edges crossed moving from one tick to the other. Rising
+// edges sit at `MOCK_CLOCK_TICK_NS + k*PERIOD`, k ≥ 0.
+function clockEdgesBetween(a: number, b: number): number {
+  const lo = Math.min(a, b);
+  const hi = Math.max(a, b);
+  const eps = CLOCK_PERIOD_NS * 1e-6;
+  const kHi = Math.floor((hi - MOCK_CLOCK_TICK_NS + eps) / CLOCK_PERIOD_NS);
+  const kLo = Math.floor((lo - MOCK_CLOCK_TICK_NS + eps) / CLOCK_PERIOD_NS);
+  const kStart = Math.max(kLo + 1, 0);
+  return Math.max(0, kHi - kStart + 1);
+}
+
+// Clock-anchored ruler: ticks land on clock rising edges, labels count cycles
+// ("1", "2", …) instead of ns. Spacing snaps to a "nice" whole number of cycles.
+function clockRulerTicks(startTicks: number, visibleTicks: number): { ticks: number[]; labels: string[] } {
+  const edge0 = MOCK_CLOCK_TICK_NS;
+  const visibleCycles = visibleTicks / CLOCK_PERIOD_NS;
+  const cycleStep = Math.max(1, Math.round(rulerSpacing(visibleCycles)));
+  const startCycle = (startTicks - edge0) / CLOCK_PERIOD_NS + 1;
+  let c = Math.max(cycleStep, Math.ceil(startCycle / cycleStep) * cycleStep);
+  const ticks: number[] = [];
+  const labels: string[] = [];
+  const end = startTicks + visibleTicks + CLOCK_PERIOD_NS * 1e-6;
+  for (; ; c += cycleStep) {
+    const t = edge0 + (c - 1) * CLOCK_PERIOD_NS;
+    if (t > end) break;
+    ticks.push(t);
+    labels.push(`${c} clk`);
+  }
+  return { ticks, labels };
 }
 
 // Verilog-style timescale label: `<time unit> / <time precision>`. Precision is
@@ -536,7 +623,7 @@ export function App() {
   const [picker, setPicker] = useState<{ row: number; anchorRect: DOMRect } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [snapCursor, setSnapCursor] = useState(false);
-  const [clockAnchor, setClockAnchor] = useState(false);
+  const [clockAnchor, setClockAnchor] = useState(true);
   // Cursor needs both a ref (event handlers, frame loop) and state (active-
   // signal value column re-renders on cursor move).
   const [cursorTicks, setCursorTicks] = useState(INITIAL_CURSOR_TICKS);
@@ -597,8 +684,18 @@ export function App() {
     setSelectedMarkerId((sel) => (sel === id ? null : sel));
   };
   const selectedRowRef = useRef(MOCK_SCENE.activeSignals.find((r) => r.selected)?.row ?? -1);
+  // Bitmask of rows whose eye is toggled off (row i → bit i). Read per-frame and
+  // packed into the viewport uniform; the digital shader dims those rows to 50%.
+  const dimMaskRef = useRef(0);
+  // Mirror the clock-anchor toggle into a ref so the rAF frame loop can read it
+  // without re-subscribing. On → ruler counts clock cycles instead of ns.
+  const clockAnchorRef = useRef(clockAnchor);
+  useEffect(() => { clockAnchorRef.current = clockAnchor; }, [clockAnchor]);
   useEffect(() => {
     selectedRowRef.current = activeSignals.find((r) => r.selected)?.row ?? -1;
+    let mask = 0;
+    for (const r of activeSignals) if (r.hidden && r.row < 32) mask |= 1 << r.row;
+    dimMaskRef.current = mask >>> 0;
   }, [activeSignals]);
 
   // Keyboard: `m` drops a marker at the cursor, Delete/Backspace removes the
@@ -662,7 +759,7 @@ export function App() {
 
       // Pooled scratch arrays + spec objects. Reused across frames; never
       // shrunk so JS engines can keep the underlying objects hot.
-      type RectMut = { x: number; y: number; w: number; h: number; color: number; crosshatch?: boolean; rounded?: boolean; caret?: boolean; caretRight?: boolean };
+      type RectMut = { x: number; y: number; w: number; h: number; color: number; crosshatch?: boolean; rounded?: boolean; caret?: boolean; caretRight?: boolean; squareBottomLeft?: boolean; squareBottomRight?: boolean };
       type LineMut = { x: number; color: number; dashed?: boolean; fullHeight?: boolean };
       const rectsBgScratch: RectMut[] = [];
       const linesBgScratch: LineMut[] = [];
@@ -675,6 +772,8 @@ export function App() {
         r.rounded = undefined;
         r.caret = undefined;
         r.caretRight = undefined;
+        r.squareBottomLeft = undefined;
+        r.squareBottomRight = undefined;
         return r;
       };
       const getLine = (arr: LineMut[], i: number): LineMut => {
@@ -695,6 +794,7 @@ export function App() {
         dpr: 1,
         selected_row: -1,
         wave_y_offset: 0,
+        dim_mask: 0,
       };
 
       // Cache layout-derived measurements so the rAF loop never calls
@@ -798,6 +898,8 @@ export function App() {
         vp.dpr = dpr;
         vp.selected_row = selectedRowRef.current;
         vp.wave_y_offset = rulerHeightCSS;
+        const dimMask = dimMaskRef.current;
+        vp.dim_mask = dimMask;
 
         // Right-edge dead zone: extend leftward to the data end when the
         // user has zoomed out past MOCK_END_TICKS, so the OOB area shows
@@ -811,7 +913,9 @@ export function App() {
         // only — no flags). Its notches hang down from its top border.
         const bottomRulerH = BOTTOM_RULER_HEIGHT;
         const bottomRulerTop = canvasH - bottomRulerH;
-        const { ticks: rulerTicks, spacing: rulerStep } = dynamicRulerTicks(startTicks, visibleTicks);
+        const { ticks: rulerTicks, labels: rulerLabels } = clockAnchorRef.current
+          ? clockRulerTicks(startTicks, visibleTicks)
+          : dynamicRulerTicks(startTicks, visibleTicks);
         // Labels for the bottom-ruler span arrows (marker↔cursor, reset),
         // collected while building the arrow rects and emitted in the text pass.
         const rulerArrowLabels: { x: number; y: number; text: string; color: number }[] = [];
@@ -823,7 +927,10 @@ export function App() {
           r1.x = 0; r1.y = rulerHeightCSS - 1; r1.w = canvasW; r1.h = 1; r1.color = BORDER;
           for (const t of rulerTicks) {
             const r = getRect(rectsBgScratch, bgRectN++);
-            r.x = xForTick(t); r.y = notchY; r.w = 2; r.h = NOTCH_HEIGHT; r.color = NOTCH_COLOR;
+            // Center the 2px notch on the tick — waveform edges & dashed grid
+            // lines are centered on xForTick(t), so a left-anchored rect lands
+            // ~1px right of the real edge.
+            r.x = xForTick(t) - 1; r.y = notchY; r.w = 2; r.h = NOTCH_HEIGHT; r.color = NOTCH_COLOR;
           }
           const rd = getRect(rectsBgScratch, bgRectN++);
           rd.x = deadStartPx; rd.y = rulerHeightCSS;
@@ -838,7 +945,7 @@ export function App() {
           for (const t of rulerTicks) {
             const r = getRect(rectsBgScratch, bgRectN++);
             // Tick marks sit in the bottom half, anchored to the canvas edge.
-            r.x = xForTick(t); r.y = canvasH - NOTCH_HEIGHT; r.w = 2; r.h = NOTCH_HEIGHT; r.color = NOTCH_COLOR;
+            r.x = xForTick(t) - 1; r.y = canvasH - NOTCH_HEIGHT; r.w = 2; r.h = NOTCH_HEIGHT; r.color = NOTCH_COLOR;
           }
           // Double-headed span arrow in the empty band above the notches:
           // open caret_sdf chevrons (see rect.wgsl) at each end, a shaft split
@@ -847,39 +954,67 @@ export function App() {
           const arrowY = bottomRulerTop + (bottomRulerH - NOTCH_HEIGHT) * 0.5;
           const drawSpanArrow = (leftX: number, rightX: number, label: string, color: number) => {
             const headW = 12, headH = 10, shaftH = 2, gap = 6;
-            const leftApex = leftX + gap;
-            const rightApex = rightX - gap;
             const cellSm = textRenderer.cellSm;
             const textW = label.length * cellSm.widthPx;
             const labelPad = 5;
-            const midX = (leftApex + rightApex) * 0.5;
-            const splitL = midX - textW * 0.5 - labelPad;
-            const splitR = midX + textW * 0.5 + labelPad;
-            const labelFits = splitL > leftApex + 2 && splitR < rightApex - 2;
+            const labelY = Math.round(arrowY - cellSm.midlinePx);
             const drawShaft = (x0: number, x1: number) => {
               if (x1 <= x0) return;
               const sh = getRect(rectsBgScratch, bgRectN++);
               sh.x = x0; sh.y = arrowY - shaftH * 0.5; sh.w = x1 - x0; sh.h = shaftH; sh.color = color;
             };
-            if (labelFits) {
-              drawShaft(leftApex, splitL);
-              drawShaft(splitR, rightApex);
-              rulerArrowLabels.push({
-                x: Math.round(midX - textW * 0.5),
-                y: Math.round(arrowY - cellSm.midlinePx),
-                text: label,
-                color,
-              });
+            // pointsRight = ">" (caretRight); else "<". apex sits at the rect center.
+            const drawHead = (centerX: number, pointsRight: boolean) => {
+              const h = getRect(rectsBgScratch, bgRectN++);
+              h.x = centerX - headW * 0.5; h.y = arrowY - headH * 0.5;
+              h.w = headW; h.h = headH; h.color = color; h.caret = true; h.caretRight = pointsRight;
+            };
+            const pushLabel = (x: number) => {
+              rulerArrowLabels.push({ x: Math.round(x), y: labelY, text: label, color });
+            };
+            // Offset the label beside the arrow: right of xR by default, flipped
+            // to the left of xL when it would overflow the canvas edge.
+            const pushSideLabel = (xR: number, xL: number) => {
+              const right = xR + labelPad;
+              pushLabel(right + textW <= canvasW - 2 ? right : xL - labelPad - textW);
+            };
+
+            const leftApex = leftX + gap;
+            const rightApex = rightX - gap;
+            // insideRoom = span between the two inward-anchored apexes. Each head
+            // covers headW/2 of the shaft inward from its apex, so the shaft only
+            // shows (insideRoom - headW) px clear of both chevrons. Keep the
+            // horizontal shaft only while ≥ 2 px of it stays clear; otherwise flip
+            // to the close (carets-only) layout.
+            const insideRoom = rightApex - leftApex;
+            const minShaftClear = 2;
+
+            if (insideRoom - headW >= minShaftClear) {
+              // Wide: dimension-line double arrow ◄──►, heads pointing outward at
+              // each apex. Label splits the shaft when it fits, else sits beside
+              // the arrow (same side-offset as close mode).
+              const midX = (leftApex + rightApex) * 0.5;
+              const splitL = midX - textW * 0.5 - labelPad;
+              const splitR = midX + textW * 0.5 + labelPad;
+              const labelFits = splitL > leftApex + 2 && splitR < rightApex - 2;
+              if (labelFits) {
+                drawShaft(leftApex, splitL);
+                drawShaft(splitR, rightApex);
+                pushLabel(midX - textW * 0.5);
+              } else {
+                drawShaft(leftApex, rightApex);
+                pushSideLabel(rightApex + headW * 0.5, leftApex - headW * 0.5);
+              }
+              drawHead(leftApex, false);  // "<"
+              drawHead(rightApex, true);  // ">"
             } else {
-              drawShaft(leftApex, rightApex);
+              // Close together: flip the heads to the outside pointing inward
+              // (> <) so they never cross — no connector line — and offset the
+              // label beside the arrow.
+              drawHead(leftX - gap, true);   // ">" just left of the left line
+              drawHead(rightX + gap, false); // "<" just right of the right line
+              pushSideLabel(rightX + gap + headW * 0.5, leftX - gap - headW * 0.5);
             }
-            // Left head "<" (apex on leftApex), right head ">" on rightApex.
-            const lh = getRect(rectsBgScratch, bgRectN++);
-            lh.x = leftApex - headW * 0.5; lh.y = arrowY - headH * 0.5;
-            lh.w = headW; lh.h = headH; lh.color = color; lh.caret = true; lh.caretRight = false;
-            const rh = getRect(rectsBgScratch, bgRectN++);
-            rh.x = rightApex - headW * 0.5; rh.y = arrowY - headH * 0.5;
-            rh.w = headW; rh.h = headH; rh.color = color; rh.caret = true; rh.caretRight = true;
           };
 
           // Reset-held region: red crosshatch over the bottom ruler band,
@@ -905,18 +1040,20 @@ export function App() {
           }
 
           // Marker↔cursor delta — only when a marker is actually selected.
-          // xForTick gives each line's LEFT edge, so add half the 1.25*dpr line
-          // width to center on it.
+          // xForTick gives each line's center (see lines.wgsl), so the arrow
+          // endpoints land on the line centers directly.
           const arrowMarker =
             markersRef.current.find((m) => m.id === selectedMarkerIdRef.current);
           if (arrowMarker) {
-            const lineHalf = 1.25 * dpr * 0.5;
-            const mX = xForTick(arrowMarker.tick) + lineHalf;
-            const cX = xForTick(cursor) + lineHalf;
+            const mX = xForTick(arrowMarker.tick);
+            const cX = xForTick(cursor);
+            const spanLabel = clockAnchorRef.current
+              ? `${clockEdgesBetween(arrowMarker.tick, cursor)} clks`
+              : `${formatTime(Math.abs(cursor - arrowMarker.tick))} ns`;
             drawSpanArrow(
               Math.min(mX, cX),
               Math.max(mX, cX),
-              `${formatTime(Math.abs(cursor - arrowMarker.tick))} ns`,
+              spanLabel,
               arrowMarker.color,
             );
           }
@@ -961,9 +1098,9 @@ export function App() {
         let gi = 0;
         const rulerLabelY = Math.round(rulerHeightCSS * 0.5 + 2);
         const bottomLabelY = Math.round(bottomRulerTop + bottomRulerH * 0.5 + 2);
-        for (const t of rulerTicks) {
-          const lx = Math.round(xForTick(t) + 5);
-          const label = formatRulerLabel(t, rulerStep);
+        for (let i = 0; i < rulerTicks.length; i++) {
+          const lx = Math.round(xForTick(rulerTicks[i]) + 5);
+          const label = rulerLabels[i];
           gi = writeText(textBody, gi, lx, rulerLabelY, label, TEXT_SECONDARY, true);
           gi = writeText(textBody, gi, lx, bottomLabelY, label, TEXT_SECONDARY, true);
         }
@@ -981,8 +1118,10 @@ export function App() {
           const x0 = Math.round(centerX - textWidthPx * 0.5);
           const y0 = Math.round(rulerHeightCSS + rowHeightCSS * (lbl.row + 0.5) - cellLg.midlinePx);
           // TODO: switch to `textColorByRowRef.current.get(lbl.row)` to use
-          // the per-row contrast pick. Forced white for now.
-          const color = TEXT_WHITE;
+          // the per-row contrast pick. Forced white for now. Dimmed rows (eye
+          // off) fade the label toward bg to match the dimmed waveform.
+          const dimmed = ((dimMask >>> lbl.row) & 1) !== 0;
+          const color = dimmed ? dimToBg(TEXT_WHITE) : TEXT_WHITE;
           for (let k = 0; k < lbl.text.length && gi < MAX_GLYPHS; k++) {
             const code = lbl.text.charCodeAt(k);
             if (code < 0x20 || code > 0x7e) continue;
@@ -996,17 +1135,26 @@ export function App() {
         const pillH = 14;
         const addFlag = (x: number, text: string, color: number, pill: { rects: typeof rectsBg; text: typeof textBody }) => {
           const pillW = text.length * cellSm.widthPx + padX * 2;
-          // Default anchor: pill's left edge sits on the line. Near the right
-          // canvas edge, slide the pill leftward so it stays on-screen — at
-          // x == canvas.right, pill's right edge sits on the line. Linear
-          // ramp over the last `pillW` px of canvas (interior is dead zone,
-          // no pill movement). Final clamp keeps the pill fully on-screen.
+          // The line is centered on x (lines.wgsl), so anchor the pill's near
+          // edge to the line's near edge — half a line width off x — so the
+          // line enters the squared corner flush. Default: pill left edge on the
+          // line's left edge. Near the right canvas edge, slide the pill leftward
+          // so it stays on-screen — at x == canvas.right, pill's right edge on the
+          // line's right edge. Linear ramp over the last `pillW` px of canvas
+          // (interior is dead zone). Final clamp keeps the pill fully on-screen.
+          const lineHalf = 2.5 * 0.5;
           const flipStart = canvasW - pillW;
           const t = Math.max(0, Math.min(1, (x - flipStart) / pillW));
-          const pillX = Math.max(0, Math.min(canvasW - pillW, x - t * pillW));
+          const anchor = x + (2 * t - 1) * lineHalf;
+          const pillX = Math.max(0, Math.min(canvasW - pillW, anchor - t * pillW));
           const pillY = 0;
           const r = getRect(pillRectScratch, 0);
+          // Square off the bottom corner the line attaches to (the anchored
+          // edge) so the pill meets the line flush.
+          const lineOnRight = t >= 0.5;
           r.x = pillX; r.y = pillY; r.w = pillW; r.h = pillH; r.color = color; r.rounded = true;
+          r.squareBottomLeft = !lineOnRight;
+          r.squareBottomRight = lineOnRight;
           pill.rects.setRects(pillRectScratch, 1);
           const glyphs = writeText(
             pill.text,
@@ -1216,11 +1364,59 @@ export function App() {
   const [treeW, setTreeW] = useState(TREE_DEFAULT_PX);
   const [activeW, setActiveW] = useState(ACTIVE_DEFAULT_PX);
   const [treeCollapsed, setTreeCollapsed] = useState(false);
+  const [activeCollapsed, setActiveCollapsed] = useState(false);
+  // Manual width override for the compact strip. null = auto-hug the longest
+  // name (compactW below); a number = user drag-resized. Double-click the
+  // handle clears it back to the tight fit.
+  const [activeCompactW, setActiveCompactW] = useState<number | null>(null);
   const treeColW = treeCollapsed ? TREE_COLLAPSED_PX : treeW;
+  // Compact strip width: hug the longest signal name, but as a concrete px
+  // value (not max-content) so the collapse/expand slide can animate px→px
+  // like the tree panel does. Mirrors the .s-row name metrics: 12px JetBrains
+  // Mono + 8px horizontal padding each side. Floored so the Name/Value header
+  // stays legible when every name is short.
+  const ACTIVE_COMPACT_MIN_PX = 88;
+  // Recompute the measured width once the web font loads — until then canvas
+  // measures with a fallback face whose metrics are narrower, which would size
+  // the column too tight and truncate the longest name.
+  const [fontTick, setFontTick] = useState(0);
+  useEffect(() => { document.fonts?.ready.then(() => setFontTick((t) => t + 1)); }, []);
+  const compactW = useMemo(() => {
+    const ctx = document.createElement("canvas").getContext("2d");
+    if (!ctx) return ACTIVE_COMPACT_MIN_PX;
+    ctx.font = "12px 'JetBrains Mono', monospace";
+    let max = 0;
+    for (const ref of activeSignals) {
+      const w = ctx.measureText(getSignal(MOCK_SCENE.hierarchy, ref.signalId).name).width;
+      if (w > max) max = w;
+    }
+    // The compact head still shows the "Active Signals" title + expand button,
+    // so the column can't be narrower than that or it clips. Measure the title
+    // (uppercase, 600, with letter-spacing) and reserve ~43px for left padding
+    // + gap + the 22px button + right padding.
+    ctx.font = "600 11.5px 'IBM Plex Sans', system-ui, sans-serif";
+    const title = "ACTIVE SIGNALS";
+    const headerW = ctx.measureText(title).width + title.length * 0.4 + 43;
+    // 16 = .s-row left+right padding; +2 subpixel buffer so the last glyph of
+    // the widest name never clips into an ellipsis.
+    return Math.max(ACTIVE_COMPACT_MIN_PX, Math.ceil(headerW), Math.ceil(max) + 18);
+  }, [activeSignals, fontTick]);
+  const activeColW = activeCollapsed ? (activeCompactW ?? compactW) : activeW;
   // Enable the width transition only for the duration of a collapse/expand
   // toggle (or a double-click width reset), so live drag-resize stays instant.
   const [treeAnim, setTreeAnim] = useState(false);
   const treeAnimTimer = useRef<number | null>(null);
+  // Row-content slide flag, set ONLY on a compact/full toggle — not on the
+  // width pulse — so a double-click resize doesn't replay the name slide.
+  // Longer than the 140ms width anim: on expand the name slides (120ms) then
+  // the swatch/icon fade back in (120→240ms).
+  const [rowSliding, setRowSliding] = useState(false);
+  const rowSlideTimer = useRef<number | null>(null);
+  // Tree-only toggle flag: gates the tree's vertical/expanded content swap so
+  // it tracks the tree's own collapse, not the shared width pulse (which the
+  // active-pane toggle/resize also fires).
+  const [treeToggling, setTreeToggling] = useState(false);
+  const treeToggleTimer = useRef<number | null>(null);
   const pulseLayoutAnim = () => {
     setTreeAnim(true);
     if (treeAnimTimer.current != null) clearTimeout(treeAnimTimer.current);
@@ -1229,18 +1425,30 @@ export function App() {
   const toggleTree = (collapsed: boolean) => {
     setTreeCollapsed(collapsed);
     pulseLayoutAnim();
+    setTreeToggling(true);
+    if (treeToggleTimer.current != null) clearTimeout(treeToggleTimer.current);
+    treeToggleTimer.current = window.setTimeout(() => setTreeToggling(false), 140);
   };
-  const startResize = (which: "tree" | "active") => (e: React.PointerEvent<HTMLDivElement>) => {
+  const toggleActive = (collapsed: boolean) => {
+    setActiveCollapsed(collapsed);
+    pulseLayoutAnim();
+    setRowSliding(true);
+    if (rowSlideTimer.current != null) clearTimeout(rowSlideTimer.current);
+    rowSlideTimer.current = window.setTimeout(() => setRowSliding(false), 240);
+  };
+  const startResize = (which: "tree" | "active" | "activeCompact") => (e: React.PointerEvent<HTMLDivElement>) => {
     e.preventDefault();
     const startX = e.clientX;
     const startTree = treeW;
     const startActive = activeW;
+    const startCompact = activeCompactW ?? compactW;
     const target = e.currentTarget;
     target.setPointerCapture(e.pointerId);
     target.classList.add("dragging");
     const onMove = (ev: PointerEvent) => {
       const dx = ev.clientX - startX;
       if (which === "tree") setTreeW(Math.max(TREE_MIN_PX, startTree + dx));
+      else if (which === "activeCompact") setActiveCompactW(Math.max(ACTIVE_COMPACT_MIN_PX, startCompact + dx));
       else setActiveW(Math.max(ACTIVE_MIN_PX, startActive + dx));
     };
     const onUp = (ev: PointerEvent) => {
@@ -1264,6 +1472,10 @@ export function App() {
         selected: !wasSelected && r.row === row,
       }));
     });
+  };
+  // Eye toggle: flip the row's cosmetic `hidden` flag. No canvas effect yet.
+  const toggleSignalHidden = (row: number) => {
+    setActiveSignals((refs) => refs.map((r) => (r.row === row ? { ...r, hidden: !r.hidden } : r)));
   };
 
   const ZOOM_STEP = 1.25;
@@ -1333,6 +1545,28 @@ export function App() {
     setCursorTicks(n);
     return true;
   };
+  // Click the cursor pill: pan so the cursor sits at the left edge, keeping the
+  // current zoom (right edge follows from the unchanged ticks_per_pixel). Eased
+  // via the zoom-anim ref with tppT == tpp0 so only start_ticks moves.
+  const jumpToCursor = () => {
+    const tpp = ticksPerPixelRef.current;
+    if (tpp <= 0) return;
+    userInteractedRef.current = true;
+    zoomAnimRef.current = {
+      tpp0: tpp,
+      start0: startTicksRef.current,
+      tppT: tpp,
+      startT: cursorTicksRef.current,
+      t0: performance.now(),
+      releaseFit: false,
+    };
+  };
+  // Commit an edited marker time from its pill. Rejects non-finite/negative.
+  const applyMarkerTick = (id: number, n: number): boolean => {
+    if (!isFinite(n) || n < 0) return false;
+    setMarkers((ms) => ms.map((m) => (m.id === id ? { ...m, tick: n } : m)));
+    return true;
+  };
 
   const selectedMarker = markers.find((m) => m.id === selectedMarkerId) ?? null;
   // Live pointer readout. Time shows whenever the pointer is over the canvas;
@@ -1379,7 +1613,7 @@ export function App() {
 
       {/* Row 2 holds the status bar under the two left columns only; the waves
           column spans both rows so its canvas runs full height beside it. */}
-      <div className={`body${treeAnim ? " tree-anim" : ""}`} style={{ gridTemplateColumns: `${treeColW}px ${activeW}px 1fr`, gridTemplateRows: "minmax(0, 1fr) auto" }}>
+      <div className={`body${treeAnim ? " tree-anim" : ""}`} style={{ gridTemplateColumns: `${treeColW}px ${activeColW}px 1fr`, gridTemplateRows: "minmax(0, 1fr) auto" }}>
         {!treeCollapsed && (
           <div
             className="col-resize"
@@ -1390,16 +1624,21 @@ export function App() {
         )}
         <div
           className="col-resize"
-          style={{ left: treeColW + activeW - 3 }}
-          onPointerDown={startResize("active")}
-          onDoubleClick={() => { setActiveW(ACTIVE_DEFAULT_PX); pulseLayoutAnim(); }}
+          style={{ left: treeColW + activeColW - 3 }}
+          onPointerDown={startResize(activeCollapsed ? "activeCompact" : "active")}
+          onDoubleClick={() => {
+            // Compact: reset to the auto tight-fit. Full: reset to default width.
+            if (activeCollapsed) setActiveCompactW(null);
+            else setActiveW(ACTIVE_DEFAULT_PX);
+            pulseLayoutAnim();
+          }}
         />
         <div className="col">
           {/* Show the collapsed strip only once the width animation finishes;
               during it, keep the expanded content (clipped) so it slides away
               without popping. On expand, the expanded content is shown
               immediately and revealed as the column grows. */}
-          {treeCollapsed && !treeAnim ? (
+          {treeCollapsed && !treeToggling ? (
             <>
               <div className="col-head" style={{ justifyContent: "center" }}>
                 <span className="collapse" data-tip="expand panel" onClick={() => toggleTree(false)}>
@@ -1426,17 +1665,48 @@ export function App() {
         </div>
 
         <div className="col">
-          <div className="col-head"><h3>Active Signals</h3><span className="hint">{activeSignals.length} active</span></div>
+          {/* Swap on the collapse state alone (not the width anim) so a
+              double-click resize — which pulses the width anim but doesn't
+              change collapse state — never flickers the header. */}
+          {activeCollapsed ? (
+            <div className="col-head" style={{ paddingRight: 3 }}>
+              <h3>Active Signals</h3>
+              <span className="sp" style={{ flex: 1 }} />
+              <span className="collapse" data-tip="full view" onClick={() => toggleActive(false)}>
+                <PanelLeftOpen size={14} strokeWidth={1.75} />
+              </span>
+            </div>
+          ) : (
+            <div className="col-head" style={{ paddingRight: 3 }}>
+              <h3>Active Signals</h3>
+              <span className="sp" style={{ flex: 1 }} />
+              {/* Hold the hint back until the expand width anim settles (it rides
+                  rowSliding, set only on toggle, so a resize won't flicker it). */}
+              {!rowSliding && <span className="hint">{activeSignals.length} active</span>}
+              <span className="collapse" data-tip="compact view" onClick={() => toggleActive(true)}>
+                <PanelLeftClose size={14} strokeWidth={1.75} />
+              </span>
+            </div>
+          )}
+          {/* Filter + header stay in compact mode: the header is one row-height
+              tall, so keeping it is what keeps the signal rows lined up with the
+              GPU canvas rows in the waves column. In compact the header collapses
+              to just "Name" — matching the name-only rows, no value column and no
+              empty pin/icon/eye slots eating width. */}
           <div className="col-sub">
-            <input className="search" placeholder="filter active signals" />
+            <input className="search" placeholder={activeCollapsed ? "filter signals" : "filter active signals"} />
           </div>
-          <div className="s-head">
-            <span />
-            <span />
-            <span>Name</span>
-            <span>Value</span>
-            <span />
-          </div>
+          {activeCollapsed ? (
+            <div className="s-head"><span style={{ fontWeight: 700 }}>Name</span></div>
+          ) : (
+            <div className="s-head">
+              <span />
+              <span />
+              <span>Name</span>
+              <span>Value</span>
+              <span />
+            </div>
+          )}
           <div
             className="signals"
             ref={signalsRef}
@@ -1452,10 +1722,16 @@ export function App() {
                   kind={activeSignalKind(ref)}
                   radix={ref.radix}
                   color={ref.color}
+                  // Disabled for now (kept for re-enable): path · vcd-type tooltip.
+                  // tip={`${ref.path} · ${ref.vcdType}`}
                   pinned={ref.pinned}
                   selected={ref.selected}
+                  hidden={ref.hidden}
+                  collapsed={activeCollapsed}
+                  sliding={rowSliding}
                   value={formatSegmentValue(findSegmentAtTick(ref.row, cursorTicks), sig.bitWidth, ref.radix, ENUM_LABELS_BY_ROW.get(ref.row))}
                   onPinClick={(e) => setPicker({ row: ref.row, anchorRect: (e.currentTarget as HTMLElement).getBoundingClientRect() })}
+                  onToggleVisible={() => toggleSignalHidden(ref.row)}
                   onClick={() => handleRowClick(ref.row)}
                 />
               );
@@ -1465,7 +1741,14 @@ export function App() {
 
         <div className="col waves" style={{ gridColumn: 3, gridRow: "1 / 3" }}>
           <div className="col-head toolbar">
-            <span className="pill"><span className="swatch" /><span className="mono">cursor at <EditableNum value={cursorTicks} format={formatTime} onCommit={applyCursor} /> ns</span></span>
+            <span className="pill" data-tip="jump to cursor" onClick={jumpToCursor}>
+              <span className="swatch" />
+              <span className="mono">cursor at{" "}
+                <span data-tip="edit cursor time" onClick={(e) => e.stopPropagation()}>
+                  <EditableNum value={cursorTicks} format={formatTime} onCommit={applyCursor} />
+                </span>{" "}ns
+              </span>
+            </span>
             <div className="seg">
               <span className="btn icon" data-tip="jump to start"><ChevronFirst size={14} /></span>
               <span className="btn icon" data-tip="step back"><ChevronLeft size={14} /></span>
@@ -1503,7 +1786,7 @@ export function App() {
                 data-tip={snapCursor ? "disable grid snap" : "enable grid snap"}
                 onClick={() => setSnapCursor((v) => !v)}
               >
-                <Magnet size={14} />
+                <Grid2x2 size={14} />
               </span>
               <span
                 className={`btn icon${clockAnchor ? " on" : ""}`}
@@ -1526,7 +1809,12 @@ export function App() {
                   data-tip={m.id === selectedMarkerId ? "click to deselect" : "click to select"}
                   onClick={() => setSelectedMarkerId((sel) => (sel === m.id ? null : m.id))}
                 >
-                  {m.name} · {formatTime(m.tick)} ns
+                  <span>
+                    {m.name} ·{" "}
+                    <span data-tip="edit marker time" onClick={(e) => e.stopPropagation()}>
+                      <EditableNum value={m.tick} format={formatTime} onCommit={(n) => applyMarkerTick(m.id, n)} />
+                    </span>{" "}ns
+                  </span>
                   <span
                     className="rm"
                     data-tip="delete marker"
@@ -1547,16 +1835,16 @@ export function App() {
         <div className="status" style={{ gridColumn: "1 / 3", gridRow: 2 }}>
           {hover ? (
             <>
-              <span>time <b>{formatTime(hover.tick)} ns</b></span>
+              <span className="st-item"><span className="lbl-t">time </span><b>{formatTime(hover.tick)}</b><span className="unit"> ns</span></span>
               <span className="sep">·</span>
               {hoverValue ? (
-                <span>{hoverValue.name} = <b>{hoverValue.value}</b></span>
+                <span className="st-item st-val"><span className="lbl-v">{hoverValue.name} = </span><b>{hoverValue.value}</b></span>
               ) : (
-                <span className="muted">hover over a signal to inspect</span>
+                <span className="muted st-item st-val">hover over a signal to inspect</span>
               )}
             </>
           ) : (
-            <span className="muted">hover over a signal to inspect</span>
+            <span className="muted st-item st-val">hover over a signal to inspect</span>
           )}
         </div>
       </div>

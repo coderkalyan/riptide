@@ -132,7 +132,14 @@ fn fs_rect(in: VertexData) -> @location(0) vec4f {
     let d = length(max(q, vec2f(0.0, 0.0))) - ROUND_RADIUS_PX;
     let aa_d = fwidth(d);
     let corner_mask = 1.0 - smoothstep(-aa_d, 0.0, d);
-    let round_mask = select(1.0, corner_mask, in_corner);
+    // Keep the bottom corner the cursor/marker line attaches to square so the
+    // pill meets the line flush (no rounded notch). bit 4 = square bottom-left,
+    // bit 5 = square bottom-right. centered.y > 0 is the pill bottom; the x sign
+    // picks the side. Forcing the mask to 1 there leaves that corner sharp.
+    let square_left = (in.flags & 16u) != 0u;
+    let square_right = (in.flags & 32u) != 0u;
+    let square_corner = centered.y > 0.0 && ((square_left && centered.x < 0.0) || (square_right && centered.x > 0.0));
+    let round_mask = select(select(1.0, corner_mask, in_corner), 1.0, square_corner);
     a *= select(1.0, round_mask, rounded);
 
     // Select the caret alpha for caret instances; the normal rect alpha

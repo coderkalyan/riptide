@@ -139,7 +139,7 @@ export async function createTextRenderer(
   const { device, format } = ctx;
   const dpr = opts?.dpr ?? (globalThis.devicePixelRatio || 1);
   const lg = opts?.large ?? { displayPx: 12, weight: "700" };
-  const sm = opts?.small ?? { displayPx: 10, weight: "400" };
+  const sm = opts?.small ?? { displayPx: 10, weight: "700" };
 
   await Promise.all([
     ensureFontLoaded(`${lg.weight} ${lg.displayPx * dpr}px ${FONT_FAMILY}`),

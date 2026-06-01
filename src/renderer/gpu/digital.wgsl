@@ -11,7 +11,9 @@ struct Viewport {
     dpr: f32,
     selected_row: i32,
     wave_y_offset: f32,
-    _pad0: f32,
+    // Bitmask of rows to dim to 50% output opacity (row i → bit i). Wired to the
+    // per-signal eye toggle. Occupies the former _pad0 slot (same 4 bytes).
+    dim_mask: u32,
     _pad1: f32,
     _pad2: f32,
 }
@@ -63,6 +65,7 @@ const F_HATCH_COLOR: u32 = 1u << 9u;
 const F_DRAW_LINE: u32 = 1u << 10u;
 const F_DRAW_LINE_HIGH: u32 = 1u << 11u; // single-bit variant only
 const F_HIGHLIGHT: u32 = 1u << 12u;
+const F_DIM: u32 = 1u << 13u; // row's eye toggled off → 50% output opacity
 
 @group(0) @binding(0) var<uniform> viewport: Viewport;
 @group(0) @binding(1) var<storage, read> segments: array<Segment>;
@@ -149,6 +152,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
     let lsb_nonzero = value.x != 0u;
     let msb_nonzero = value.y != 0u;
     let highlight = i32(row) == viewport.selected_row;
+    let dimmed = ((viewport.dim_mask >> row) & 1u) != 0u;
 
     // Synthesize vertices for a triangle strip rect in [0, 1]^2.
     let corner_x = f32(vi & 1u);
@@ -188,6 +192,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
     flags |= select(0u, F_DRAW_LINE, !msb_nonzero);
     flags |= select(0u, F_DRAW_LINE_HIGH, lsb_nonzero && VARIANT == VARIANT_SINGLE);
     flags |= select(0u, F_HIGHLIGHT, highlight);
+    flags |= select(0u, F_DIM, dimmed);
 
     return VertexData(vec4f(clip_x, clip_y, 0.0, 1.0), vertex_local_px, half_size_px, flags, row_colors[row]);
 }
@@ -262,10 +267,14 @@ fn fs_single(in: VertexData) -> @location(0) vec4f {
     let fill = vec4f(fill_color.rgb, fill_alpha);
 
     let color = mix(fill, line_color, stroke_mask);
-    // Composite against the canvas clear color so background draws (grid
-    // lines) don't show through signals. Output is fully opaque.
+    // Composite against the canvas clear color so background draws (grid lines)
+    // don't show through signals; output stays opaque. A dimmed row (eye off)
+    // is blended 50% toward bg in RGB rather than made transparent — so the
+    // grid underneath never reappears.
     let bg = vec3f(0.106, 0.114, 0.129);
-    return vec4f(mix(bg, color.rgb, color.a), 1.0);
+    var rgb = mix(bg, color.rgb, color.a);
+    rgb = select(rgb, mix(bg, rgb, 0.5), (in.flags & F_DIM) != 0u);
+    return vec4f(rgb, 1.0);
 }
 
 @fragment
@@ -306,8 +315,12 @@ fn fs_multi(in: VertexData) -> @location(0) vec4f {
 
     let final_color = line_color * border_mask + fill * fill_mask;
     let final_alpha = border_mask + fill_color.a * fill_mask;
-    // Composite against the canvas clear color so background draws (grid
-    // lines) don't show through signals. Output is fully opaque.
+    // Composite against the canvas clear color so background draws (grid lines)
+    // don't show through signals; output stays opaque. A dimmed row (eye off)
+    // is blended 50% toward bg in RGB rather than made transparent — so the
+    // grid underneath never reappears.
     let bg = vec3f(0.106, 0.114, 0.129);
-    return vec4f(mix(bg, final_color.rgb, final_alpha), 1.0);
+    var rgb = mix(bg, final_color.rgb, final_alpha);
+    rgb = select(rgb, mix(bg, rgb, 0.5), (in.flags & F_DIM) != 0u);
+    return vec4f(rgb, 1.0);
 }
