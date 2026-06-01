@@ -1,7 +1,58 @@
+import type {
+  Direction,
+  Hierarchy,
+  HierNode,
+  NodeId,
+  Scope,
+  ScopeType,
+  Signal,
+  Timescale,
+  VarType,
+} from "./hier/types";
+
 declare const require: (m: string) => unknown;
 
+interface RawScopeNode {
+  id: number;
+  parent: number | null;
+  name: string;
+  kind: "scope";
+  scopeType: ScopeType;
+  children: number[];
+}
+
+interface RawSignalNode {
+  id: number;
+  parent: number | null;
+  name: string;
+  kind: "signal";
+  varType: VarType;
+  direction: Direction;
+  bitWidth: number;
+  handle: string;
+}
+
+type RawNode = RawScopeNode | RawSignalNode;
+
+interface RawHierarchy {
+  rootIds: number[];
+  nodes: RawNode[];
+  format: Hierarchy["format"];
+  timescale: Timescale;
+}
+
+// One row's packing request. The native side queries tide for `handle` over the
+// full time range, then packs the resulting transitions into the GPU buffers.
+export interface NativePackSpec {
+  row: number;
+  handle: string;
+  kind: "clk" | "data";
+  shaded: boolean;
+  gateHandle: string | null;
+}
+
 interface NativeModule {
-  getMockSegments(): {
+  getMockSegments(specs: NativePackSpec[]): {
     multi: ArrayBuffer;
     multiCount: number;
     single: ArrayBuffer;
@@ -11,23 +62,28 @@ interface NativeModule {
     x0Pool: ArrayBuffer;
     x1Pool: ArrayBuffer;
   };
+  getHierarchy(): RawHierarchy;
+  getValueAt(handle: string, tick: number): { lsb: number; msb: number } | null;
 }
 
 const native = require("../native/riptide.node") as NativeModule;
 
 export interface NativeMockSegments {
+  // 3×u32 PackedSegment records (t_start, t_end, row_flags) — values stripped
+  // out into the shared pools below.
   multi: Uint32Array<ArrayBuffer>;
   multiCount: number;
   single: Uint32Array<ArrayBuffer>;
   singleCount: number;
+  // 4×u32 RowInfo records, indexed by row, + the shared bit-packed value pools.
   rowInfo: ArrayBuffer;
   rowCount: number;
   x0Pool: ArrayBuffer;
   x1Pool: ArrayBuffer;
 }
 
-export function getMockSegments(): NativeMockSegments {
-  const r = native.getMockSegments();
+export function getMockSegments(specs: NativePackSpec[]): NativeMockSegments {
+  const r = native.getMockSegments(specs);
   return {
     multi: new Uint32Array(r.multi),
     multiCount: r.multiCount,
@@ -37,5 +93,55 @@ export function getMockSegments(): NativeMockSegments {
     rowCount: r.rowCount,
     x0Pool: r.x0Pool,
     x1Pool: r.x1Pool,
+  };
+}
+
+// Decoded (lsb, msb) of a signal at a tick — the CPU-side value lookup that
+// replaces scanning a JS segment list. Returns null off the end of the trace.
+export function getValueAt(handle: string, tick: number): { lsb: number; msb: number } | null {
+  return native.getValueAt(handle, tick);
+}
+
+export function getHierarchy(): Hierarchy {
+  const raw = native.getHierarchy();
+  const nodes = new Map<NodeId, HierNode>();
+  const byHandle = new Map<string, NodeId[]>();
+  for (const n of raw.nodes) {
+    if (n.kind === "scope") {
+      const scope: Scope = {
+        kind: "scope",
+        id: n.id,
+        parent: n.parent,
+        name: n.name,
+        scopeType: n.scopeType,
+        children: n.children,
+      };
+      nodes.set(n.id, scope);
+    } else {
+      const sig: Signal = {
+        kind: "signal",
+        id: n.id,
+        parent: n.parent ?? 0,
+        name: n.name,
+        varType: n.varType,
+        direction: n.direction,
+        bitWidth: n.bitWidth,
+        handle: n.handle,
+      };
+      nodes.set(n.id, sig);
+      const arr = byHandle.get(sig.handle);
+      if (arr) arr.push(n.id);
+      else byHandle.set(sig.handle, [n.id]);
+    }
+  }
+  // enumTypes is left empty here; mock enum metadata is overlaid in hier/scene.ts
+  // (tide's hierarchy schema doesn't carry enum members yet — see README).
+  return {
+    nodes,
+    rootIds: raw.rootIds,
+    byHandle,
+    enumTypes: new Map(),
+    format: raw.format,
+    timescale: raw.timescale,
   };
 }

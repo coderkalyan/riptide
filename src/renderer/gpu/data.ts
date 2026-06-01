@@ -16,6 +16,24 @@ export interface Segment {
   rowFlags: number;
 }
 
+// A native PackedSegment is 3×u32 (t_start, t_end, row_flags); the per-segment
+// value lives in the shared pools, not here. For CPU-side label placement we
+// only need the timing + flags header. Values come separately via getValueAt.
+export interface SegmentHeader {
+  tStart: number;
+  tEnd: number;
+  rowFlags: number;
+}
+
+export function unpackSegmentHeaders(packed: Uint32Array, count: number): SegmentHeader[] {
+  const out: SegmentHeader[] = new Array(count);
+  for (let i = 0; i < count; i++) {
+    const o = i * 3;
+    out[i] = { tStart: packed[o], tEnd: packed[o + 1], rowFlags: packed[o + 2] };
+  }
+  return out;
+}
+
 // Viewport describing the visible time window and canvas dimensions.
 // Passed to the GPU as a uniform buffer each frame.
 export interface Viewport {

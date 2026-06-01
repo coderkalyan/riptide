@@ -1,0 +1,72 @@
+[*]
+[*] GTKWave Analyzer v3.3.120 (w)1999-2024 BSI
+[*] Mon Mar 10 06:33:10 2025
+[*]
+[dumpfile] "/home/kalyan/Documents/warp/rtl/warp_hart_tb.vcd"
+[dumpfile_mtime] "Mon Mar 10 06:32:47 2025"
+[dumpfile_size] 24745
+[savefile] "/home/kalyan/Documents/warp/hart.gtkw"
+[timestart] 0
+[size] 1432 869
+[pos] -1 -1
+*-13.698675 46130 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+[treeopen] warp_hart_tb.
+[treeopen] warp_hart_tb.hart.
+[treeopen] warp_hart_tb.hart.decode.
+[treeopen] warp_hart_tb.hart.decode.genblk1[0].
+[treeopen] warp_hart_tb.hart.decode.genblk1[1].
+[sst_width] 273
+[signals_width] 214
+[sst_expanded] 1
+[sst_vpaned_height] 250
+@28
+warp_hart_tb.clk
+warp_hart_tb.rst_n
+warp_hart_tb.hart.fetch.init
+warp_hart_tb.hart.fetch.o_imem_ren
+@22
+warp_hart_tb.hart.fetch.o_imem_raddr[38:0]
+@28
+warp_hart_tb.hart.fetch.i_imem_valid
+@22
+warp_hart_tb.hart.fetch.i_imem_rdata[63:0]
+warp_hart_tb.hart.fetch_inst0[31:0]
+warp_hart_tb.hart.fetch_inst1[31:0]
+@28
+warp_hart_tb.hart.fetch_valid
+warp_hart_tb.hart.decode_ready
+warp_hart_tb.hart.decode_valid
+@22
+warp_hart_tb.hart.decode.i_inst0[31:0]
+warp_hart_tb.hart.decode.genblk1[0].udecode.rd[4:0]
+warp_hart_tb.hart.decode.genblk1[1].udecode.rd[4:0]
+@28
+warp_hart_tb.hart.issue_ready
+warp_hart_tb.hart.xarith_valid
+warp_hart_tb.hart.xlogic_valid
+warp_hart_tb.hart.issue.i_xarith_ready
+warp_hart_tb.hart.issue.i_xlogic_ready
+warp_hart_tb.hart.issue.bundle0_done
+warp_hart_tb.hart.issue.bundle0_transmit
+warp_hart_tb.hart.issue.bundle1_transmit
+@22
+warp_hart_tb.hart.issue.reservation[31:0]
+warp_hart_tb.hart.issue.retire[31:0]
+@420
+warp_hart_tb.hart.xarith_op1[63:0]
+warp_hart_tb.hart.xarith_op2[63:0]
+warp_hart_tb.hart.xarith_result[63:0]
+@22
+warp_hart_tb.hart.xarith_write_rd[4:0]
+@28
+warp_hart_tb.hart.xarith_wen
+@420
+warp_hart_tb.hart.xlogic_op1[63:0]
+warp_hart_tb.hart.xlogic_op2[63:0]
+warp_hart_tb.hart.xlogic_result[63:0]
+@22
+warp_hart_tb.hart.xlogic_write_rd[4:0]
+@29
+warp_hart_tb.hart.xlogic_wen
+[pattern_trace] 1
+[pattern_trace] 0

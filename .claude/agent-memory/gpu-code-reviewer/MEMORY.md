@@ -1,0 +1,4 @@
+- [Segment GPU layout (current)](layout_segment.md) — 3×u32 (Zig+WGSL), TS Segment interface is legacy/dead-code; CLAUDE.md "5×u32" is stale
+- [Viewport uniform layout](layout_viewport.md) — 8×4B, slot 6 is i32, dpr passed separately, shaders scale
+- [Per-frame allocation hotspot](perf_per_frame_allocs.md) — App.tsx rAF rebuilds rect/line arrays + closures every frame
+- [Two-pipeline split](arch_two_pipelines.md) — single/multi pipelines share module+BGL, differ in fragment fill style

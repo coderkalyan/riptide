@@ -8,15 +8,15 @@ import { initGPU, resizeCanvas, GPUInitError } from "./gpu/device";
 import { createDigitalRenderer } from "./gpu/digital";
 import { renderFrame } from "./gpu/frame";
 import { createColorBuffer, writeRowColors } from "./gpu/colors";
-import { MOCK_CLOCK_TICK_NS, MOCK_END_TICKS, type Segment } from "./gpu/data";
+import { MOCK_CLOCK_TICK_NS, MOCK_END_TICKS, unpackSegmentHeaders } from "./gpu/data";
 import { createTextRenderer, packRgba, MAX_GLYPHS, ATLAS_MIDDLE_DOT } from "./gpu/text";
 import { createLineRenderer } from "./gpu/lines";
 import { createRectRenderer } from "./gpu/rect";
-import { INITIAL, MOCK_SCENE, RESET_HELD_TICKS, type ActiveSignalRef, type Radix } from "./hier/mock";
+import { INITIAL, SCENE, RESET_HELD_TICKS, buildPackSpecs, type ActiveSignalRef, type Radix } from "./hier/scene";
 import { getSignal } from "./hier/hierarchy";
 import type { NodeId, Timescale, TimeUnit } from "./hier/types";
 import { serializeSidecar, sidecarPath, sidecarToString, writeSidecarFile } from "./hier/sidecar";
-import { getMockSegments } from "./native";
+import { getMockSegments, getValueAt } from "./native";
 
 function activeSignalKind(ref: ActiveSignalRef): ActiveSignalKind {
   if (ref.role === "clock") return "clock";
@@ -51,29 +51,29 @@ const INITIAL_SELECTED_MARKER: number | null =
     : null;
 const INITIAL_MARKER_SEQ = INITIAL_MARKERS.length + 1;
 
-function findSegmentAtTick(row: number, tick: number): Segment | undefined {
-  return MOCK_SCENE.segments.find((segment) => {
-    const segmentRow = segment.rowFlags & 0xffff;
-    return segmentRow === row && segment.tStart <= tick && tick < segment.tEnd;
-  });
+// Decoded (lsb, msb) value of a signal at a tick, via the native tide query.
+// Replaces the old scan over a JS segment list.
+type SegValueLM = { lsb: number; msb: number };
+function valueAtTick(handle: string, tick: number): SegValueLM | undefined {
+  return getValueAt(handle, Math.floor(tick)) ?? undefined;
 }
 
 function formatSegmentValue(
-  segment: Segment | undefined,
+  value: SegValueLM | undefined,
   bitWidth: number,
   radix: Radix,
   enumLabels?: Map<number, string>,
 ): string {
-  if (!segment) return "-";
-  const hasX = (segment.valueMsb & ~segment.valueLsb) >>> 0;
-  const hasZ = (segment.valueMsb & segment.valueLsb) >>> 0;
+  if (!value) return "-";
+  const hasX = (value.msb & ~value.lsb) >>> 0;
+  const hasZ = (value.msb & value.lsb) >>> 0;
   // Any X/Z: render in the signal's own radix (matching its 2-state segments)
   // rather than always falling back to binary.
   if (hasX || hasZ) {
     // Per-bit 2-state classification: "0" | "1" | "X" | "Z".
     const bitChar = (bit: number): string => {
-      const l = (segment.valueLsb >>> bit) & 1;
-      const m = (segment.valueMsb >>> bit) & 1;
+      const l = (value.lsb >>> bit) & 1;
+      const m = (value.msb >>> bit) & 1;
       if (m === 0) return l === 0 ? "0" : "1";
       return l === 0 ? "X" : "Z";
     };
@@ -116,7 +116,7 @@ function formatSegmentValue(
     for (let bit = bitWidth - 1; bit >= 0; bit--) chars.push(bitChar(bit));
     return `0b${chars.join("")}`;
   }
-  const val = segment.valueLsb >>> 0;
+  const val = value.lsb >>> 0;
   if (enumLabels) {
     const label = enumLabels.get(val);
     if (label) return label;
@@ -130,26 +130,20 @@ function formatSegmentValue(
 // Precompute enum label maps per row (value → label) for any active signal
 // whose declaration carries an enumTypeId.
 const ENUM_LABELS_BY_ROW = new Map<number, Map<number, string>>();
-for (const ref of MOCK_SCENE.activeSignals) {
-  const sig = getSignal(MOCK_SCENE.hierarchy, ref.signalId);
+for (const ref of SCENE.activeSignals) {
+  const sig = getSignal(SCENE.hierarchy, ref.signalId);
   if (sig.enumTypeId == null) continue;
-  const enumType = MOCK_SCENE.hierarchy.enumTypes.get(sig.enumTypeId);
+  const enumType = SCENE.hierarchy.enumTypes.get(sig.enumTypeId);
   if (!enumType) continue;
   const m = new Map<number, string>();
   for (const mem of enumType.members) m.set(parseInt(mem.raw, 2), mem.label);
   ENUM_LABELS_BY_ROW.set(ref.row, m);
 }
 
-const SINGLE_BIT_SEGMENTS = MOCK_SCENE.segments.filter((s) => {
-  const ref = MOCK_SCENE.activeSignals.find((r) => r.row === (s.rowFlags & 0xffff));
-  if (!ref) return false;
-  return getSignal(MOCK_SCENE.hierarchy, ref.signalId).bitWidth === 1;
-});
-const MULTI_BIT_SEGMENTS = MOCK_SCENE.segments.filter((s) => {
-  const ref = MOCK_SCENE.activeSignals.find((r) => r.row === (s.rowFlags & 0xffff));
-  if (!ref) return false;
-  return getSignal(MOCK_SCENE.hierarchy, ref.signalId).bitWidth > 1;
-});
+// Native packed scene: GPU buffers (multi/single segments + RowInfo + value
+// pools) plus the data the CPU still needs. Built once at module load; reused by
+// both the label pass below and the GPU pipeline setup in the effect.
+const NATIVE = getMockSegments(buildPackSpecs());
 
 interface MultiBitLabel {
   row: number;
@@ -159,13 +153,17 @@ interface MultiBitLabel {
 }
 
 const FLAG_MUTE = 1 << 20;
-const MULTI_BIT_LABELS: MultiBitLabel[] = MULTI_BIT_SEGMENTS
+// Value labels drawn inside multi-bit pills. The segment timing/flags come from
+// the native multi-pipeline buffer; the value at each segment's start tick comes
+// from a tide point query (getValueAt).
+const MULTI_BIT_LABELS: MultiBitLabel[] = unpackSegmentHeaders(NATIVE.multi, NATIVE.multiCount)
   .filter((s) => (s.rowFlags & FLAG_MUTE) === 0)
   .map((s) => {
     const row = s.rowFlags & 0xffff;
-    const ref = MOCK_SCENE.activeSignals.find((r) => r.row === row)!;
-    const sig = getSignal(MOCK_SCENE.hierarchy, ref.signalId);
-    return { row, tStart: s.tStart, tEnd: s.tEnd, text: formatSegmentValue(s, sig.bitWidth, ref.radix, ENUM_LABELS_BY_ROW.get(row)) };
+    const ref = SCENE.activeSignals.find((r) => r.row === row)!;
+    const sig = getSignal(SCENE.hierarchy, ref.signalId);
+    const value = valueAtTick(sig.handle, s.tStart);
+    return { row, tStart: s.tStart, tEnd: s.tEnd, text: formatSegmentValue(value, sig.bitWidth, ref.radix, ENUM_LABELS_BY_ROW.get(row)) };
   });
 
 const TEXT_WHITE = packRgba(0xff, 0xff, 0xff, 0xff);
@@ -325,7 +323,7 @@ function timeDecimals(ts: Timescale): number {
 }
 // Every time readout (cursor, markers, range, hover, deltas) zero-pads to the
 // file's time precision so values share one decimal width.
-const TIME_DECIMALS = timeDecimals(MOCK_SCENE.hierarchy.timescale);
+const TIME_DECIMALS = timeDecimals(SCENE.hierarchy.timescale);
 const formatTime = (tick: number): string => tick.toFixed(TIME_DECIMALS);
 
 function snapToClockEdge(tick: number): number {
@@ -669,7 +667,7 @@ export function App() {
   const userInteractedRef = useRef(false);
   const draggingRef = useRef(false);
 
-  const [activeSignals, setActiveSignals] = useState<ActiveSignalRef[]>(MOCK_SCENE.activeSignals);
+  const [activeSignals, setActiveSignals] = useState<ActiveSignalRef[]>(SCENE.activeSignals);
   const [picker, setPicker] = useState<{ row: number; anchorRect: DOMRect } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [snapCursor, setSnapCursor] = useState(INITIAL.toggles.snapCursor);
@@ -717,7 +715,7 @@ export function App() {
 
   // Signal-tree expansion lives here (lifted from SignalTreeView) so it can be
   // persisted to the sidecar.
-  const [expandedScopes, setExpandedScopes] = useState<Set<NodeId>>(MOCK_SCENE.initialExpanded);
+  const [expandedScopes, setExpandedScopes] = useState<Set<NodeId>>(SCENE.initialExpanded);
   const toggleScope = (id: NodeId) =>
     setExpandedScopes((prev) => {
       const next = new Set(prev);
@@ -751,7 +749,7 @@ export function App() {
     setMarkers((ms) => ms.filter((m) => m.id !== id));
     setSelectedMarkerId((sel) => (sel === id ? null : sel));
   };
-  const selectedRowRef = useRef(MOCK_SCENE.activeSignals.find((r) => r.selected)?.row ?? -1);
+  const selectedRowRef = useRef(SCENE.activeSignals.find((r) => r.selected)?.row ?? -1);
   // Bitmask of rows whose eye is toggled off (row i → bit i). Read per-frame and
   // packed into the viewport uniform; the digital shader dims those rows to 50%.
   const dimMaskRef = useRef(0);
@@ -797,10 +795,10 @@ export function App() {
     initGPU(canvas).then(async ({ device, ctx, format }) => {
       const gpuCtx = { device, ctx, format };
       const colorBuf = createColorBuffer(device);
-      writeRowColors(device, colorBuf, MOCK_SCENE.activeSignals);
+      writeRowColors(device, colorBuf, SCENE.activeSignals);
       gpuRef.current = { device, colorBuf };
       const renderer = createDigitalRenderer(gpuCtx);
-      const native = getMockSegments();
+      const native = NATIVE;
       const scene = renderer.createSceneBuffers(native.rowInfo, native.x0Pool, native.x1Pool);
       const [multiBit, singleBit, textRenderer, lineRenderer, rectRenderer] = await Promise.all([
         renderer.buildPipelineFromPacked("multi", native.multi, native.multiCount, colorBuf, scene),
@@ -1394,7 +1392,7 @@ export function App() {
       // row === -1 means "over the canvas but not on a signal" — the guide line
       // still draws; only the status readout needs a real row.
       let row = rh > 0 ? Math.floor(py / rh) - 1 : -1;
-      if (py < rh || row < 0 || row >= MOCK_SCENE.activeSignals.length) row = -1;
+      if (py < rh || row < 0 || row >= SCENE.activeSignals.length) row = -1;
       // Ref drives the rAF guide line (synchronous, no React round-trip);
       // state drives the status-bar text (a commit behind is fine there).
       hoverRef.current = { tick, row };
@@ -1470,7 +1468,7 @@ export function App() {
   useEffect(() => {
     const text = sidecarToString(
       serializeSidecar({
-        hierarchy: MOCK_SCENE.hierarchy,
+        hierarchy: SCENE.hierarchy,
         trace: { id: "keysched" },
         activeSignals,
         time: {
@@ -1524,7 +1522,7 @@ export function App() {
     ctx.font = "12px 'JetBrains Mono', monospace";
     let max = 0;
     for (const ref of activeSignals) {
-      const w = ctx.measureText(getSignal(MOCK_SCENE.hierarchy, ref.signalId).name).width;
+      const w = ctx.measureText(getSignal(SCENE.hierarchy, ref.signalId).name).width;
       if (w > max) max = w;
     }
     // The compact head still shows the "Active Signals" title + expand button,
@@ -1712,10 +1710,10 @@ export function App() {
   const hoverSig = hover ? activeSignals.find((r) => r.row === hover.row) ?? null : null;
   const hoverValue = hover && hoverSig
     ? {
-      name: getSignal(MOCK_SCENE.hierarchy, hoverSig.signalId).name,
+      name: getSignal(SCENE.hierarchy, hoverSig.signalId).name,
       value: formatSegmentValue(
-        findSegmentAtTick(hoverSig.row, hover.tick),
-        getSignal(MOCK_SCENE.hierarchy, hoverSig.signalId).bitWidth,
+        valueAtTick(getSignal(SCENE.hierarchy, hoverSig.signalId).handle, hover.tick),
+        getSignal(SCENE.hierarchy, hoverSig.signalId).bitWidth,
         hoverSig.radix,
         ENUM_LABELS_BY_ROW.get(hoverSig.row),
       ),
@@ -1796,7 +1794,7 @@ export function App() {
                 </span>
               </div>
               <div className="col-sub"><input className="search" placeholder="filter scope/name" /></div>
-              <SignalTreeView hierarchy={MOCK_SCENE.hierarchy} expanded={expandedScopes} onToggle={toggleScope} />
+              <SignalTreeView hierarchy={SCENE.hierarchy} expanded={expandedScopes} onToggle={toggleScope} />
             </div>
           )}
         </div>
@@ -1851,7 +1849,7 @@ export function App() {
             onClick={(e) => { if (e.target === e.currentTarget) setActiveSignals((refs) => refs.map((r) => (r.selected ? { ...r, selected: false } : r))); }}
           >
             {activeSignals.map((ref, i) => {
-              const sig = getSignal(MOCK_SCENE.hierarchy, ref.signalId);
+              const sig = getSignal(SCENE.hierarchy, ref.signalId);
               return (
                 <ActiveSignal
                   key={i}
@@ -1866,7 +1864,7 @@ export function App() {
                   hidden={ref.hidden}
                   collapsed={activeCollapsed}
                   sliding={rowSliding}
-                  value={formatSegmentValue(findSegmentAtTick(ref.row, cursorTicks), sig.bitWidth, ref.radix, ENUM_LABELS_BY_ROW.get(ref.row))}
+                  value={formatSegmentValue(valueAtTick(sig.handle, cursorTicks), sig.bitWidth, ref.radix, ENUM_LABELS_BY_ROW.get(ref.row))}
                   onPinClick={(e) => setPicker({ row: ref.row, anchorRect: (e.currentTarget as HTMLElement).getBoundingClientRect() })}
                   onToggleVisible={() => toggleSignalHidden(ref.row)}
                   onClick={() => handleRowClick(ref.row)}
@@ -1898,7 +1896,7 @@ export function App() {
             </div>
             <span className="sp" style={{ flex: 1 }} />
             <span className="hint mono">
-              {formatTimescale(MOCK_SCENE.hierarchy.timescale)} ·{" "}
+              {formatTimescale(SCENE.hierarchy.timescale)} ·{" "}
               <EditableNum
                 value={viewRange.start}
                 format={formatTime}
