@@ -15,7 +15,7 @@
     "time": {
       "start": 0,
       "end": 90,
-      "cursor": 32.4
+      "cursor": 30.633255700778644
     },
     "signals": [
       {
@@ -101,14 +101,7 @@
         }
       }
     ],
-    "markers": [
-      {
-        "name": "M1",
-        "tick": 19.6,
-        "color": "#4fd2bd",
-        "selected": true
-      }
-    ]
+    "markers": []
   },
   "ui": {
     "panels": {
@@ -128,12 +121,11 @@
     },
     "toggles": {
       "snapCursor": false,
-      "clockAnchor": true
+      "clockAnchor": false
     },
     "tabs": {
       "open": [
-        "keysched.vcd",
-        "alu_tb.vcd"
+        "keysched.vcd"
       ],
       "active": 0
     }

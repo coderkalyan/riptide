@@ -91,8 +91,6 @@ const ENUM_TYPES: EnumType[] = [
   },
 ];
 
-const INITIAL_EXPANDED_PATHS = ["top", "top.keysched", "top.keysched.waves", "derived"];
-
 function signalAt(h: Hierarchy, path: string): Signal {
   const node = h.nodes.get(lookupByPath(h, path));
   if (!node || node.kind !== "signal") throw new Error(`Not a signal: ${path}`);
@@ -141,22 +139,6 @@ function specsFromActive(h: Hierarchy, active: ActiveSignalRef[]): NativePackSpe
   });
 }
 
-// Curated default active signals (used when no sidecar is present).
-function defaultActiveSignals(hierarchy: Hierarchy): ActiveSignalRef[] {
-  return ROWS.map((r) => ({
-    signalId: lookupByPath(hierarchy, r.path),
-    row: r.row,
-    radix: r.radix,
-    color: r.color,
-    path: r.path,
-    vcdType: r.vcdType,
-    pinned: r.pinned,
-    selected: r.selected,
-    role: r.role,
-    derivedExpr: r.derivedExpr,
-  }));
-}
-
 // Computed in buildScene from the active signal list; returned to App.tsx, which
 // feeds it to getMockSegments.
 let SCENE_PACK_SPECS: NativePackSpec[] = [];
@@ -173,7 +155,9 @@ function buildScene(sc: Sidecar | null): Scene {
   for (const t of ENUM_TYPES) hierarchy.enumTypes.set(t.id, t);
   for (const r of ROWS) {
     if (r.enumTypeId == null) continue;
-    signalAt(hierarchy, r.path).enumTypeId = r.enumTypeId;
+    // Keyed by path; applies only when this trace actually has the signal (a
+    // fresh/arbitrary VCD won't), so resolve defensively.
+    try { signalAt(hierarchy, r.path).enumTypeId = r.enumTypeId; } catch { /* not in this trace */ }
   }
   // tide-vcd has no `package` scope kind, so the VCD declares `derived` as a
   // module; restore the package styling the UI expects (shim — see
@@ -183,8 +167,9 @@ function buildScene(sc: Sidecar | null): Scene {
     if (node && node.kind === "scope" && node.name === "derived") node.scopeType = "package";
   }
 
-  // Active signals + tree expansion come from the sidecar when one exists; else
-  // the curated default. Unresolved sidecar paths are skipped (non-fatal).
+  // Active signals + tree expansion come from the sidecar when one exists next
+  // to the trace (e.g. the bundled mock); a fresh trace opens with nothing
+  // active. Unresolved sidecar paths are skipped (non-fatal).
   let activeSignals: ActiveSignalRef[];
   let initialExpanded: Set<NodeId>;
   if (sc) {
@@ -194,10 +179,11 @@ function buildScene(sc: Sidecar | null): Scene {
     activeSignals = r.activeSignals;
     initialExpanded = sc.ui?.tree?.expanded
       ? resolveExpanded(idx, sc.ui.tree.expanded)
-      : new Set(INITIAL_EXPANDED_PATHS.map((p) => lookupByPath(hierarchy, p)));
+      : new Set(hierarchy.rootIds);
   } else {
-    activeSignals = defaultActiveSignals(hierarchy);
-    initialExpanded = new Set(INITIAL_EXPANDED_PATHS.map((p) => lookupByPath(hierarchy, p)));
+    // Fresh trace: no sidecar -> nothing active yet (add-from-tree isn't wired).
+    activeSignals = [];
+    initialExpanded = new Set(hierarchy.rootIds);
   }
 
   SCENE_PACK_SPECS = specsFromActive(hierarchy, activeSignals);

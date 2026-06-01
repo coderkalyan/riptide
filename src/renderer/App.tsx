@@ -487,6 +487,22 @@ const MENUS: { name: string; items: MenuItem[] }[] = [
   },
 ];
 
+declare const require: (m: string) => unknown;
+
+// Ask the main process to show the Open-VCD dialog. On a choice, main reloads
+// the window pointed at the new trace (?vcd=...), so the whole scene — native
+// db, hierarchy, sidecar-derived view — re-initializes from scratch.
+function openVcdDialog(): void {
+  try {
+    const { ipcRenderer } = require("electron") as {
+      ipcRenderer: { invoke(channel: string): Promise<unknown> };
+    };
+    void ipcRenderer.invoke("riptide:open-vcd");
+  } catch (e) {
+    console.error("[open-vcd] failed", e);
+  }
+}
+
 function MenuBar() {
   const [open, setOpen] = useState<{ name: string; rect: DOMRect } | null>(null);
   useEffect(() => {
@@ -536,7 +552,7 @@ function MenuBar() {
           {(pop?.items ?? []).map((it, i) => it === "sep"
             ? <div key={i} className="menu-sep" />
             : (
-              <div key={i} className="menu-item" onClick={() => setOpen(null)}>
+              <div key={i} className="menu-item" onClick={() => { setOpen(null); if (it.label === "Open VCD…") openVcdDialog(); }}>
                 <span>{it.label}</span>
                 {it.kbd && <span className="menu-kbd">{it.kbd}</span>}
               </div>

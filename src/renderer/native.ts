@@ -9,6 +9,7 @@ import type {
   Timescale,
   VarType,
 } from "./hier/types";
+import { VCD_PATH } from "./runtime";
 
 declare const require: (m: string) => unknown;
 
@@ -51,6 +52,7 @@ export interface NativePackSpec {
 }
 
 interface NativeModule {
+  loadVcd(path: string): void;
   getMockSegments(specs: NativePackSpec[]): {
     multi: ArrayBuffer;
     multiCount: number;
@@ -66,6 +68,11 @@ interface NativeModule {
 }
 
 const native = require("../native/riptide.node") as NativeModule;
+
+// Load the trace named in the window URL before anything queries it (scene.ts
+// builds SCENE at module load, which calls getHierarchy). On a reload — e.g.
+// after "Open VCD…" — this re-runs with the new path and swaps the native db.
+if (VCD_PATH) native.loadVcd(VCD_PATH);
 
 export interface NativeMockSegments {
   // 3×u32 PackedSegment records (t_start, t_end, row_flags) — values stripped
