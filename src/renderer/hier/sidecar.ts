@@ -270,7 +270,6 @@ export function serializeSidecar(snap: SidecarSnapshot): Sidecar {
     version: SIDECAR_VERSION,
     trace: {
       id: snap.trace?.id,
-      format: h.format,
       timescale: h.timescale,
     },
     view: {

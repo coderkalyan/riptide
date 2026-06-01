@@ -15,6 +15,9 @@ pub fn build(b: *std.Build) void {
     const tide_dep = b.dependency("tide", .{ .target = target, .optimize = optimize });
     lib_mod.addImport("tide", tide_dep.module("tide"));
 
+    const tide_vcd_dep = b.dependency("tide_vcd", .{ .target = target, .optimize = optimize });
+    lib_mod.addImport("tide_vcd", tide_vcd_dep.module("tide_vcd"));
+
     const lib = b.addLibrary(.{
         .linkage = .dynamic,
         .name = "riptide",

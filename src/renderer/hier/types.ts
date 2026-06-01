@@ -135,7 +135,6 @@ export interface Hierarchy {
   rootIds: NodeId[];
   byHandle: Map<string, NodeId[]>;
   enumTypes: Map<number, EnumType>;
-  format: "vcd" | "fst" | "ghw" | "fsdb" | "unknown";
   timescale: Timescale;
 }
 

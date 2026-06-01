@@ -5,6 +5,7 @@
     .minimum_zig_version = "0.15.2",
     .dependencies = .{
         .tide = .{ .path = "../../tide" },
+        .tide_vcd = .{ .path = "../../tide-vcd" },
     },
     .paths = .{
         "build.zig",

@@ -22,13 +22,7 @@ export class HierarchyBuilder {
   private enumTypes = new Map<number, EnumType>();
   private stack: NodeId[] = [];
   private nextId = 0;
-  private format: Hierarchy["format"] = "unknown";
   private timescale: Timescale = { value: 1, unit: "ns" };
-
-  setFormat(format: Hierarchy["format"]): this {
-    this.format = format;
-    return this;
-  }
 
   setTimescale(timescale: Timescale): this {
     this.timescale = timescale;
@@ -97,7 +91,6 @@ export class HierarchyBuilder {
       rootIds: this.rootIds,
       byHandle: this.byHandle,
       enumTypes: this.enumTypes,
-      format: this.format,
       timescale: this.timescale,
     };
   }

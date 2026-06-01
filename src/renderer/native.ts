@@ -37,7 +37,6 @@ type RawNode = RawScopeNode | RawSignalNode;
 interface RawHierarchy {
   rootIds: number[];
   nodes: RawNode[];
-  format: Hierarchy["format"];
   timescale: Timescale;
 }
 
@@ -141,7 +140,6 @@ export function getHierarchy(): Hierarchy {
     rootIds: raw.rootIds,
     byHandle,
     enumTypes: new Map(),
-    format: raw.format,
     timescale: raw.timescale,
   };
 }
