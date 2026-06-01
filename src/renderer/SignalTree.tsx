@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Activity, ChevronDown, ChevronRight, Package, Plus } from "lucide-react";
 import type { Hierarchy, NodeId, Signal } from "./hier/types";
 import { getScope } from "./hier/hierarchy";
@@ -9,25 +8,21 @@ export function signalIconKind(sig: Signal): "enum" | "bus" | "scalar" {
   return "scalar";
 }
 
+// Tree expansion is owned by App (so it can be persisted to the sidecar) and
+// passed down as `expanded` + `onToggle`.
 export function SignalTreeView({
   hierarchy,
-  initialExpanded,
+  expanded,
+  onToggle,
 }: {
   hierarchy: Hierarchy;
-  initialExpanded: Set<NodeId>;
+  expanded: Set<NodeId>;
+  onToggle: (id: NodeId) => void;
 }) {
-  const [expanded, setExpanded] = useState<Set<NodeId>>(initialExpanded);
-  const toggle = (id: NodeId) => {
-    const next = new Set(expanded);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setExpanded(next);
-  };
-
   return (
     <div className="tree">
       {hierarchy.rootIds.map((id) => (
-        <TreeNode key={id} id={id} depth={0} hierarchy={hierarchy} expanded={expanded} toggle={toggle} />
+        <TreeNode key={id} id={id} depth={0} hierarchy={hierarchy} expanded={expanded} toggle={onToggle} />
       ))}
     </div>
   );

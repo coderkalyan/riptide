@@ -12,9 +12,10 @@ import { MOCK_CLOCK_TICK_NS, MOCK_END_TICKS, type Segment } from "./gpu/data";
 import { createTextRenderer, packRgba, MAX_GLYPHS, ATLAS_MIDDLE_DOT } from "./gpu/text";
 import { createLineRenderer } from "./gpu/lines";
 import { createRectRenderer } from "./gpu/rect";
-import { MOCK_SCENE, RESET_HELD_TICKS, type ActiveSignalRef, type Radix } from "./hier/mock";
+import { INITIAL, MOCK_SCENE, RESET_HELD_TICKS, type ActiveSignalRef, type Radix } from "./hier/mock";
 import { getSignal } from "./hier/hierarchy";
-import type { Timescale, TimeUnit } from "./hier/types";
+import type { NodeId, Timescale, TimeUnit } from "./hier/types";
+import { serializeSidecar, sidecarPath, sidecarToString, writeSidecarFile } from "./hier/sidecar";
 import { getMockSegments } from "./native";
 
 function activeSignalKind(ref: ActiveSignalRef): ActiveSignalKind {
@@ -25,8 +26,6 @@ function activeSignalKind(ref: ActiveSignalRef): ActiveSignalKind {
   return "signal";
 }
 
-const INITIAL_CURSOR_TICKS = 32.4;
-const MARKER_TICKS = 19.6; // initial M1 position
 const ZOOM_PER_DELTA_Y = 0.001; // Math.exp() factor per wheel deltaY unit
 const ZOOM_ANIM_MS = 120; // duration of button-driven zoom in/out/fit easing
 const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
@@ -39,6 +38,18 @@ interface Marker {
   tick: number;
   color: number;  // packed rgba
 }
+
+// Initial markers/selection from the sidecar (INITIAL.markers carries packed
+// colors already). Ids are assigned sequentially; the sidecar does not persist
+// them (they're runtime-monotonic so deletes never reuse a name).
+const INITIAL_MARKERS: Marker[] = INITIAL.markers.map((m, i) => ({
+  id: i + 1, name: m.name, tick: m.tick, color: m.color,
+}));
+const INITIAL_SELECTED_MARKER: number | null =
+  INITIAL.markers.findIndex((m) => m.selected) >= 0
+    ? INITIAL.markers.findIndex((m) => m.selected) + 1
+    : null;
+const INITIAL_MARKER_SEQ = INITIAL_MARKERS.length + 1;
 
 function findSegmentAtTick(row: number, tick: number): Segment | undefined {
   return MOCK_SCENE.segments.find((segment) => {
@@ -261,13 +272,20 @@ function clockEdgesBetween(a: number, b: number): number {
   return Math.max(0, kHi - kStart + 1);
 }
 
-// Cursor/marker readout in clock mode: the integer cycle number the tick sits
-// in (the most recent rising edge), never fractional. Cycle 1's rising edge is
-// at MOCK_CLOCK_TICK_NS.
-function formatClockWhole(tick: number): string {
+// The integer cycle index a tick sits in (the most recent rising edge). Cycle 1's
+// rising edge is at MOCK_CLOCK_TICK_NS.
+function clockCycleOf(tick: number): number {
   const eps = CLOCK_PERIOD_NS * 1e-6;
-  const c = Math.floor((tick - MOCK_CLOCK_TICK_NS + eps) / CLOCK_PERIOD_NS) + 1;
-  return `#${c}`;
+  return Math.floor((tick - MOCK_CLOCK_TICK_NS + eps) / CLOCK_PERIOD_NS) + 1;
+}
+// Inverse used on edit commit: snap a typed cycle count to a rounded tick —
+// `cycle period × cycle count`. Loses sub-cycle precision by design.
+function clockCycleToTick(cycle: number): number {
+  return cycle * CLOCK_PERIOD_NS;
+}
+// Cursor/marker readout in clock mode, e.g. `#3`.
+function formatClockWhole(tick: number): string {
+  return `#${clockCycleOf(tick)}`;
 }
 
 // Clock-anchored ruler: ticks land on clock rising edges, labels count cycles
@@ -586,10 +604,13 @@ function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: Me
 // clicked, then swaps to a content-sized <input> in the same spot (no new
 // chrome). Enter/blur commits via onCommit; Esc cancels; a rejected commit
 // flashes a red border and keeps editing.
-function EditableNum({ value, onCommit, format }: {
+function EditableNum({ value, onCommit, format, editValue }: {
   value: number;
   onCommit: (n: number) => boolean;
   format: (n: number) => string;
+  // The number to seed the edit field with, if it differs from the displayed
+  // value (e.g. clock mode shows the cycle index but edits in cycle units).
+  editValue?: number;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
@@ -604,7 +625,7 @@ function EditableNum({ value, onCommit, format }: {
     return (
       <span
         className="num-edit"
-        onClick={() => { setDraft(String(value)); setErr(false); setEditing(true); }}
+        onClick={() => { setDraft(String(editValue ?? value)); setErr(false); setEditing(true); }}
       >{format(value)}</span>
     );
   }
@@ -636,6 +657,9 @@ export function App() {
   // these). `userInteractedRef` flips on first interaction, freezing auto-fit.
   const startTicksRef = useRef(0);
   const ticksPerPixelRef = useRef(0); // initialized to fit on first frame
+  // One-shot: seed the viewport from the persisted window on the first frame
+  // (once timelinePx is known) instead of auto-fitting.
+  const viewportSeededRef = useRef(false);
   // Button-driven zoom (in/out/fit) eases the viewport toward a target over
   // ZOOM_ANIM_MS. The rAF loop advances it; wheel zoom clears it (stays instant).
   // releaseFit re-enables auto-fit once a "fit" animation lands.
@@ -648,12 +672,12 @@ export function App() {
   const [activeSignals, setActiveSignals] = useState<ActiveSignalRef[]>(MOCK_SCENE.activeSignals);
   const [picker, setPicker] = useState<{ row: number; anchorRect: DOMRect } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
-  const [snapCursor, setSnapCursor] = useState(false);
-  const [clockAnchor, setClockAnchor] = useState(true);
+  const [snapCursor, setSnapCursor] = useState(INITIAL.toggles.snapCursor);
+  const [clockAnchor, setClockAnchor] = useState(INITIAL.toggles.clockAnchor);
   // Cursor needs both a ref (event handlers, frame loop) and state (active-
   // signal value column re-renders on cursor move).
-  const [cursorTicks, setCursorTicks] = useState(INITIAL_CURSOR_TICKS);
-  const cursorTicksRef = useRef(INITIAL_CURSOR_TICKS);
+  const [cursorTicks, setCursorTicks] = useState(INITIAL.time.cursor);
+  const cursorTicksRef = useRef(INITIAL.time.cursor);
   // Live pointer readout for the status bar: the unsnapped tick under the
   // pointer and the signal row it's over (null when off the wave area). Drives
   // a per-move single-point value query, independent of the selected cursor.
@@ -664,30 +688,48 @@ export function App() {
   const hoverRef = useRef<{ tick: number; row: number } | null>(null);
   // Reactive mirror of the visible [start, end] tick window, synced from the
   // RAF loop. Drives the editable range label; edits write it back via refs.
-  const [viewRange, setViewRange] = useState({ start: 0, end: MOCK_END_TICKS });
+  const [viewRange, setViewRange] = useState({ start: INITIAL.time.start, end: INITIAL.time.end });
   const viewReportedRef = useRef({ start: -1, end: -1 });
+  // Fresh ref mirror of viewRange — the auto-save snapshot reads it without
+  // viewRange being a save trigger (RAF updates it per frame during interaction).
+  const viewRangeRef = useRef(viewRange);
+  useEffect(() => { viewRangeRef.current = viewRange; }, [viewRange]);
   // Open VCD tabs (mock — no real file loading yet).
-  const [openFiles, setOpenFiles] = useState(["keysched.vcd", "alu_tb.vcd"]);
-  const [activeTab, setActiveTab] = useState(0);
+  const [openFiles, setOpenFiles] = useState(INITIAL.tabs.open);
+  const [activeTab, setActiveTab] = useState(INITIAL.tabs.active);
   const snapCursorRef = useRef(snapCursor);
   useEffect(() => { snapCursorRef.current = snapCursor; }, [snapCursor]);
 
   // Markers — both state (status bar, toolbar) and refs (RAF loop, pointer
   // handlers). markerSeqRef issues monotonic ids/names so deletes never reuse a
-  // name. Initialized with M1 to match the prior single hardcoded marker.
-  const [markers, setMarkers] = useState<Marker[]>([
-    { id: 1, name: "M1", tick: MARKER_TICKS, color: MARKER_PALETTE[0] },
-  ]);
+  // name. Initialized from the sidecar (empty for a fresh trace).
+  const [markers, setMarkers] = useState<Marker[]>(INITIAL_MARKERS);
   const markersRef = useRef(markers);
   useEffect(() => { markersRef.current = markers; }, [markers]);
-  const markerSeqRef = useRef(2);
-  const [selectedMarkerId, setSelectedMarkerId] = useState<number | null>(1);
-  const selectedMarkerIdRef = useRef<number | null>(1);
+  const markerSeqRef = useRef(INITIAL_MARKER_SEQ);
+  const [selectedMarkerId, setSelectedMarkerId] = useState<number | null>(INITIAL_SELECTED_MARKER);
+  const selectedMarkerIdRef = useRef<number | null>(INITIAL_SELECTED_MARKER);
   useEffect(() => { selectedMarkerIdRef.current = selectedMarkerId; }, [selectedMarkerId]);
   // Per-frame marker hit boxes (CSS px) + ruler height, for pointer grabbing.
   const markerHitsRef = useRef<{ id: number; x0: number; x1: number; lineX: number }[]>([]);
   const rulerHeightRef = useRef(0);
   const draggingMarkerRef = useRef<number | null>(null);
+
+  // Signal-tree expansion lives here (lifted from SignalTreeView) so it can be
+  // persisted to the sidecar.
+  const [expandedScopes, setExpandedScopes] = useState<Set<NodeId>>(MOCK_SCENE.initialExpanded);
+  const toggleScope = (id: NodeId) =>
+    setExpandedScopes((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  // Bumped on viewport-settle (pan end / wheel / zoom-anim end) to trigger one
+  // sidecar write of the final viewport — viewRange itself is not a save dep
+  // (the RAF loop updates it per frame during interaction).
+  const [viewSaveNonce, setViewSaveNonce] = useState(0);
+  const bumpViewSave = () => setViewSaveNonce((n) => n + 1);
 
   const addMarkerAtCursor = () => {
     const seq = markerSeqRef.current++;
@@ -887,6 +929,22 @@ export function App() {
         const timelinePx = canvasW;
         if (timelinePx <= 0) { raf = requestAnimationFrame(frame); return; }
 
+        // Seed the persisted viewport once, now that we know the canvas width.
+        // A full-range window is left to auto-fit (so it keeps re-fitting on
+        // resize); any other saved window is treated as an explicit zoom and
+        // freezes auto-fit, mirroring a user interaction.
+        if (!viewportSeededRef.current) {
+          viewportSeededRef.current = true;
+          const span = INITIAL.time.end - INITIAL.time.start;
+          const isFullRange =
+            Math.abs(INITIAL.time.start) < 1e-6 && Math.abs(INITIAL.time.end - MOCK_END_TICKS) < 1e-6;
+          if (span > 0 && !isFullRange) {
+            ticksPerPixelRef.current = span / timelinePx;
+            startTicksRef.current = INITIAL.time.start;
+            userInteractedRef.current = true;
+          }
+        }
+
         // Auto-fit until the user interacts, then freeze.
         if (!userInteractedRef.current || ticksPerPixelRef.current <= 0) {
           ticksPerPixelRef.current = MOCK_END_TICKS / timelinePx;
@@ -902,6 +960,7 @@ export function App() {
           if (e >= 1) {
             if (anim.releaseFit) userInteractedRef.current = false;
             zoomAnimRef.current = null;
+            bumpViewSave(); // zoom/fit animation landed — persist final window
           }
         }
         const ticksPerPixel = ticksPerPixelRef.current;
@@ -1307,6 +1366,7 @@ export function App() {
         startTicksRef.current += dx * ticksPerPixelRef.current;
       }
       clampPan(timelinePx);
+      bumpViewSave(); // wheel pan/zoom is instant — persist the new window
     };
 
     const onPointerDown = (e: PointerEvent) => {
@@ -1389,14 +1449,63 @@ export function App() {
   const TREE_COLLAPSED_PX = 28;
   const TREE_DEFAULT_PX = 236;
   const ACTIVE_DEFAULT_PX = 296;
-  const [treeW, setTreeW] = useState(TREE_DEFAULT_PX);
-  const [activeW, setActiveW] = useState(ACTIVE_DEFAULT_PX);
-  const [treeCollapsed, setTreeCollapsed] = useState(false);
-  const [activeCollapsed, setActiveCollapsed] = useState(false);
+  const [treeW, setTreeW] = useState(INITIAL.panels.treeWidth);
+  const [activeW, setActiveW] = useState(INITIAL.panels.activeWidth);
+  const [treeCollapsed, setTreeCollapsed] = useState(INITIAL.panels.treeCollapsed);
+  const [activeCollapsed, setActiveCollapsed] = useState(INITIAL.panels.activeCollapsed);
   // Manual width override for the compact strip. null = auto-hug the longest
   // name (compactW below); a number = user drag-resized. Double-click the
   // handle clears it back to the tight fit.
-  const [activeCompactW, setActiveCompactW] = useState<number | null>(null);
+  const [activeCompactW, setActiveCompactW] = useState<number | null>(INITIAL.panels.activeCompactWidth);
+
+  // ---- auto-write sidecar -------------------------------------------------
+  // No debounce. Writes the full sidecar whenever persisted *discrete* state
+  // changes (signals, markers, cursor, toggles, tabs, panels, tree). The
+  // RAF-driven viewport (viewRange) is NOT a dep — it would write per frame
+  // during pan/zoom; instead viewSaveNonce is bumped on interaction-settle to
+  // persist the final window. Guards: skip the initial mount, and skip when the
+  // serialized output is unchanged (no-op writes).
+  const sidecarMountedRef = useRef(false);
+  const lastSavedRef = useRef<string>("");
+  useEffect(() => {
+    const text = sidecarToString(
+      serializeSidecar({
+        hierarchy: MOCK_SCENE.hierarchy,
+        trace: { id: "keysched" },
+        activeSignals,
+        time: {
+          start: viewRangeRef.current.start,
+          end: viewRangeRef.current.end,
+          cursor: cursorTicksRef.current,
+        },
+        markers: markers.map((m) => ({
+          name: m.name, tick: m.tick, color: m.color, selected: m.id === selectedMarkerId,
+        })),
+        panels: {
+          treeWidth: treeW,
+          activeWidth: activeW,
+          treeCollapsed,
+          activeCollapsed,
+          activeCompactWidth: activeCompactW,
+        },
+        treeExpanded: expandedScopes,
+        toggles: { snapCursor, clockAnchor },
+        tabs: { open: openFiles, active: activeTab },
+      }),
+    );
+    if (!sidecarMountedRef.current) {
+      sidecarMountedRef.current = true;
+      lastSavedRef.current = text;
+      return;
+    }
+    if (text === lastSavedRef.current) return;
+    lastSavedRef.current = text;
+    writeSidecarFile(sidecarPath(), text);
+  }, [
+    activeSignals, markers, selectedMarkerId, snapCursor, clockAnchor,
+    openFiles, activeTab, treeW, activeW, treeCollapsed, activeCollapsed,
+    activeCompactW, expandedScopes, cursorTicks, viewSaveNonce,
+  ]);
   const treeColW = treeCollapsed ? TREE_COLLAPSED_PX : treeW;
   // Compact strip width: hug the longest signal name, but as a concrete px
   // value (not max-content) so the collapse/expand slide can animate px→px
@@ -1687,7 +1796,7 @@ export function App() {
                 </span>
               </div>
               <div className="col-sub"><input className="search" placeholder="filter scope/name" /></div>
-              <SignalTreeView hierarchy={MOCK_SCENE.hierarchy} initialExpanded={MOCK_SCENE.initialExpanded} />
+              <SignalTreeView hierarchy={MOCK_SCENE.hierarchy} expanded={expandedScopes} onToggle={toggleScope} />
             </div>
           )}
         </div>
@@ -1840,8 +1949,18 @@ export function App() {
                   <span>
                     {m.name} ·{" "}
                     <span data-tip="edit marker time" onClick={(e) => e.stopPropagation()}>
-                      <EditableNum value={m.tick} format={formatTime} onCommit={(n) => applyMarkerTick(m.id, n)} />
-                    </span>{" "}ns
+                      {clockAnchor ? (
+                        <EditableNum
+                          value={m.tick}
+                          editValue={clockCycleOf(m.tick)}
+                          format={formatClockWhole}
+                          onCommit={(n) => applyMarkerTick(m.id, clockCycleToTick(n))}
+                        />
+                      ) : (
+                        <EditableNum value={m.tick} format={formatTime} onCommit={(n) => applyMarkerTick(m.id, n)} />
+                      )}
+                    </span>
+                    {clockAnchor ? null : <>{" "}ns</>}
                   </span>
                   <span
                     className="rm"

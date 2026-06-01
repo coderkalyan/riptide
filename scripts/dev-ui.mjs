@@ -26,6 +26,7 @@ spawn("node_modules/.bin/esbuild", [
   "--format=iife", "--target=es2022",
   "--loader:.tsx=tsx", "--loader:.wgsl=text", "--jsx=automatic",
   "--external:../native/riptide.node",
+  "--external:fs", "--external:path",
   "--watch",
   "--serve=localhost:5173",
   `--servedir=${DST_DIR}`,

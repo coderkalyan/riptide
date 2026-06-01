@@ -1,5 +1,6 @@
-import { HierarchyBuilder } from "./hierarchy";
-import type { Hierarchy, NodeId } from "./types";
+import { HierarchyBuilder, getScope } from "./hierarchy";
+import type { Hierarchy, NodeId, Signal } from "./types";
+import { pathOf } from "./types";
 import {
   buildClockSegments,
   buildDataSignal,
@@ -8,6 +9,17 @@ import {
   type SegValue,
   type Segment,
 } from "../gpu/data";
+import {
+  buildPathIndex,
+  freshInitial,
+  initialFromSidecar,
+  loadSidecar,
+  resolveExpanded,
+  resolveView,
+  sidecarPath,
+  type InitialState,
+  type Sidecar,
+} from "./sidecar";
 
 export type Radix = "bin" | "hex" | "dec";
 
@@ -64,7 +76,37 @@ const MUTE_OUT = V_OUT_VALID.map((v) => v !== 1);
 
 // ---- scene --------------------------------------------------------------
 
-function buildMock(): MockScene {
+// Default row colors for the fresh (no-sidecar) view, cycled by row.
+const DEFAULT_SIGNAL_COLORS = [
+  "#72F5DF", "#F06B5B", "#B48CFF", "#E6B14E", "#F4A698", "#57C88A", "#4FD2BD", "#727BF5",
+];
+
+// "Fresh VCD" signal list: every signal under the given scopes, in declaration
+// order, with default radix/color and no presentation overlay. Reproduces rows
+// 0..N so the native row-indexed segments still line up.
+function freshActiveSignals(h: Hierarchy, scopeIds: NodeId[]): ActiveSignalRef[] {
+  const out: ActiveSignalRef[] = [];
+  let row = 0;
+  for (const scopeId of scopeIds) {
+    for (const childId of getScope(h, scopeId).children) {
+      const node = h.nodes.get(childId);
+      if (!node || node.kind !== "signal") continue;
+      const sig = node as Signal;
+      out.push({
+        signalId: childId,
+        row,
+        radix: sig.bitWidth === 1 ? "bin" : "hex",
+        color: DEFAULT_SIGNAL_COLORS[row % DEFAULT_SIGNAL_COLORS.length],
+        path: pathOf(h, childId),
+        vcdType: sig.varType === "vcd_reg" ? "reg" : "net",
+      });
+      row++;
+    }
+  }
+  return out;
+}
+
+function buildMock(sc: Sidecar | null): MockScene {
   const b = new HierarchyBuilder().setFormat("fst").setTimescale({ value: 1, unit: "ns", precision: { value: 10, unit: "ps" } });
   const expanded: NodeId[] = [];
   let handleCounter = 0;
@@ -101,20 +143,22 @@ function buildMock(): MockScene {
   b.openScope("fsm", "module"); b.closeScope();
   b.openScope("xbar", "module"); b.closeScope();
 
-  // Rendered mock signals live under a dedicated sub-scope.
+  // Rendered mock signals live under a dedicated sub-scope. Declaration order
+  // here defines rows 0..11 (then derived busy/done are 12/13), which the
+  // native row-indexed segments depend on — keep them in sync.
   const waves = b.openScope("waves", "module"); expanded.push(waves);
-  const clk_id         = wire("clk", 1);
-  const rst_id         = reg("rst", 1);
-  const state_id       = reg("state[1:0]", 2, { enumTypeId: 1 });
-  const cycle_id       = reg("cycle_count[7:0]", 8);
-  const in_valid_id    = reg("in_valid", 1);
-  const in_data_id     = reg("in_data[7:0]", 8);
-  const in_addr_id     = reg("in_addr[15:0]", 16);
-  const out_valid_id   = reg("out_valid", 1);
-  const out_data_id    = reg("out_data[31:0]", 32);
-  const fifo_level_id  = reg("fifo_level[3:0]", 4);
-  const fifo_empty_id  = wire("fifo_empty", 1);
-  const dbus_id        = wire("dbus[7:0]", 8);
+  wire("clk", 1);
+  reg("rst", 1);
+  reg("state[1:0]", 2, { enumTypeId: 1 });
+  reg("cycle_count[7:0]", 8);
+  reg("in_valid", 1);
+  reg("in_data[7:0]", 8);
+  reg("in_addr[15:0]", 16);
+  reg("out_valid", 1);
+  reg("out_data[31:0]", 32);
+  reg("fifo_level[3:0]", 4);
+  wire("fifo_empty", 1);
+  wire("dbus[7:0]", 8);
   b.closeScope(); // waves
 
   b.closeScope(); // keysched
@@ -126,27 +170,29 @@ function buildMock(): MockScene {
 
   // User-derived signals in their own root scope.
   const derived = b.openScope("derived", "package"); expanded.push(derived);
-  const busy_id = wire("busy", 1);
-  const done_id = wire("done", 1);
+  wire("busy", 1);
+  wire("done", 1);
   b.closeScope();
 
-  const W = "top.keysched.waves";
-  const activeSignals: ActiveSignalRef[] = [
-    { signalId: clk_id,        row: 0,  radix: "bin", role: "clock", pinned: true, color: "#72F5DF", path: `${W}.clk`,               vcdType: "net" },
-    { signalId: rst_id,        row: 1,  radix: "bin", role: "reset",                color: "#F06B5B", path: `${W}.rst`,               vcdType: "reg" },
-    { signalId: state_id,      row: 2,  radix: "dec", selected: true,               color: "#B48CFF", path: `${W}.state[1:0]`,        vcdType: "reg" },
-    { signalId: cycle_id,      row: 3,  radix: "dec",                               color: "#B48CFF", path: `${W}.cycle_count[7:0]`,  vcdType: "reg" },
-    { signalId: in_valid_id,   row: 4,  radix: "bin", role: "valid",                color: "#F4A698", path: `${W}.in_valid`,          vcdType: "reg" },
-    { signalId: in_data_id,    row: 5,  radix: "hex",                               color: "#F4A698", path: `${W}.in_data[7:0]`,      vcdType: "reg" },
-    { signalId: in_addr_id,    row: 6,  radix: "hex",                               color: "#F4A698", path: `${W}.in_addr[15:0]`,     vcdType: "reg" },
-    { signalId: out_valid_id,  row: 7,  radix: "bin", role: "valid",                color: "#57C88A", path: `${W}.out_valid`,         vcdType: "reg" },
-    { signalId: out_data_id,   row: 8,  radix: "hex",                               color: "#57C88A", path: `${W}.out_data[31:0]`,    vcdType: "reg" },
-    { signalId: fifo_level_id, row: 9,  radix: "dec",                               color: "#E6B14E", path: `${W}.fifo_level[3:0]`,   vcdType: "reg" },
-    { signalId: fifo_empty_id, row: 10, radix: "bin",                               color: "#E6B14E", path: `${W}.fifo_empty`,        vcdType: "net" },
-    { signalId: dbus_id,       row: 11, radix: "hex",                               color: "#4FD2BD", path: `${W}.dbus[7:0]`,         vcdType: "net" },
-    { signalId: busy_id,       row: 12, radix: "bin", derivedExpr: "in_valid | out_valid", color: "#4FD2BD", path: "derived.busy", vcdType: "derived" },
-    { signalId: done_id,       row: 13, radix: "bin", derivedExpr: "state == DONE",       color: "#4FD2BD", path: "derived.done", vcdType: "derived" },
-  ];
+  const hierarchy = b.build();
+
+  // Viewer state (which signals, in what order, how styled + the tree
+  // expansion) comes from the sidecar when one exists; otherwise we show a
+  // "fresh VCD": every waved signal in declaration order, plainly styled.
+  const idx = buildPathIndex(hierarchy);
+  let activeSignals: ActiveSignalRef[];
+  let initialExpanded: Set<NodeId>;
+  if (sc) {
+    const r = resolveView(hierarchy, idx, sc.view);
+    if (r.misses.length) console.warn("[sidecar] unresolved signal paths (skipped):", r.misses);
+    activeSignals = r.activeSignals;
+    initialExpanded = sc.ui?.tree?.expanded
+      ? resolveExpanded(idx, sc.ui.tree.expanded)
+      : new Set(expanded);
+  } else {
+    activeSignals = freshActiveSignals(hierarchy, [waves, derived]);
+    initialExpanded = new Set(expanded);
+  }
 
   const segments: Segment[] = [
     ...buildClockSegments(0),
@@ -170,14 +216,24 @@ function buildMock(): MockScene {
   ];
 
   return {
-    hierarchy: b.build(),
+    hierarchy,
     activeSignals,
-    initialExpanded: new Set(expanded),
+    initialExpanded,
     segments,
   };
 }
 
-export const MOCK_SCENE = buildMock();
+// Load the sidecar once at module init (before App.tsx's module-load consts
+// read MOCK_SCENE.activeSignals). Non-fatal: a missing/bad file -> fresh view.
+const SIDECAR = loadSidecar(sidecarPath());
+
+export const MOCK_SCENE = buildMock(SIDECAR);
+
+// Cursor / markers / time window / UI chrome initial values — from the sidecar
+// when present, else fresh defaults.
+export const INITIAL: InitialState = SIDECAR
+  ? initialFromSidecar(SIDECAR, MOCK_END_TICKS)
+  : freshInitial(MOCK_END_TICKS);
 
 // Reset is held high from tick 0 until asynchronous deassertion at the first
 // clock falling edge (tick 10). Exposed for overlay rendering.

@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://riptide.dev/sidecar.schema.json",
+  "title": "Riptide sidecar",
+  "description": "Viewer state persisted next to a waveform trace. Loaded on start, written on change. `view` is the scriptable, required section; `ui` is optional chrome.",
+  "type": "object",
+  "required": ["version", "view"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "Sidecar format major version. Riptide ignores sidecars whose version it does not understand."
+    },
+    "trace": {
+      "type": "object",
+      "description": "Advisory metadata about the trace this sidecar was authored against. Never gates loading.",
+      "additionalProperties": true,
+      "properties": {
+        "id": { "type": "string", "description": "Logical trace name (e.g. the VCD/FST stem)." },
+        "format": { "type": "string", "description": "Source format, e.g. \"vcd\", \"fst\"." },
+        "timescale": { "type": "object", "description": "Time unit/precision; informational." }
+      }
+    },
+    "view": {
+      "type": "object",
+      "description": "Waveform/canvas/time state. The portion a CI/script writes.",
+      "required": ["signals"],
+      "additionalProperties": false,
+      "properties": {
+        "time": {
+          "type": "object",
+          "description": "Visible tick window and cursor. Zoom is derived from (end - start) over the canvas width.",
+          "additionalProperties": false,
+          "properties": {
+            "start": { "type": "number", "description": "Left edge of the visible window, in ticks." },
+            "end": { "type": "number", "description": "Right edge of the visible window, in ticks." },
+            "cursor": { "type": "number", "description": "Cursor position, in ticks." }
+          }
+        },
+        "signals": {
+          "type": "array",
+          "description": "Active signals in render order. Array index == row; row indices are never stored. Each entry is resolved by `path` against the loaded hierarchy; unresolved paths are skipped with a warning.",
+          "items": { "$ref": "#/$defs/signal" }
+        },
+        "markers": {
+          "type": "array",
+          "description": "Named time markers.",
+          "items": { "$ref": "#/$defs/marker" }
+        }
+      }
+    },
+    "ui": {
+      "type": "object",
+      "description": "Trivial UI chrome. Optional — omitted sections fall back to defaults. A script normally omits this entirely.",
+      "additionalProperties": false,
+      "properties": {
+        "panels": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "treeWidth": { "type": "number" },
+            "activeWidth": { "type": "number" },
+            "treeCollapsed": { "type": "boolean" },
+            "activeCollapsed": { "type": "boolean" },
+            "activeCompactWidth": { "type": ["number", "null"] }
+          }
+        },
+        "tree": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "expanded": {
+              "type": "array",
+              "description": "Scope paths whose tree node is expanded.",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "toggles": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "snapCursor": { "type": "boolean", "description": "Snap the cursor to clock edges." },
+            "clockAnchor": { "type": "boolean", "description": "Ruler counts clock cycles instead of nanoseconds." }
+          }
+        },
+        "tabs": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "open": { "type": "array", "items": { "type": "string" } },
+            "active": { "type": "integer" }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "radix": {
+      "type": "string",
+      "enum": ["bin", "hex", "dec"]
+    },
+    "color": {
+      "type": "string",
+      "pattern": "^#[0-9a-fA-F]{6}$",
+      "description": "CSS hex color, e.g. \"#72F5DF\"."
+    },
+    "signal": {
+      "type": "object",
+      "required": ["path", "radix", "color"],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Dotted hierarchical path, e.g. \"top.dut.fifo.count[7:0]\". The stable, run-portable key. For user-derived signals use \"derived.<name>\"."
+        },
+        "radix": { "$ref": "#/$defs/radix" },
+        "color": { "$ref": "#/$defs/color" },
+        "hidden": { "type": "boolean", "description": "Eye toggled off (dimmed)." },
+        "selected": { "type": "boolean", "description": "Highlighted/active row." },
+        "pinned": { "type": "boolean", "description": "Sticky header row." },
+        "role": {
+          "type": "string",
+          "enum": ["clock", "reset", "valid"],
+          "description": "Semantic role used for styling and ruler behavior."
+        },
+        "derived": {
+          "type": "object",
+          "description": "Marks a user-derived signal and carries its expression.",
+          "required": ["expr"],
+          "additionalProperties": false,
+          "properties": {
+            "expr": { "type": "string" }
+          }
+        },
+        "enumType": {
+          "type": "string",
+          "description": "Reserved: enum table name for value labels. Currently trace-side; not emitted."
+        },
+        "gate": {
+          "type": "string",
+          "description": "Reserved: path of a gate signal to mute this row when the gate is not logic-1. Currently trace-side; not emitted."
+        }
+      }
+    },
+    "marker": {
+      "type": "object",
+      "required": ["name", "tick", "color"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "tick": { "type": "number" },
+        "color": { "$ref": "#/$defs/color" },
+        "selected": { "type": "boolean" }
+      }
+    }
+  }
+}
