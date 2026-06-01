@@ -1,0 +1,35 @@
+[*]
+[*] GTKWave Analyzer v3.3.120 (w)1999-2024 BSI
+[*] Mon Mar  3 06:32:44 2025
+[*]
+[dumpfile] "(null)"
+[savefile] "/home/kalyan/Documents/warp/decode.gtkw"
+[timestart] 0
+[size] 1432 869
+[pos] -1 -1
+*-4.204744 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+[treeopen] warp_decode.
+[sst_width] 273
+[signals_width] 206
+[sst_expanded] 1
+[sst_vpaned_height] 237
+@28
+warp_decode.i_rst_n
+warp_decode.i_clk
+warp_decode.i_input_valid
+warp_decode.o_input_ready
+warp_decode.o_output_valid
+warp_decode.i_output_ready
+warp_decode.state[1:0]
+@22
+warp_decode.o_bundle0[64:0]
+warp_decode.o_bundle1[64:0]
+warp_decode.fifo<0>[64:0]
+warp_decode.fifo<1>[64:0]
+@28
+warp_decode.f_transmit
+@22
+warp_decode.decode_bundle<0>[64:0]
+warp_decode.decode_bundle<1>[64:0]
+[pattern_trace] 1
+[pattern_trace] 0

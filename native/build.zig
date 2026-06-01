@@ -12,6 +12,9 @@ pub fn build(b: *std.Build) void {
     });
     lib_mod.addIncludePath(b.path("include"));
 
+    const tide_dep = b.dependency("tide", .{ .target = target, .optimize = optimize });
+    lib_mod.addImport("tide", tide_dep.module("tide"));
+
     const lib = b.addLibrary(.{
         .linkage = .dynamic,
         .name = "riptide",

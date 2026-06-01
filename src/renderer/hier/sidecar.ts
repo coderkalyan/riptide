@@ -1,6 +1,6 @@
 // Sidecar persistence — viewer state stored next to the trace, auto-loaded on
 // start and auto-written on change. The hierarchy + waveform samples + enum
-// tables are trace ("VCD") data and live in mock.ts; the sidecar carries only
+// tables are trace ("VCD") data (scene.ts / tide); the sidecar carries only
 // the presentation overlay (which signals, in what order, how styled) plus the
 // cursor/markers/time window and trivial UI chrome.
 //
@@ -13,7 +13,7 @@
 import type { Hierarchy, NodeId } from "./types";
 import { pathOf } from "./types";
 import { getScope } from "./hierarchy";
-import type { ActiveRole, ActiveSignalRef, Radix, VcdType } from "./mock";
+import type { ActiveRole, ActiveSignalRef, Radix, VcdType } from "./scene";
 
 // Renderer runs with nodeIntegration; mirror native.ts's runtime require so
 // esbuild leaves the node builtins alone instead of trying to bundle them. The

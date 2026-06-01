@@ -58,7 +58,7 @@ pub const DataSignalSpec = struct {
     shaded: bool = true,
 };
 
-const Bits = struct { lsb: u32, msb: u32 };
+pub const Bits = struct { lsb: u32, msb: u32 };
 
 pub fn maskForWidth(width: u32) u32 {
     if (width == 0 or width > 32) @panic("invalid bit width");
@@ -84,7 +84,7 @@ pub fn valueBits(v: SegValue, width: u32) Bits {
     };
 }
 
-fn sameValue(a: SegValue, b: SegValue, width: u32) bool {
+pub fn sameValue(a: SegValue, b: SegValue, width: u32) bool {
     const aa = valueBits(a, width);
     const bb = valueBits(b, width);
     return aa.lsb == bb.lsb and aa.msb == bb.msb;
@@ -121,7 +121,7 @@ pub const Scene = struct {
         for (&self.rows) |*r| r.deinit(self.gpa);
     }
 
-    fn pushSegment(
+    pub fn pushSegment(
         self: *Scene,
         target: *std.ArrayList(PackedSegment),
         row: u32,
