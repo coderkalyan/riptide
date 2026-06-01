@@ -261,6 +261,15 @@ function clockEdgesBetween(a: number, b: number): number {
   return Math.max(0, kHi - kStart + 1);
 }
 
+// Cursor/marker readout in clock mode: the integer cycle number the tick sits
+// in (the most recent rising edge), never fractional. Cycle 1's rising edge is
+// at MOCK_CLOCK_TICK_NS.
+function formatClockWhole(tick: number): string {
+  const eps = CLOCK_PERIOD_NS * 1e-6;
+  const c = Math.floor((tick - MOCK_CLOCK_TICK_NS + eps) / CLOCK_PERIOD_NS) + 1;
+  return `#${c}`;
+}
+
 // Clock-anchored ruler: ticks land on clock rising edges, labels count cycles
 // ("1", "2", …) instead of ns. Spacing snaps to a "nice" whole number of cycles.
 function clockRulerTicks(startTicks: number, visibleTicks: number): { ticks: number[]; labels: string[] } {
@@ -276,7 +285,7 @@ function clockRulerTicks(startTicks: number, visibleTicks: number): { ticks: num
     const t = edge0 + (c - 1) * CLOCK_PERIOD_NS;
     if (t > end) break;
     ticks.push(t);
-    labels.push(`${c} clk`);
+    labels.push(`#${c}`);
   }
   return { ticks, labels };
 }
@@ -337,10 +346,25 @@ function GlobalTooltip() {
   }, [tip.x, tip.text]);
   useEffect(() => {
     let current: HTMLElement | null = null;
+    // Watches `current`'s data-tip so a button that flips its tip on click
+    // (e.g. a toggle) updates the open tooltip without the cursor leaving.
+    const attrObs = new MutationObserver(() => {
+      if (!current) return;
+      const text = current.getAttribute("data-tip") ?? "";
+      if (text === "") { setShow(false); return; }
+      // Position is unchanged (element didn't move) — only refresh the text.
+      setTip((p) => ({ ...p, text }));
+      setShow(true);
+    });
+    const watch = (el: HTMLElement | null) => {
+      attrObs.disconnect();
+      if (el) attrObs.observe(el, { attributes: true, attributeFilter: ["data-tip"] });
+    };
     const onOver = (e: MouseEvent) => {
       const el = (e.target as HTMLElement | null)?.closest("[data-tip]") as HTMLElement | null;
       if (el === current) return;
       current = el;
+      watch(el);
       const text = el?.getAttribute("data-tip") ?? "";
       if (!el || text === "") { setShow(false); return; }
       const r = el.getBoundingClientRect();
@@ -351,6 +375,7 @@ function GlobalTooltip() {
       const to = e.relatedTarget as Node | null;
       if (current && (!to || !current.contains(to))) {
         current = null;
+        watch(null);
         setShow(false);
       }
     };
@@ -359,6 +384,7 @@ function GlobalTooltip() {
     return () => {
       document.removeEventListener("mouseover", onOver);
       document.removeEventListener("mouseout", onOut);
+      attrObs.disconnect();
     };
   }, []);
   return createPortal(
@@ -1177,7 +1203,8 @@ export function App() {
         for (const m of ordered) {
           if (mi >= markerPills.length) break;
           const lineX = xForTick(m.tick);
-          const box = addFlag(lineX, `${m.name} · ${formatTime(m.tick)} ns`, m.color, markerPills[mi]);
+          const mLabel = clockAnchorRef.current ? formatClockWhole(m.tick) : `${formatTime(m.tick)} ns`;
+          const box = addFlag(lineX, `${m.name} · ${mLabel}`, m.color, markerPills[mi]);
           hits.push({ id: m.id, x0: box.x0, x1: box.x1, lineX });
           mi++;
         }
@@ -1185,7 +1212,8 @@ export function App() {
           markerPills[mi].rects.setRects(pillRectScratch, 0);
           markerPills[mi].text.setGlyphs(0);
         }
-        addFlag(xForTick(cursor), `${formatTime(cursor)} ns`, HOT, pillCursor);
+        const cursorLabel = clockAnchorRef.current ? formatClockWhole(cursor) : `${formatTime(cursor)} ns`;
+        addFlag(xForTick(cursor), cursorLabel, HOT, pillCursor);
 
         renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, linesFg, textBody, pills: allPills }, vp);
         raf = requestAnimationFrame(frame);
