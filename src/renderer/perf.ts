@@ -99,12 +99,22 @@ export function frameStart(now: number): void {
 export function frameEnd(encodeMs: number): void {
   push(encodeRing, encodeMs);
   if (pendingAdd && pendingAdd.rebuilt) {
-    const marks = [...pendingAdd.marks, { label: "present (next frame draw)", t: performance.now() }];
-    const phases: { label: string; ms: number }[] = [];
-    for (let i = 1; i < marks.length; i++) phases.push({ label: marks[i].label, ms: marks[i].t - marks[i - 1].t });
-    lastAdd = { total: marks[marks.length - 1].t - marks[0].t, rows: pendingAdd.rows, phases };
+    lastAdd = finalizeMarks(pendingAdd);
     pendingAdd = null;
   }
+  if (pendingSwap && pendingSwap.rebuilt) {
+    lastSwap = finalizeMarks(pendingSwap);
+    pendingSwap = null;
+  }
+}
+
+// Close out a marks list with a final "present" boundary and difference the marks
+// into named phases. Shared by the add-signal and trace-swap measurements.
+function finalizeMarks(p: { marks: PhaseMark[]; rows: number }): PhaseReport {
+  const marks = [...p.marks, { label: "present (next frame draw)", t: performance.now() }];
+  const phases: { label: string; ms: number }[] = [];
+  for (let i = 1; i < marks.length; i++) phases.push({ label: marks[i].label, ms: marks[i].t - marks[i - 1].t });
+  return { total: marks[marks.length - 1].t - marks[0].t, rows: p.rows, phases };
 }
 
 // Fed asynchronously by the GPU timer (gpu/timing.ts) a frame or two late.
@@ -168,10 +178,12 @@ export function markFirstFrame(): void {
 // describes the work done since the previous mark. The repack marks are emitted
 // from inside the GPU rebuild closure (App.tsx) so the native pack, GPU buffer
 // rebuild, and label rebuild are each broken out.
-interface AddMark { label: string; t: number }
-let pendingAdd: { marks: AddMark[]; rows: number; rebuilt: boolean } | null = null;
-interface AddReport { total: number; rows: number; phases: { label: string; ms: number }[] }
-let lastAdd: AddReport | null = null;
+interface PhaseMark { label: string; t: number }
+interface PhaseReport { total: number; rows: number; phases: { label: string; ms: number }[] }
+type Pending = { marks: PhaseMark[]; rows: number; rebuilt: boolean };
+
+let pendingAdd: Pending | null = null;
+let lastAdd: PhaseReport | null = null;
 
 // Click on a tree "+" — start the clock.
 export function beginAdd(): void { pendingAdd = { marks: [{ label: "_start", t: performance.now() }], rows: 0, rebuilt: false }; }
@@ -184,6 +196,18 @@ export function markAddRebuilt(rows: number): void {
   if (pendingAdd) { pendingAdd.rows = rows; pendingAdd.rebuilt = true; }
 }
 
+// ---- trace-swap latency (in-app "Open VCD…") -----------------------------
+// Same marks-based shape as add-signal: click → native loadVcd → buildScene →
+// GPU repack → next presented frame.
+let pendingSwap: Pending | null = null;
+let lastSwap: PhaseReport | null = null;
+
+export function beginSwap(): void { pendingSwap = { marks: [{ label: "_start", t: performance.now() }], rows: 0, rebuilt: false }; }
+export function swapMark(label: string): void { if (pendingSwap) pendingSwap.marks.push({ label, t: performance.now() }); }
+export function markSwapRebuilt(rows: number): void {
+  if (pendingSwap) { pendingSwap.rows = rows; pendingSwap.rebuilt = true; }
+}
+
 // ---- snapshot + console API ---------------------------------------------
 
 export interface PerfSnapshot {
@@ -194,7 +218,8 @@ export interface PerfSnapshot {
   gpu: { p50Ms: number; p95Ms: number; maxMs: number; supported: boolean };
   jank: { longTasks: number; longTaskMs: number };
   load: LoadReport | null;
-  add: AddReport | null;
+  add: PhaseReport | null;
+  swap: PhaseReport | null;
 }
 
 let gpuSupported = false;
@@ -221,6 +246,7 @@ export function snapshot(): PerfSnapshot {
     jank: { longTasks: longTaskCount, longTaskMs },
     load: lastLoad,
     add: lastAdd,
+    swap: lastSwap,
   };
 }
 
@@ -255,12 +281,16 @@ try {
         `encode p50 ${s.encode.p50Ms.toFixed(2)}ms · jank ${s.jank.longTasks} (${s.jank.longTaskMs.toFixed(0)}ms)`,
       );
       if (s.load) {
-        console.log(`[perf] VCD load ${s.load.total.toFixed(1)}ms · ${s.load.nodes} hierarchy nodes`);
+        console.log(`[perf] boot → first frame (once) ${s.load.total.toFixed(1)}ms · ${s.load.nodes} hierarchy nodes`);
         console.table(s.load.phases.map((p) => ({ phase: p.label, ms: +p.ms.toFixed(2) })));
       }
       if (s.add) {
         console.log(`[perf] last add-signal ${s.add.total.toFixed(1)}ms (${s.add.rows} rows)`);
         console.table(s.add.phases.map((p) => ({ phase: p.label, ms: +p.ms.toFixed(2) })));
+      }
+      if (s.swap) {
+        console.log(`[perf] open VCD → first frame (each open) ${s.swap.total.toFixed(1)}ms (${s.swap.rows} rows)`);
+        console.table(s.swap.phases.map((p) => ({ phase: p.label, ms: +p.ms.toFixed(2) })));
       }
       return s;
     },

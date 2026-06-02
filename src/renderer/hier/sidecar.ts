@@ -124,11 +124,19 @@ export function buildPathIndex(h: Hierarchy): Map<string, NodeId[]> {
 
 // ---- load / save --------------------------------------------------------
 
+// Current trace's sidecar path. Seeded from the window URL (SIDECAR_PATH), then
+// updated by swapTrace on an in-app "Open VCD…" so auto-saves target the NEW
+// trace's sidecar rather than the one frozen at module load.
+let CURRENT_SIDECAR_PATH = SIDECAR_PATH;
+export function setCurrentSidecarPath(vcdPath: string): void {
+  CURRENT_SIDECAR_PATH = vcdPath ? `${vcdPath}.sidecar.json` : "";
+}
+
 export function sidecarPath(): string {
   const override = (typeof process !== "undefined" && process.env && process.env.RIPTIDE_SIDECAR) || "";
   if (override) return override;
-  // Next to the trace named in the window URL (set by the main process).
-  if (SIDECAR_PATH) return SIDECAR_PATH;
+  // Next to the current trace (updated on in-app trace swap).
+  if (CURRENT_SIDECAR_PATH) return CURRENT_SIDECAR_PATH;
   return path.join(process.cwd(), "riptide.sidecar.json");
 }
 

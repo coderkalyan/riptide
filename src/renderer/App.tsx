@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { startTransition, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Clock, Grid2x2, Maximize, Minus, PanelLeftClose, PanelLeftOpen, Plus, X } from "lucide-react";
 import { ActiveSignal, type ActiveSignalKind } from "./ActiveSignal";
@@ -12,7 +12,7 @@ import { MOCK_CLOCK_TICK_NS, MOCK_END_TICKS, unpackSegmentHeaders } from "./gpu/
 import { createTextRenderer, packRgba, MAX_GLYPHS, ATLAS_MIDDLE_DOT } from "./gpu/text";
 import { createLineRenderer } from "./gpu/lines";
 import { createRectRenderer } from "./gpu/rect";
-import { INITIAL, SCENE, RESET_HELD_TICKS, buildPackSpecs, packSpecsFor, makeActiveRef, type ActiveSignalRef, type Radix } from "./hier/scene";
+import { INITIAL, SCENE, RESET_HELD_TICKS, buildPackSpecs, packSpecsFor, makeActiveRef, swapTrace, type ActiveSignalRef, type Radix } from "./hier/scene";
 import { getSignal } from "./hier/hierarchy";
 import type { NodeId, Timescale, TimeUnit } from "./hier/types";
 import { serializeSidecar, sidecarPath, sidecarToString, writeSidecarFile } from "./hier/sidecar";
@@ -543,21 +543,22 @@ const MENUS: { name: string; items: MenuItem[] }[] = [
 
 declare const require: (m: string) => unknown;
 
-// Ask the main process to show the Open-VCD dialog. On a choice, main reloads
-// the window pointed at the new trace (?vcd=...), so the whole scene — native
-// db, hierarchy, sidecar-derived view — re-initializes from scratch.
-function openVcdDialog(): void {
+// Ask the main process to show the Open-VCD dialog. Returns the chosen path (or
+// null if cancelled); the renderer then swaps the trace in place — no reload —
+// via App.resetForTrace.
+async function openVcdDialog(): Promise<string | null> {
   try {
     const { ipcRenderer } = require("electron") as {
       ipcRenderer: { invoke(channel: string): Promise<unknown> };
     };
-    void ipcRenderer.invoke("riptide:open-vcd");
+    return (await ipcRenderer.invoke("riptide:open-vcd")) as string | null;
   } catch (e) {
     console.error("[open-vcd] failed", e);
+    return null;
   }
 }
 
-function MenuBar() {
+function MenuBar({ onOpenVcd }: { onOpenVcd: () => void }) {
   const [open, setOpen] = useState<{ name: string; rect: DOMRect } | null>(null);
   useEffect(() => {
     if (!open) return;
@@ -606,7 +607,7 @@ function MenuBar() {
           {(pop?.items ?? []).map((it, i) => it === "sep"
             ? <div key={i} className="menu-sep" />
             : (
-              <div key={i} className="menu-item" onClick={() => { setOpen(null); if (it.label === "Open VCD…") openVcdDialog(); }}>
+              <div key={i} className="menu-item" onClick={() => { setOpen(null); if (it.label === "Open VCD…") onOpenVcd(); }}>
                 <span>{it.label}</span>
                 {it.kbd && <span className="menu-kbd">{it.kbd}</span>}
               </div>
@@ -798,6 +799,15 @@ export function App() {
   // null until init; the activeSignals effect skips the repack until then.
   const rebuildSceneRef = useRef<((active: ActiveSignalRef[]) => void) | null>(null);
   const textColorByRowRef = useRef<Map<number, number>>(new Map());
+  // Bumped by resetForTrace so a layout effect can split the swap's "present"
+  // phase: this effect runs after React commits the swap's DOM (post-reconcile,
+  // pre-paint), so its swapMark closes "react render + commit" and the next
+  // frameEnd then measures only "paint + next frame". swapMark no-ops outside a
+  // swap, and the > 0 guard skips the initial mount.
+  const [swapNonce, setSwapNonce] = useState(0);
+  useLayoutEffect(() => {
+    if (swapNonce > 0) perf.swapMark("react render + commit");
+  }, [swapNonce]);
 
   // Viewport state — refs only (RAF is the sole reader, no React DOM uses
   // these). `userInteractedRef` flips on first interaction, freezing auto-fit.
@@ -1909,6 +1919,90 @@ export function App() {
     return true;
   };
 
+  // Swap to a new trace in place (no window reload). swapTrace recomputes the
+  // SCENE/INITIAL live bindings against the new native db; we then re-seed all
+  // React state + refs from them and force a GPU repack. App stays mounted, so
+  // the device + pipelines + rAF loop persist (no GPU re-init). Synchronous —
+  // no await between the data swap and the GPU rebuild, so no frame interleaves.
+  const resetForTrace = (vcdPath: string) => {
+    perf.beginSwap();
+    swapTrace(vcdPath); // emits swapMark("native loadVcd") + swapMark("buildScene")
+
+    // Marker seeds, recomputed from the new INITIAL (mirrors the module consts).
+    const newMarkers: Marker[] = INITIAL.markers.map((m, i) => ({ id: i + 1, name: m.name, tick: m.tick, color: m.color }));
+    const selIdx = INITIAL.markers.findIndex((m) => m.selected);
+    const newSelectedMarkerId = selIdx >= 0 ? selIdx + 1 : null;
+    const newMarkerSeq = newMarkers.length + 1;
+
+    // Full reset of view state to the new trace's sidecar/defaults.
+    setActiveSignals(SCENE.activeSignals);
+    // Tree expansion is the heavy re-render on a swap (reconciling/creating the
+    // new hierarchy's DOM — the majority of the commit). Mark it a transition so
+    // the urgent updates (canvas, active panel, toolbar) commit + paint first and
+    // the tree reconciles in a later, interruptible pass — the open feels instant
+    // and the tree fills in a frame later. Normal toggles (setExpandedScopes
+    // elsewhere) stay urgent. Total work is unchanged — just off the critical path.
+    startTransition(() => setExpandedScopes(SCENE.initialExpanded));
+    setCursorTicks(INITIAL.time.cursor);
+    setViewRange({ start: INITIAL.time.start, end: INITIAL.time.end });
+    setSnapCursor(INITIAL.toggles.snapCursor);
+    setClockAnchor(INITIAL.toggles.clockAnchor);
+    setMarkers(newMarkers);
+    setSelectedMarkerId(newSelectedMarkerId);
+    setOpenFiles(INITIAL.tabs.open);
+    setActiveTab(INITIAL.tabs.active);
+    setTreeW(INITIAL.panels.treeWidth);
+    setActiveW(INITIAL.panels.activeWidth);
+    setTreeCollapsed(INITIAL.panels.treeCollapsed);
+    setActiveCollapsed(INITIAL.panels.activeCollapsed);
+    setActiveCompactW(INITIAL.panels.activeCompactWidth);
+    setPicker(null);
+    setCtxMenu(null);
+
+    // Refs the rAF loop / handlers read directly (setState alone won't update them).
+    cursorTicksRef.current = INITIAL.time.cursor;
+    viewRangeRef.current = { start: INITIAL.time.start, end: INITIAL.time.end };
+    viewReportedRef.current = { start: -1, end: -1 };
+    markersRef.current = newMarkers;
+    markerSeqRef.current = newMarkerSeq;
+    selectedMarkerIdRef.current = newSelectedMarkerId;
+    snapCursorRef.current = INITIAL.toggles.snapCursor;
+    clockAnchorRef.current = INITIAL.toggles.clockAnchor;
+    selectedRowRef.current = SCENE.activeSignals.find((r) => r.selected)?.row ?? -1;
+    // Re-seed + re-auto-fit the viewport from the new INITIAL.time on next frame.
+    viewportSeededRef.current = false;
+    userInteractedRef.current = false;
+    startTicksRef.current = 0;
+    ticksPerPixelRef.current = 0;
+    zoomAnimRef.current = null;
+    draggingRef.current = false;
+    draggingMarkerRef.current = null;
+    hoverRef.current = null;
+    hoverStore.set(null);
+
+    // Force the GPU repack against the new native db. Pre-set lastSceneKeyRef to
+    // the new key so the sceneKey effect bails (no double rebuild) — and so an
+    // empty→empty swap (same key) still repacks via this direct call.
+    const newKey = SCENE.activeSignals.map((r) => `${r.signalId}:${r.row}:${r.radix}`).join("|");
+    lastSceneKeyRef.current = newKey;
+    const gpu = gpuRef.current;
+    if (gpu) writeRowColors(gpu.device, gpu.colorBuf, SCENE.activeSignals);
+    rebuildSceneRef.current?.(SCENE.activeSignals);
+    perf.swapMark("GPU repack");
+    perf.markSwapRebuilt(SCENE.activeSignals.length);
+    // Drives the layout effect that splits "present" into react-commit vs paint.
+    setSwapNonce((n) => n + 1);
+
+    // Re-baseline the sidecar auto-save so its first post-swap pass is a no-op
+    // (don't clobber the new trace's sidecar with stale state).
+    sidecarMountedRef.current = false;
+    lastSavedRef.current = "";
+  };
+  const handleOpenVcd = async () => {
+    const p = await openVcdDialog();
+    if (p) resetForTrace(p);
+  };
+
   const selectedMarker = markers.find((m) => m.id === selectedMarkerId) ?? null;
 
   return (
@@ -1916,7 +2010,7 @@ export function App() {
       <div className="titlebar">
         <div className="dots"><i className="r" /><i className="y" /><i className="g" /></div>
         <div className="title">Riptide</div>
-        <MenuBar />
+        <MenuBar onOpenVcd={handleOpenVcd} />
         <div className="divider" />
         <div className="tabs">
           {openFiles.map((f, i) => (

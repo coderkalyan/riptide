@@ -58,8 +58,10 @@ ipcMain.handle("riptide:open-vcd", async (e) => {
     filters: [{ name: "Value Change Dump", extensions: ["vcd"] }],
   });
   if (r.canceled || r.filePaths.length === 0) return null;
+  // Return the chosen path; the renderer swaps the trace in place (no reload).
+  // currentVcd is kept for bookkeeping (e.g. window title) but no longer drives
+  // a navigation. loadTrace is still used by createWindow for the initial load.
   currentVcd = r.filePaths[0];
-  loadTrace(win);
   return currentVcd;
 });
 

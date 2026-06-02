@@ -285,6 +285,12 @@
             height: 22px; display:flex; align-items:center; gap:4px;
             padding: 0 6px; font-family: 'JetBrains Mono', monospace; font-size: 12px;
             border-radius: 4px; color: var(--text); white-space: nowrap;
+            /* Skip layout/paint for rows scrolled out of the tree viewport (and
+               for collapsed-but-mounted subtrees clipped to 0 height). The
+               browser still keeps the DOM, but defers their rendering cost until
+               they're on-screen. 22px placeholder keeps the scrollbar accurate. */
+            content-visibility: auto;
+            contain-intrinsic-size: auto 22px;
         }
         .t-row:hover { background: var(--panel-2); }
         .t-row.sel { background: var(--accent-soft); color: var(--text); }

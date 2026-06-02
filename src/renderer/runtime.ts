@@ -1,7 +1,8 @@
-// Per-window runtime paths. The main process carries the trace to open in the
-// window URL (?vcd=<absolute path>), so opening a different file is just a
-// reload with a new query — every module-level constant (the native db, the
-// hierarchy, the sidecar-derived view) recomputes from scratch on load.
+// Per-window runtime paths. The main process carries the INITIAL trace to open
+// in the window URL (?vcd=<absolute path>); these are read once at module load
+// to bootstrap the native db, hierarchy, and sidecar-derived view. Subsequent
+// "Open VCD…" picks swap the trace IN PLACE (scene.ts `swapTrace`, no reload), so
+// these reflect only the first trace — the live current path lives in scene.ts.
 //
 // The sidecar lives next to the trace (`<trace>.sidecar.json`): opening the
 // bundled mock loads its curated view; opening a fresh trace finds no sidecar
