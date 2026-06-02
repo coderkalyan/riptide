@@ -71,9 +71,15 @@ interface NativeModule {
 stamp("native:require");
 const native = require("../native/riptide.node") as NativeModule;
 
-// Load the trace named in the window URL before anything queries it (scene.ts
-// builds SCENE at module load, which calls getHierarchy). On a reload — e.g.
-// after "Open VCD…" — this re-runs with the new path and swaps the native db.
+// Swap the loaded trace at runtime (in-app "Open VCD…" — no window reload).
+// getHierarchy/getMockSegments/getValueAt all query the current db after this.
+export function loadVcd(path: string): void {
+  native.loadVcd(path);
+}
+
+// Load the initial trace named in the window URL before anything queries it
+// (scene.ts builds SCENE at module load, which calls getHierarchy). Later "Open
+// VCD…" picks call loadVcd() again via scene.ts swapTrace to swap the db in place.
 stamp("native:start");
 if (VCD_PATH) native.loadVcd(VCD_PATH);
 stamp("native:end");

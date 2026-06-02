@@ -1,9 +1,10 @@
 import type { EnumType, Hierarchy, NodeId, Scope, Signal, VarType } from "./types";
 import { pathOf } from "./types";
 import { getSignal } from "./hierarchy";
-import { getHierarchy, type NativePackSpec } from "../native";
-import { stamp, setHierarchyNodes } from "../perf";
+import { getHierarchy, loadVcd, type NativePackSpec } from "../native";
+import { stamp, setHierarchyNodes, swapMark } from "../perf";
 import { MOCK_END_TICKS } from "../gpu/data";
+import { VCD_PATH } from "../runtime";
 import {
   buildPathIndex,
   freshInitial,
@@ -11,6 +12,7 @@ import {
   loadSidecar,
   resolveExpanded,
   resolveView,
+  setCurrentSidecarPath,
   sidecarPath,
   type InitialState,
   type Sidecar,
@@ -241,18 +243,44 @@ function buildScene(sc: Sidecar | null): Scene {
   return { hierarchy, activeSignals, initialExpanded };
 }
 
+// The trace currently loaded in the renderer. Seeded from the window URL; updated
+// by swapTrace on an in-app "Open VCD…".
+let CURRENT_VCD_PATH = VCD_PATH;
+export function currentVcdPath(): string { return CURRENT_VCD_PATH; }
+
 // Load the sidecar once at module init (before App.tsx's module-load consts read
 // SCENE.activeSignals). Non-fatal: a missing/bad file -> curated default scene.
-const SIDECAR = loadSidecar(sidecarPath());
+// SCENE/INITIAL/SIDECAR are `let` (not const) so swapTrace can reassign them; ES
+// live bindings propagate the new value to every `import { SCENE, INITIAL }`
+// site (re-read at render/effect time), so the in-app trace swap needs no reload.
+let SIDECAR = loadSidecar(sidecarPath());
 
-export const SCENE = buildScene(SIDECAR);
+export let SCENE = buildScene(SIDECAR);
 
 // Cursor / markers / time window / UI chrome initial values — from the sidecar
 // when present, else fresh defaults.
-export const INITIAL: InitialState = SIDECAR
+export let INITIAL: InitialState = SIDECAR
   ? initialFromSidecar(SIDECAR, MOCK_END_TICKS)
   : freshInitial(MOCK_END_TICKS);
 
 // Reset is held high from tick 0 until async deassertion at the first clock
 // falling edge (tick 10). Exposed for overlay rendering.
 export const RESET_HELD_TICKS = { tStart: 0, tEnd: 10 };
+
+// Swap the loaded trace in place (no window reload). Recomputes the whole trace
+// layer — native db, sidecar, SCENE (hierarchy + active signals + pack specs),
+// and INITIAL — so the caller (App.resetForTrace) can re-seed React state + force
+// a GPU repack. Synchronous; native.loadVcd blocks until the db is swapped.
+export function swapTrace(vcdPath: string): void {
+  // Marks are emitted AFTER each step so each phase label measures the work just
+  // completed (the finalize differences consecutive marks).
+  loadVcd(vcdPath);
+  swapMark("native loadVcd");                  // tide parse + db swap (FFI)
+  CURRENT_VCD_PATH = vcdPath;
+  setCurrentSidecarPath(vcdPath);
+  SIDECAR = loadSidecar(sidecarPath());
+  swapMark("load sidecar");                     // read + parse <trace>.sidecar.json
+  SCENE = buildScene(SIDECAR);                   // getHierarchy FFI + marshal + resolve
+  swapMark("buildScene (hierarchy + resolve)");
+  INITIAL = SIDECAR ? initialFromSidecar(SIDECAR, MOCK_END_TICKS) : freshInitial(MOCK_END_TICKS);
+}
