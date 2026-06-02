@@ -9,7 +9,10 @@ export function signalIconKind(sig: Signal): "enum" | "bus" | "scalar" {
 }
 
 // Tree expansion is owned by App (so it can be persisted to the sidecar) and
-// passed down as `expanded` + `onToggle`.
+// passed down as `expanded` + `onToggle`. The full hierarchy can be thousands of
+// nodes; the React Compiler (build-time auto-memoization) caches this element +
+// its callback props in App's render, so an unrelated state change (e.g. adding
+// an active signal) no longer reconciles the whole tree.
 export function SignalTreeView({
   hierarchy,
   expanded,

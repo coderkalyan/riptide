@@ -2,7 +2,7 @@ import type { EnumType, Hierarchy, NodeId, Scope, Signal, VarType } from "./type
 import { pathOf } from "./types";
 import { getSignal } from "./hierarchy";
 import { getHierarchy, type NativePackSpec } from "../native";
-import { stamp } from "../perf";
+import { stamp, setHierarchyNodes } from "../perf";
 import { MOCK_END_TICKS } from "../gpu/data";
 import {
   buildPathIndex,
@@ -197,6 +197,7 @@ function buildScene(sc: Sidecar | null): Scene {
   stamp("scene:start");
   const hierarchy = getHierarchy();
   stamp("scene:hierarchy");
+  setHierarchyNodes(hierarchy.nodes.size);
 
   // Overlay TS-only metadata that the VCD/tide hierarchy doesn't carry. Enum
   // association is keyed by path, independent of the sidecar.

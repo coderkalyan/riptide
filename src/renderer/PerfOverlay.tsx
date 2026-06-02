@@ -40,6 +40,13 @@ export function PerfOverlay() {
       <span style={{ color: color ?? "#e8e6df" }}>{value}</span>
     </div>
   );
+  // Indented sub-phase row for the load / add-signal breakdowns.
+  const phaseRow = (label: string, ms: number) => (
+    <div key={label} style={{ display: "flex", justifyContent: "space-between", gap: 16, paddingLeft: 8 }}>
+      <span style={{ color: "#6f747d", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+      <span style={{ color: "#b8b6ad" }}>{ms.toFixed(1)}</span>
+    </div>
+  );
 
   return (
     <div
@@ -70,20 +77,20 @@ export function PerfOverlay() {
       {snap.load
         ? (
           <>
-            {row("vcd load total", `${snap.load.total.toFixed(0)}ms`, "#72f5df")}
-            {snap.load.phases.map((p) => (
-              <div key={p.label} style={{ display: "flex", justifyContent: "space-between", gap: 16, paddingLeft: 8 }}>
-                <span style={{ color: "#6f747d", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.label}</span>
-                <span style={{ color: "#b8b6ad" }}>{p.ms.toFixed(1)}</span>
-              </div>
-            ))}
+            {row("vcd load total", `${snap.load.total.toFixed(0)}ms · ${snap.load.nodes} nodes`, "#72f5df")}
+            {snap.load.phases.map((p) => phaseRow(p.label, p.ms))}
           </>
         )
         : row("vcd load", "measuring…")}
 
       <div style={{ height: 1, background: "#2f333a", margin: "5px 0" }} />
       {snap.add
-        ? row("add signal (repack/present)", `${snap.add.total.toFixed(0)}ms (${snap.add.reactAndRepack.toFixed(0)}/${snap.add.present.toFixed(0)})`, "#72f5df")
+        ? (
+          <>
+            {row("add signal total", `${snap.add.total.toFixed(0)}ms · ${snap.add.rows} rows`, "#72f5df")}
+            {snap.add.phases.map((p) => phaseRow(p.label, p.ms))}
+          </>
+        )
         : row("add signal", "— add one to measure")}
     </div>
   );

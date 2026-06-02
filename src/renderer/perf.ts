@@ -98,14 +98,11 @@ export function frameStart(now: number): void {
 // Finalizes a pending add-signal measurement once its repacked frame has drawn.
 export function frameEnd(encodeMs: number): void {
   push(encodeRing, encodeMs);
-  if (pendingAdd && pendingAdd.rebuiltAt > 0) {
-    const t = performance.now();
-    lastAdd = {
-      total: t - pendingAdd.t0,
-      reactAndRepack: pendingAdd.rebuiltAt - pendingAdd.t0,
-      present: t - pendingAdd.rebuiltAt,
-      rows: pendingAdd.rows,
-    };
+  if (pendingAdd && pendingAdd.rebuilt) {
+    const marks = [...pendingAdd.marks, { label: "present (next frame draw)", t: performance.now() }];
+    const phases: { label: string; ms: number }[] = [];
+    for (let i = 1; i < marks.length; i++) phases.push({ label: marks[i].label, ms: marks[i].t - marks[i - 1].t });
+    lastAdd = { total: marks[marks.length - 1].t - marks[0].t, rows: pendingAdd.rows, phases };
     pendingAdd = null;
   }
 }
@@ -122,9 +119,12 @@ export function stamp(label: string): void { stamps.set(label, performance.now()
 
 export interface LoadReport {
   total: number;                  // navigation start → first frame
+  nodes: number;                  // hierarchy node count, for correlating tree-mount cost
   phases: { label: string; ms: number }[];
 }
 let lastLoad: LoadReport | null = null;
+let hierarchyNodes = 0;
+export function setHierarchyNodes(n: number): void { hierarchyNodes = n; }
 
 // Called once the first canvas frame has presented. Builds the load breakdown
 // as a CONTIGUOUS segmentation from navigation start (t=0 on the performance.now
@@ -143,7 +143,9 @@ export function markFirstFrame(): void {
     ["scene:hierarchy", "hierarchy decode"],
     ["scene:end", "scene build (overlays/sidecar)"],
     ["pack:end", "initial segment pack"],
-    ["gpu:start", "react mount + initial render"],
+    ["render:start", "app module eval tail (labels)"],
+    ["render:committed", "react render + commit (build DOM, incl. full tree)"],
+    ["gpu:start", "browser layout + paint"],
     ["gpu:ready", "GPU init (adapter/device/pipelines)"],
     ["frame:first", "first frame draw + present"],
   ];
@@ -156,22 +158,30 @@ export function markFirstFrame(): void {
     prev = t;
   }
   const first = stamps.get("frame:first") ?? performance.now();
-  lastLoad = { total: first, phases };
-  if (enabled) console.log(`[perf] VCD load ${first.toFixed(1)}ms (sums to total)`, lastLoad.phases);
+  lastLoad = { total: first, nodes: hierarchyNodes, phases };
+  if (enabled) console.log(`[perf] VCD load ${first.toFixed(1)}ms · ${hierarchyNodes} hierarchy nodes (sums to total)`, lastLoad.phases);
 }
 
 // ---- add-signal latency --------------------------------------------------
 
-let pendingAdd: { t0: number; rebuiltAt: number; rows: number } | null = null;
-interface AddReport { total: number; reactAndRepack: number; present: number; rows: number; }
+// Add-signal latency is measured as an ordered list of marks; each mark's label
+// describes the work done since the previous mark. The repack marks are emitted
+// from inside the GPU rebuild closure (App.tsx) so the native pack, GPU buffer
+// rebuild, and label rebuild are each broken out.
+interface AddMark { label: string; t: number }
+let pendingAdd: { marks: AddMark[]; rows: number; rebuilt: boolean } | null = null;
+interface AddReport { total: number; rows: number; phases: { label: string; ms: number }[] }
 let lastAdd: AddReport | null = null;
 
 // Click on a tree "+" — start the clock.
-export function beginAdd(): void { pendingAdd = { t0: performance.now(), rebuiltAt: 0, rows: 0 }; }
-// GPU buffers repacked for the new active set — record the repack split; frameEnd
-// finalizes once the resulting frame presents.
+export function beginAdd(): void { pendingAdd = { marks: [{ label: "_start", t: performance.now() }], rows: 0, rebuilt: false }; }
+// Record a sub-phase boundary (label = work done since the previous mark). Cheap
+// no-op when no add is in flight.
+export function addMark(label: string): void { if (pendingAdd) pendingAdd.marks.push({ label, t: performance.now() }); }
+// GPU buffers repacked for the new active set — flag it so frameEnd finalizes
+// once the resulting frame presents.
 export function markAddRebuilt(rows: number): void {
-  if (pendingAdd) { pendingAdd.rebuiltAt = performance.now(); pendingAdd.rows = rows; }
+  if (pendingAdd) { pendingAdd.rows = rows; pendingAdd.rebuilt = true; }
 }
 
 // ---- snapshot + console API ---------------------------------------------
@@ -244,8 +254,14 @@ try {
         `gpu p50 ${s.gpu.p50Ms.toFixed(2)}ms p95 ${s.gpu.p95Ms.toFixed(2)}ms · ` +
         `encode p50 ${s.encode.p50Ms.toFixed(2)}ms · jank ${s.jank.longTasks} (${s.jank.longTaskMs.toFixed(0)}ms)`,
       );
-      if (s.load) console.table(s.load.phases.map((p) => ({ phase: p.label, ms: +p.ms.toFixed(2) })));
-      if (s.add) console.log(`[perf] last add-signal ${s.add.total.toFixed(1)}ms (repack ${s.add.reactAndRepack.toFixed(1)} + present ${s.add.present.toFixed(1)})`);
+      if (s.load) {
+        console.log(`[perf] VCD load ${s.load.total.toFixed(1)}ms · ${s.load.nodes} hierarchy nodes`);
+        console.table(s.load.phases.map((p) => ({ phase: p.label, ms: +p.ms.toFixed(2) })));
+      }
+      if (s.add) {
+        console.log(`[perf] last add-signal ${s.add.total.toFixed(1)}ms (${s.add.rows} rows)`);
+        console.table(s.add.phases.map((p) => ({ phase: p.label, ms: +p.ms.toFixed(2) })));
+      }
       return s;
     },
   };
