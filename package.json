@@ -9,6 +9,9 @@
     "build:native": "cd native && zig build -Doptimize=ReleaseSafe && mkdir -p ../dist/native && cp zig-out/lib/libriptide.so ../dist/native/riptide.node",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "build": "pnpm wgsl-check && pnpm build:native && tsc -p tsconfig.json && node scripts/build-ui.mjs",
+    "build:prod": "NODE_ENV=production pnpm build",
+    "dist": "pnpm build:prod && electron-builder",
+    "dist:dir": "pnpm build:prod && electron-builder --dir",
     "dev": "pnpm build && electron .",
     "dev:ui": "pnpm wgsl-check && pnpm build:native && node scripts/dev-ui.mjs"
   },
@@ -21,8 +24,39 @@
     "@webgpu/types": "^0.1.50",
     "babel-plugin-react-compiler": "^1.0.0",
     "electron": "^41.0.0",
+    "electron-builder": "^25.1.8",
     "esbuild": "^0.28.0",
     "typescript": "^5.6.0"
+  },
+  "build": {
+    "appId": "com.riptide.app",
+    "productName": "Riptide",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "dist/native/**"
+    ],
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Development"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    }
   },
   "dependencies": {
     "lucide-react": "1.8.0",

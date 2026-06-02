@@ -7,6 +7,10 @@ import { reactCompilerPlugin } from "./esbuild-react-compiler.mjs";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DST_DIR = resolve(root, "dist/renderer");
 
+// Production = minify + drop sourcemaps. Set via NODE_ENV=production (electron-
+// builder / `build:prod`). Dev + dev:ui leave it unset → readable bundle.
+const PROD = process.env.NODE_ENV === "production";
+
 // Shared esbuild options for the renderer bundle — used by the one-shot prod
 // build (below) and the dev:ui watch server (dev-ui.mjs). The react-compiler
 // plugin runs Babel's auto-memoization over .tsx before esbuild bundles.
@@ -18,6 +22,9 @@ export const buildOptions = {
   target: "es2022",
   loader: { ".tsx": "tsx", ".wgsl": "text" },
   jsx: "automatic",
+  minify: PROD,
+  sourcemap: PROD ? false : "linked",
+  define: { "process.env.NODE_ENV": JSON.stringify(PROD ? "production" : "development") },
   external: ["../native/riptide.node", "fs", "path", "electron"],
   plugins: [reactCompilerPlugin()],
 };

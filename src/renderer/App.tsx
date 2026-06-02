@@ -271,6 +271,13 @@ const RESET_RED = packRgba(0xe8, 0x6a, 0x5a, 0x60);
 const RESET_TEXT = packRgba(0xf0, 0x6b, 0x5b, 0xff); // solid, for the "RESET" label
 const NOTCH_COLOR = packRgba(0x86, 0x8c, 0x96, 0xff);
 const NOTCH_HEIGHT = 12;
+// Vertical-line thickness (CSS px). MUST stay in sync with the `thickness`
+// literal in lines.wgsl. Time-aligned lines (ruler notches, grid, cursor,
+// markers) are left-aligned to their logical time instant and extend this far
+// to the right; the hover guide reads as centered on the pointer because its
+// tick is biased by half this (see updateHover / tickAtClientX).
+const LINE_THICKNESS_CSS = 2.5;
+const LINE_HALF_CSS = LINE_THICKNESS_CSS * 0.5;
 // Bottom ruler band height (CSS px). Matches the `.status` cursor bar
 // (index.html `.status { height: 24px }`), not the taller top ruler.
 const BOTTOM_RULER_HEIGHT = 24;
@@ -1188,10 +1195,10 @@ export function App() {
           r1.x = 0; r1.y = rulerHeightCSS - 1; r1.w = canvasW; r1.h = 1; r1.color = BORDER;
           for (const t of rulerTicks) {
             const r = getRect(rectsBgScratch, bgRectN++);
-            // Center the 2px notch on the tick — waveform edges & dashed grid
-            // lines are centered on xForTick(t), so a left-anchored rect lands
-            // ~1px right of the real edge.
-            r.x = xForTick(t) - 1; r.y = notchY; r.w = 2; r.h = NOTCH_HEIGHT; r.color = NOTCH_COLOR;
+            // Left-align the notch to the tick's logical time, extending
+            // THICKNESS px right — the shared time-aligned-line convention, so
+            // the notch shares its left edge with the dashed grid line below.
+            r.x = xForTick(t); r.y = notchY; r.w = LINE_THICKNESS_CSS; r.h = NOTCH_HEIGHT; r.color = NOTCH_COLOR;
           }
           const rd = getRect(rectsBgScratch, bgRectN++);
           rd.x = deadStartPx; rd.y = rulerHeightCSS;
@@ -1205,8 +1212,9 @@ export function App() {
           br1.x = 0; br1.y = bottomRulerTop; br1.w = canvasW; br1.h = 1; br1.color = BORDER;
           for (const t of rulerTicks) {
             const r = getRect(rectsBgScratch, bgRectN++);
-            // Tick marks sit in the bottom half, anchored to the canvas edge.
-            r.x = xForTick(t) - 1; r.y = canvasH - NOTCH_HEIGHT; r.w = 2; r.h = NOTCH_HEIGHT; r.color = NOTCH_COLOR;
+            // Tick marks sit in the bottom half, anchored to the canvas edge;
+            // left-aligned to the tick like the top notches.
+            r.x = xForTick(t); r.y = canvasH - NOTCH_HEIGHT; r.w = LINE_THICKNESS_CSS; r.h = NOTCH_HEIGHT; r.color = NOTCH_COLOR;
           }
           // Double-headed span arrow in the empty band above the notches:
           // open caret_sdf chevrons (see rect.wgsl) at each end, a shaft split
@@ -1301,13 +1309,13 @@ export function App() {
           }
 
           // Marker↔cursor delta — only when a marker is actually selected.
-          // xForTick gives each line's center (see lines.wgsl), so the arrow
-          // endpoints land on the line centers directly.
+          // Lines are left-aligned (see lines.wgsl), so add half a thickness to
+          // land the arrow endpoints on each line's visual center.
           const arrowMarker =
             markersRef.current.find((m) => m.id === selectedMarkerIdRef.current);
           if (arrowMarker) {
-            const mX = xForTick(arrowMarker.tick);
-            const cX = xForTick(cursor);
+            const mX = xForTick(arrowMarker.tick) + LINE_HALF_CSS;
+            const cX = xForTick(cursor) + LINE_HALF_CSS;
             const spanLabel = clockAnchorRef.current
               ? `${clockEdgesBetween(arrowMarker.tick, cursor)} clks`
               : `${formatTime(Math.abs(cursor - arrowMarker.tick))} ns`;
@@ -1321,19 +1329,19 @@ export function App() {
         }
         rectsBg.setRects(rectsBgScratch, bgRectN);
 
-        // Grid: dashed vertical lines right-aligned to each visible rising clock
-        // edge. The line shader centers on `x`, so inset by half the line
-        // thickness (CSS px, no dpr — see Conventions) to land the line's right
-        // edge flush on the segment's left edge, marking the start instead of
-        // straddling the boundary.
-        const gridInset = 2.5 * 0.5;
+        // Grid: dashed vertical lines left-aligned to each visible rising clock
+        // edge. The line shader left-aligns on `x` (extends THICKNESS right —
+        // see lines.wgsl), so the left edge lands on the clock edge's logical
+        // time. Segment edges are right-justified to the *previous* segment, so
+        // grid lines deliberately do NOT overlap them — the grid sits just to
+        // the right of the boundary the segment edge leads up to.
         const visStart = startTicks - 1;
         const visEnd = startTicks + visibleTicks + 1;
         let bgLineN = 0;
         for (const t of CLOCK_EDGE_TICKS) {
           if (t < visStart || t > visEnd) continue;
           const l = getLine(linesBgScratch, bgLineN++);
-          l.x = xForTick(t) - gridInset; l.color = GRID_GRAY; l.dashed = true;
+          l.x = xForTick(t); l.color = GRID_GRAY; l.dashed = true;
         }
         linesBg.setLines(linesBgScratch, bgLineN);
 
@@ -1347,6 +1355,8 @@ export function App() {
           l.x = xForTick(m.tick); l.color = m.color; l.dashed = m.id !== selId;
         }
         // Gray dashed guide under the live pointer (not the selected cursor).
+        // hov.tick is already biased left by half a line thickness (updateHover),
+        // so this left-aligned line renders centered on the pointer pixel.
         const hov = hoverRef.current;
         if (hov && fgLineN < MAX_MARKERS) {
           const lh = getLine(linesFgScratch, fgLineN++);
@@ -1399,17 +1409,16 @@ export function App() {
         const pillH = 14;
         const addFlag = (x: number, text: string, color: number, pill: { rects: typeof rectsBg; text: typeof textBody }) => {
           const pillW = text.length * cellSm.widthPx + padX * 2;
-          // The line is centered on x (lines.wgsl), so anchor the pill's near
-          // edge to the line's near edge — half a line width off x — so the
-          // line enters the squared corner flush. Default: pill left edge on the
-          // line's left edge. Near the right canvas edge, slide the pill leftward
-          // so it stays on-screen — at x == canvas.right, pill's right edge on the
-          // line's right edge. Linear ramp over the last `pillW` px of canvas
-          // (interior is dead zone). Final clamp keeps the pill fully on-screen.
-          const lineHalf = 2.5 * 0.5;
+          // The line is left-aligned: it occupies [x, x + THICKNESS] (lines.wgsl).
+          // Anchor the pill's near edge to the line's near edge so the line enters
+          // the squared corner flush. Default (t=0): pill left edge on the line's
+          // left edge (x). Near the right canvas edge, slide the pill leftward so
+          // it stays on-screen — at x == canvas.right, pill's right edge on the
+          // line's right edge (x + THICKNESS). Linear ramp over the last `pillW`
+          // px of canvas (interior is dead zone). Final clamp keeps it on-screen.
           const flipStart = canvasW - pillW;
           const t = Math.max(0, Math.min(1, (x - flipStart) / pillW));
-          const anchor = x + (2 * t - 1) * lineHalf;
+          const anchor = x + t * LINE_THICKNESS_CSS;
           const pillX = Math.max(0, Math.min(canvasW - pillW, anchor - t * pillW));
           const pillY = 0;
           const r = getRect(pillRectScratch, 0);
@@ -1443,7 +1452,8 @@ export function App() {
           const lineX = xForTick(m.tick);
           const mLabel = clockAnchorRef.current ? formatClockWhole(m.tick) : `${formatTime(m.tick)} ns`;
           const box = addFlag(lineX, `${m.name} · ${mLabel}`, m.color, markerPills[mi]);
-          hits.push({ id: m.id, x0: box.x0, x1: box.x1, lineX });
+          // Grab slop centers on the line's visual center (left edge + half).
+          hits.push({ id: m.id, x0: box.x0, x1: box.x1, lineX: lineX + LINE_HALF_CSS });
           mi++;
         }
         for (; mi < markerPills.length; mi++) {
@@ -1523,7 +1533,9 @@ export function App() {
     // honoring snap. Shared by cursor placement and marker dragging.
     const tickAtClientX = (clientX: number) => {
       const rect = host.getBoundingClientRect();
-      const px = Math.max(0, Math.min(rect.width, clientX - rect.left));
+      // Same half-thickness bias as the hover guide so the placed (left-aligned)
+      // cursor/marker line lands exactly where the centered hover line sat.
+      const px = Math.max(0, Math.min(rect.width, clientX - rect.left)) - LINE_HALF_CSS;
       let tick = startTicksRef.current + px * ticksPerPixelRef.current;
       if (snapCursorRef.current) tick = snapToClockEdge(tick);
       return tick;
@@ -1594,7 +1606,10 @@ export function App() {
       const rect = host.getBoundingClientRect();
       const rh = rulerHeightRef.current;
       const py = clientY - rect.top;
-      const px = Math.max(0, Math.min(rect.width, clientX - rect.left));
+      // Bias by half a line thickness: the guide line is left-aligned (lines.wgsl)
+      // but reads as centered on the pointer, so the logical time under the pointer
+      // is half a thickness left of the raw pointer pixel.
+      const px = Math.max(0, Math.min(rect.width, clientX - rect.left)) - LINE_HALF_CSS;
       const tick = startTicksRef.current + px * ticksPerPixelRef.current;
       // row === -1 means "over the canvas but not on a signal" — the guide line
       // still draws; only the status readout needs a real row.
