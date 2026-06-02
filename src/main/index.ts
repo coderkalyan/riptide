@@ -40,11 +40,11 @@ function createWindow(): void {
   loadTrace(win);
   // win.webContents.openDevTools({ mode: "detach" });
   //
-  setTimeout(() => {
-    win.capturePage().then(image => {
-      fs.writeFileSync('screenshot.png', image.toPNG())
-    })
-  }, 1000)
+  // setTimeout(() => {
+  //   win.capturePage().then(image => {
+  //     fs.writeFileSync('screenshot.png', image.toPNG())
+  //   })
+  // }, 1000)
 }
 
 // Renderer ("Open VCD…") -> native file dialog. On a choice, reload the window
