@@ -275,9 +275,16 @@
         .t-children { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 180ms ease; }
         .t-children.open { grid-template-rows: 1fr; }
         .t-children-inner { overflow: hidden; min-height: 0; }
-        /* Global scrollbar styling — thin bars, matching the signal tree. */
-        * { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+        /* Global scrollbar styling — thin bars, matching the signal tree.
+           NOTE: do NOT set the standard `scrollbar-width`/`scrollbar-color` here.
+           In Chromium (this is always the renderer) those switch the element to
+           the standardized scrollbar and make it IGNORE every ::-webkit-scrollbar
+           rule below — including the button-hiding one — which on Linux brings
+           back the GTK stepper triangles. The webkit pseudo-elements give full
+           control (and no stepper arrows by default). */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
+        /* Drop the up/down (and left/right) stepper arrows — keep only the thumb. */
+        ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: var(--muted); }

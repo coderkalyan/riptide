@@ -1145,16 +1145,19 @@ export function App() {
         }
         rectsBg.setRects(rectsBgScratch, bgRectN);
 
-        // Grid: dashed vertical lines at each visible rising clock edge.
-        // Segment right edges sit just left of their tick, so the line lands
-        // immediately after.
+        // Grid: dashed vertical lines right-aligned to each visible rising clock
+        // edge. The line shader centers on `x`, so inset by half the line
+        // thickness (CSS px, no dpr — see Conventions) to land the line's right
+        // edge flush on the segment's left edge, marking the start instead of
+        // straddling the boundary.
+        const gridInset = 2.5 * 0.5;
         const visStart = startTicks - 1;
         const visEnd = startTicks + visibleTicks + 1;
         let bgLineN = 0;
         for (const t of CLOCK_EDGE_TICKS) {
           if (t < visStart || t > visEnd) continue;
           const l = getLine(linesBgScratch, bgLineN++);
-          l.x = xForTick(t); l.color = GRID_GRAY; l.dashed = true;
+          l.x = xForTick(t) - gridInset; l.color = GRID_GRAY; l.dashed = true;
         }
         linesBg.setLines(linesBgScratch, bgLineN);
 
