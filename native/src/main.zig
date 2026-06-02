@@ -62,6 +62,24 @@ fn jsU32(env: c.napi_env, n: u32) c.napi_value {
     return v;
 }
 
+// A JS array of `words` u32s read little-endian from `bytes` (tide's per-sample
+// byte run), zero-padded when shorter. Mirrors segments.appendWords so the
+// CPU-side value matches the GPU pool layout.
+fn jsWordArray(env: c.napi_env, bytes: []const u8, words: u32) c.napi_value {
+    const arr = jsArr(env, words);
+    var w: u32 = 0;
+    while (w < words) : (w += 1) {
+        var word: u32 = 0;
+        var b: u32 = 0;
+        while (b < 4) : (b += 1) {
+            const idx = w * 4 + b;
+            if (idx < bytes.len) word |= @as(u32, bytes[idx]) << @intCast(b * 8);
+        }
+        _ = c.napi_set_element(env, arr, w, jsU32(env, word));
+    }
+    return arr;
+}
+
 fn jsStr(env: c.napi_env, s: []const u8) c.napi_value {
     var v: c.napi_value = undefined;
     _ = c.napi_create_string_utf8(env, s.ptr, s.len, &v);
@@ -264,9 +282,10 @@ fn getValueAt(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.napi_v
 
     const v = pack.valueAt(getDb(), id, tick_u32) orelse return jsNull(env);
 
+    const words = seg.wordsPerSample(v.width);
     const o = jsObj(env);
-    setProp(env, o, "lsb", jsU32(env, v.lsb));
-    setProp(env, o, "msb", jsU32(env, v.msb));
+    setProp(env, o, "lsb", jsWordArray(env, v.x0, words));
+    setProp(env, o, "msb", jsWordArray(env, v.x1, words));
     return o;
 }
 

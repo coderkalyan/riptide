@@ -2,10 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const tide = @import("tide");
 const tide_vcd = @import("tide_vcd");
-const seg = @import("segments.zig");
 const hier = @import("hier.zig");
-
-const Bits = seg.Bits;
 
 // The scene is loaded from a VCD file on disk (path supplied by JS — the bundled
 // native/src/mock.vcd by default, or a user-opened file). We parse it with
@@ -33,48 +30,59 @@ pub const Loaded = struct {
 // tide stores 4-state values as (x1,x0) bit planes: 00=0 01=1 10=x 11=z, which
 // is exactly riptide's (msb,lsb) convention. h/l/u/w/- and any other extended
 // logic value collapse to x (documented shim — see TIDE_INTEGRATION.md).
+//
+// Widths are arbitrary: real traces carry 64-bit (and wider — buses of hundreds
+// of bits) signals, so values are written straight into width-sized byte buffers
+// (one bit per signal bit, LSB-first within each plane) rather than a 32-bit
+// accumulator. The GPU pool still only renders ≤32-bit rows, but the database
+// must store every signal at full width so the trace opens and the tree/values
+// are correct.
 
-fn charBits(c: u8) Bits {
+// Largest signal width (bytes) we ingest; vectors beyond this are rejected
+// rather than overflowing the stack buffers. 1024 B = 8192-bit signals.
+const MAX_VALUE_BYTES: usize = 1024;
+
+const LogicBit = struct { lsb: bool, msb: bool };
+
+fn charBit(c: u8) LogicBit {
     return switch (c) {
-        '0' => .{ .lsb = 0, .msb = 0 },
-        '1' => .{ .lsb = 1, .msb = 0 },
-        'z', 'Z' => .{ .lsb = 1, .msb = 1 },
-        else => .{ .lsb = 0, .msb = 1 }, // x/X and extended values
+        '0' => .{ .lsb = false, .msb = false },
+        '1' => .{ .lsb = true, .msb = false },
+        'z', 'Z' => .{ .lsb = true, .msb = true },
+        else => .{ .lsb = false, .msb = true }, // x/X and extended values
     };
 }
 
-// MSB-first VCD vector string → (lsb,msb) for a width-bit signal, left-extended
-// per the VCD rule: pad with '0' for 0/1-leading values, else with the leading
-// x/z character. width ≤ 32.
-fn decodeVector(value: []const u8, width: u32) Bits {
-    std.debug.assert(value.len >= 1);
-    const lead = value[0];
+fn setBit(buf: []u8, i: usize, v: bool) void {
+    if (v) buf[i >> 3] |= @as(u8, 1) << @intCast(i & 7);
+}
+
+// 1-bit scalar change: one byte per plane.
+fn appendScalar(b: *tide.Builder, gpa: Allocator, ts: u64, value: u8) !void {
+    const lm = charBit(value);
+    try b.append(gpa, ts, &[_]u8{@intFromBool(lm.lsb)}, &[_]u8{@intFromBool(lm.msb)});
+}
+
+// MSB-first VCD vector, left-extended to the declared width per the VCD rule
+// (pad '0' for 0/1-leading values, else the leading x/z char).
+fn appendVector(b: *tide.Builder, gpa: Allocator, ts: u64, value: []const u8, width: u32) !void {
+    const bps = b.type.bytes();
+    if (bps > MAX_VALUE_BYTES) return error.SignalTooWide;
+    var x0: [MAX_VALUE_BYTES]u8 = undefined;
+    var x1: [MAX_VALUE_BYTES]u8 = undefined;
+    @memset(x0[0..bps], 0);
+    @memset(x1[0..bps], 0);
+    const lead = if (value.len > 0) value[0] else '0';
     const pad: u8 = if (lead == '0' or lead == '1') '0' else lead;
-    var lsb: u32 = 0;
-    var msb: u32 = 0;
-    var i: u32 = 0;
+    var i: usize = 0;
     while (i < width) : (i += 1) {
         // Bit i (LSB = 0) is the i-th char from the right of the MSB-first
         // string, or the pad char once we run past its length.
         const c: u8 = if (i < value.len) value[value.len - 1 - i] else pad;
-        const b = charBits(c);
-        const shift: u5 = @intCast(i);
-        lsb |= b.lsb << shift;
-        msb |= b.msb << shift;
+        const lm = charBit(c);
+        setBit(x0[0..bps], i, lm.lsb);
+        setBit(x1[0..bps], i, lm.msb);
     }
-    return .{ .lsb = lsb, .msb = msb };
-}
-
-fn writeBits(dst_x0: []u8, dst_x1: []u8, lsb: u32, msb: u32) void {
-    for (dst_x0, 0..) |*b, i| b.* = @truncate(lsb >> @intCast(i * 8));
-    for (dst_x1, 0..) |*b, i| b.* = @truncate(msb >> @intCast(i * 8));
-}
-
-fn appendBits(b: *tide.Builder, gpa: Allocator, ts: u64, bits: Bits) !void {
-    var x0 = [_]u8{0} ** 4;
-    var x1 = [_]u8{0} ** 4;
-    const bps = b.type.bytes();
-    writeBits(x0[0..bps], x1[0..bps], bits.lsb, bits.msb);
     try b.append(gpa, ts, x0[0..bps], x1[0..bps]);
 }
 
@@ -180,15 +188,12 @@ pub fn load(gpa: Allocator, path: []const u8) !Loaded {
             .scalar => |sc| {
                 const sid: u64 = @intFromEnum(sc.code);
                 if (sid >= builders.len) continue;
-                if (builders[sid]) |*b| try appendBits(b, gpa, cur_t, charBits(sc.value));
+                if (builders[sid]) |*b| try appendScalar(b, gpa, cur_t, sc.value);
             },
             .vector => |vec| {
                 const sid: u64 = @intFromEnum(vec.code);
                 if (sid >= builders.len) continue;
-                if (builders[sid]) |*b| {
-                    const bits = decodeVector(vec.value, widths[sid]);
-                    try appendBits(b, gpa, cur_t, bits);
-                }
+                if (builders[sid]) |*b| try appendVector(b, gpa, cur_t, vec.value, widths[sid]);
             },
             // tide is quaternary-only: real/string values are skipped (shim).
             // Dump-control events carry no data.

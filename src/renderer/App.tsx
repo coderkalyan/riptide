@@ -7,16 +7,19 @@ import { SignalTreeView } from "./SignalTree";
 import { initGPU, resizeCanvas, GPUInitError } from "./gpu/device";
 import { createDigitalRenderer } from "./gpu/digital";
 import { renderFrame } from "./gpu/frame";
-import { createColorBuffer, writeRowColors } from "./gpu/colors";
+import { createColorBuffer, writeRowColors, MAX_ROWS } from "./gpu/colors";
 import { MOCK_CLOCK_TICK_NS, MOCK_END_TICKS, unpackSegmentHeaders } from "./gpu/data";
 import { createTextRenderer, packRgba, MAX_GLYPHS, ATLAS_MIDDLE_DOT } from "./gpu/text";
 import { createLineRenderer } from "./gpu/lines";
 import { createRectRenderer } from "./gpu/rect";
-import { INITIAL, SCENE, RESET_HELD_TICKS, buildPackSpecs, type ActiveSignalRef, type Radix } from "./hier/scene";
+import { INITIAL, SCENE, RESET_HELD_TICKS, buildPackSpecs, packSpecsFor, makeActiveRef, type ActiveSignalRef, type Radix } from "./hier/scene";
 import { getSignal } from "./hier/hierarchy";
 import type { NodeId, Timescale, TimeUnit } from "./hier/types";
 import { serializeSidecar, sidecarPath, sidecarToString, writeSidecarFile } from "./hier/sidecar";
 import { getMockSegments, getValueAt } from "./native";
+import { createGpuTimer } from "./gpu/timing";
+import * as perf from "./perf";
+import { PerfOverlay } from "./PerfOverlay";
 
 function activeSignalKind(ref: ActiveSignalRef): ActiveSignalKind {
   if (ref.role === "clock") return "clock";
@@ -26,6 +29,12 @@ function activeSignalKind(ref: ActiveSignalRef): ActiveSignalKind {
   return "signal";
 }
 
+// Active-signal / ruler row height in CSS px. Mirrors the --row-h CSS var that
+// .s-row / .s-head resolve to (border-box), so the canvas rows line up with the
+// DOM rows. CSS px only — DPR is applied to the backing store in resizeCanvas
+// and via the frame loop's `dpr`; row_height itself must stay CSS px (see the
+// DPR contract in CLAUDE.md).
+const ROW_HEIGHT_CSS = 28;
 const ZOOM_PER_DELTA_Y = 0.001; // Math.exp() factor per wheel deltaY unit
 const ZOOM_ANIM_MS = 120; // duration of button-driven zoom in/out/fit easing
 const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
@@ -52,10 +61,17 @@ const INITIAL_SELECTED_MARKER: number | null =
 const INITIAL_MARKER_SEQ = INITIAL_MARKERS.length + 1;
 
 // Decoded (lsb, msb) value of a signal at a tick, via the native tide query.
-// Replaces the old scan over a JS segment list.
-type SegValueLM = { lsb: number; msb: number };
+// Replaces the old scan over a JS segment list. lsb/msb are little-endian u32
+// word arrays (one word per 32 bits of width), so values wider than 32 bits are
+// carried in full.
+type SegValueLM = { lsb: number[]; msb: number[] };
 function valueAtTick(handle: string, tick: number): SegValueLM | undefined {
   return getValueAt(handle, Math.floor(tick)) ?? undefined;
+}
+
+// Bit `bit` of a word-array value (0 or 1).
+function bitOfWords(words: number[], bit: number): number {
+  return (words[bit >>> 5] >>> (bit & 31)) & 1;
 }
 
 function formatSegmentValue(
@@ -65,15 +81,21 @@ function formatSegmentValue(
   enumLabels?: Map<number, string>,
 ): string {
   if (!value) return "-";
-  const hasX = (value.msb & ~value.lsb) >>> 0;
-  const hasZ = (value.msb & value.lsb) >>> 0;
+  // Whole-value x/z presence, OR-reduced per word (each word holds distinct
+  // bits, so per-word (msb & ~lsb)/(msb & lsb) never cross-contaminate).
+  let hasX = false, hasZ = false;
+  for (let w = 0; w < value.msb.length; w++) {
+    const m = value.msb[w] >>> 0, l = value.lsb[w] >>> 0;
+    if ((m & ~l) >>> 0) hasX = true;
+    if ((m & l) >>> 0) hasZ = true;
+  }
   // Any X/Z: render in the signal's own radix (matching its 2-state segments)
   // rather than always falling back to binary.
   if (hasX || hasZ) {
     // Per-bit 2-state classification: "0" | "1" | "X" | "Z".
     const bitChar = (bit: number): string => {
-      const l = (value.lsb >>> bit) & 1;
-      const m = (value.msb >>> bit) & 1;
+      const l = bitOfWords(value.lsb, bit);
+      const m = bitOfWords(value.msb, bit);
       if (m === 0) return l === 0 ? "0" : "1";
       return l === 0 ? "X" : "Z";
     };
@@ -116,34 +138,33 @@ function formatSegmentValue(
     for (let bit = bitWidth - 1; bit >= 0; bit--) chars.push(bitChar(bit));
     return `0b${chars.join("")}`;
   }
-  const val = value.lsb >>> 0;
+  // All bits defined (2-state). Enum keys are ≤32-bit, so the low word suffices.
   if (enumLabels) {
-    const label = enumLabels.get(val);
+    const label = enumLabels.get(value.lsb[0] >>> 0);
     if (label) return label;
   }
-  if (bitWidth === 1) return String(val);
-  if (radix === "hex") return `0x${val.toString(16).toUpperCase()}`;
-  if (radix === "dec") return String(val);
-  return `0b${val.toString(2).padStart(bitWidth, "0")}`;
+  if (bitWidth === 1) return String(bitOfWords(value.lsb, 0));
+  if (radix === "hex") {
+    // Nibbles MSB-first, then trim leading zeros (one digit min) to match the
+    // old toString(16) form for ≤32-bit values.
+    let hex = "";
+    for (let hi = bitWidth - 1; hi >= 0; hi -= 4) {
+      let nib = 0;
+      for (let b = hi; b > hi - 4 && b >= 0; b--) nib = (nib << 1) | bitOfWords(value.lsb, b);
+      hex += nib.toString(16).toUpperCase();
+    }
+    return `0x${hex.replace(/^0+/, "") || "0"}`;
+  }
+  if (radix === "dec") {
+    // BigInt so widths > 32 print exactly (low word first, little-endian).
+    let big = 0n;
+    for (let w = value.lsb.length - 1; w >= 0; w--) big = (big << 32n) | BigInt(value.lsb[w] >>> 0);
+    return big.toString();
+  }
+  let bin = "";
+  for (let bit = bitWidth - 1; bit >= 0; bit--) bin += String(bitOfWords(value.lsb, bit));
+  return `0b${bin}`;
 }
-
-// Precompute enum label maps per row (value → label) for any active signal
-// whose declaration carries an enumTypeId.
-const ENUM_LABELS_BY_ROW = new Map<number, Map<number, string>>();
-for (const ref of SCENE.activeSignals) {
-  const sig = getSignal(SCENE.hierarchy, ref.signalId);
-  if (sig.enumTypeId == null) continue;
-  const enumType = SCENE.hierarchy.enumTypes.get(sig.enumTypeId);
-  if (!enumType) continue;
-  const m = new Map<number, string>();
-  for (const mem of enumType.members) m.set(parseInt(mem.raw, 2), mem.label);
-  ENUM_LABELS_BY_ROW.set(ref.row, m);
-}
-
-// Native packed scene: GPU buffers (multi/single segments + RowInfo + value
-// pools) plus the data the CPU still needs. Built once at module load; reused by
-// both the label pass below and the GPU pipeline setup in the effect.
-const NATIVE = getMockSegments(buildPackSpecs());
 
 interface MultiBitLabel {
   row: number;
@@ -153,18 +174,51 @@ interface MultiBitLabel {
 }
 
 const FLAG_MUTE = 1 << 20;
+
+// Enum label maps per row (value → label) for any active signal whose
+// declaration carries an enumTypeId. Recomputed whenever the active set changes
+// (add/remove from tree), so a freshly added enum signal picks up its labels.
+function buildEnumLabels(active: ActiveSignalRef[]): Map<number, Map<number, string>> {
+  const out = new Map<number, Map<number, string>>();
+  for (const ref of active) {
+    const sig = getSignal(SCENE.hierarchy, ref.signalId);
+    if (sig.enumTypeId == null) continue;
+    const enumType = SCENE.hierarchy.enumTypes.get(sig.enumTypeId);
+    if (!enumType) continue;
+    const m = new Map<number, string>();
+    for (const mem of enumType.members) m.set(parseInt(mem.raw, 2), mem.label);
+    out.set(ref.row, m);
+  }
+  return out;
+}
+
 // Value labels drawn inside multi-bit pills. The segment timing/flags come from
 // the native multi-pipeline buffer; the value at each segment's start tick comes
-// from a tide point query (getValueAt).
-const MULTI_BIT_LABELS: MultiBitLabel[] = unpackSegmentHeaders(NATIVE.multi, NATIVE.multiCount)
-  .filter((s) => (s.rowFlags & FLAG_MUTE) === 0)
-  .map((s) => {
-    const row = s.rowFlags & 0xffff;
-    const ref = SCENE.activeSignals.find((r) => r.row === row)!;
-    const sig = getSignal(SCENE.hierarchy, ref.signalId);
-    const value = valueAtTick(sig.handle, s.tStart);
-    return { row, tStart: s.tStart, tEnd: s.tEnd, text: formatSegmentValue(value, sig.bitWidth, ref.radix, ENUM_LABELS_BY_ROW.get(row)) };
-  });
+// from a tide point query (getValueAt). Recomputed alongside the GPU repack.
+function buildMultiLabels(
+  native: ReturnType<typeof getMockSegments>,
+  active: ActiveSignalRef[],
+  enumLabels: Map<number, Map<number, string>>,
+): MultiBitLabel[] {
+  return unpackSegmentHeaders(native.multi, native.multiCount)
+    .filter((s) => (s.rowFlags & FLAG_MUTE) === 0)
+    .map((s) => {
+      const row = s.rowFlags & 0xffff;
+      const ref = active.find((r) => r.row === row)!;
+      const sig = getSignal(SCENE.hierarchy, ref.signalId);
+      const value = valueAtTick(sig.handle, s.tStart);
+      return { row, tStart: s.tStart, tEnd: s.tEnd, text: formatSegmentValue(value, sig.bitWidth, ref.radix, enumLabels.get(row)) };
+    });
+}
+
+// Native packed scene: GPU buffers (multi/single segments + RowInfo + value
+// pools) plus the data the CPU still needs. Built once at module load for the
+// initial active set; the GPU effect repacks in place when signals are added.
+perf.stamp("pack:start");
+const NATIVE = getMockSegments(buildPackSpecs());
+perf.stamp("pack:end");
+const INITIAL_ENUM_LABELS = buildEnumLabels(SCENE.activeSignals);
+const MULTI_BIT_LABELS: MultiBitLabel[] = buildMultiLabels(NATIVE, SCENE.activeSignals, INITIAL_ENUM_LABELS);
 
 const TEXT_WHITE = packRgba(0xff, 0xff, 0xff, 0xff);
 const TEXT_DARK = packRgba(0x14, 0x15, 0x17, 0xff); // matches --bg
@@ -579,7 +633,7 @@ const ACTIVE_SIGNAL_MENU: MenuItem[] = [
   { label: "Remove from View", kbd: "⌫" },
 ];
 
-function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: MenuItem[]; onClose: () => void }) {
+function ContextMenu({ x, y, items, onClose, onSelect }: { x: number; y: number; items: MenuItem[]; onClose: () => void; onSelect?: (label: string) => void }) {
   // Mount hidden, then flip `show` next frame so the opacity transition runs
   // (the `.menu-pop` base style is now opacity:0 / pointer-events:none).
   const [show, setShow] = useState(false);
@@ -604,7 +658,7 @@ function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: Me
       {items.map((it, i) => it === "sep"
         ? <div key={i} className="menu-sep" />
         : (
-          <div key={i} className="menu-item" onClick={onClose}>
+          <div key={i} className="menu-item" onClick={() => { onSelect?.(it.label); onClose(); }}>
             <span>{it.label}</span>
             {it.kbd && <span className="menu-kbd">{it.kbd}</span>}
           </div>
@@ -665,6 +719,10 @@ export function App() {
   const signalsRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const gpuRef = useRef<{ device: GPUDevice; colorBuf: GPUBuffer } | null>(null);
+  // Set once the GPU scene is built — repacks the segment/scene buffers and pill
+  // labels for a new active set (add-from-tree) without recompiling pipelines.
+  // null until init; the activeSignals effect skips the repack until then.
+  const rebuildSceneRef = useRef<((active: ActiveSignalRef[]) => void) | null>(null);
   const textColorByRowRef = useRef<Map<number, number>>(new Map());
 
   // Viewport state — refs only (RAF is the sole reader, no React DOM uses
@@ -684,8 +742,14 @@ export function App() {
   const draggingRef = useRef(false);
 
   const [activeSignals, setActiveSignals] = useState<ActiveSignalRef[]>(SCENE.activeSignals);
+  // Enum label maps per row, recomputed when the active set changes — feeds both
+  // the active-panel value column and the hover readout. The GPU repack builds
+  // its own copy for the canvas pill labels (multiLabelsRef).
+  const enumLabelsByRow = useMemo(() => buildEnumLabels(activeSignals), [activeSignals]);
   const [picker, setPicker] = useState<{ row: number; anchorRect: DOMRect } | null>(null);
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  // row: which active-signal row was right-clicked (-1 = empty area), so the
+  // context menu's row-scoped items (Remove from View) know their target.
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; row: number } | null>(null);
   const [snapCursor, setSnapCursor] = useState(INITIAL.toggles.snapCursor);
   const [clockAnchor, setClockAnchor] = useState(INITIAL.toggles.clockAnchor);
   // Cursor needs both a ref (event handlers, frame loop) and state (active-
@@ -807,22 +871,51 @@ export function App() {
     if (!canvas || !signals) return;
 
     let raf = 0;
+    perf.stamp("gpu:start");
 
     initGPU(canvas).then(async ({ device, ctx, format }) => {
       const gpuCtx = { device, ctx, format };
+      // GPU pass timer (timestamp-query); pushes elapsed GPU ms to perf. No-op
+      // when the feature is unavailable.
+      const gpuTimer = createGpuTimer(device, perf.pushGpu);
+      perf.setGpuSupported(gpuTimer.supported);
       const colorBuf = createColorBuffer(device);
       writeRowColors(device, colorBuf, SCENE.activeSignals);
       gpuRef.current = { device, colorBuf };
       const renderer = createDigitalRenderer(gpuCtx);
-      const native = NATIVE;
-      const scene = renderer.createSceneBuffers(native.rowInfo, native.x0Pool, native.x1Pool);
-      const [multiBit, singleBit, textRenderer, lineRenderer, rectRenderer] = await Promise.all([
-        renderer.buildPipelineFromPacked("multi", native.multi, native.multiCount, colorBuf, scene),
-        renderer.buildPipelineFromPacked("single", native.single, native.singleCount, colorBuf, scene),
+      // Mutable scene state: reassigned in place by rebuildScene when the active
+      // set changes. The frame loop reads these live (closure vars), so a repack
+      // takes effect on the next rAF with no effect re-run.
+      let scene = renderer.createSceneBuffers(NATIVE.rowInfo, NATIVE.x0Pool, NATIVE.x1Pool);
+      let multiLabels = MULTI_BIT_LABELS;
+      const [multiBitInit, singleBitInit, textRenderer, lineRenderer, rectRenderer] = await Promise.all([
+        renderer.buildPipelineFromPacked("multi", NATIVE.multi, NATIVE.multiCount, colorBuf, scene),
+        renderer.buildPipelineFromPacked("single", NATIVE.single, NATIVE.singleCount, colorBuf, scene),
         createTextRenderer(gpuCtx, renderer.uniformBuf),
         createLineRenderer(gpuCtx, renderer.uniformBuf),
         createRectRenderer(gpuCtx, renderer.uniformBuf),
       ]);
+      let multiBit = multiBitInit;
+      let singleBit = singleBitInit;
+
+      // Repack the GPU buffers + pill labels for a new active list. Reuses the
+      // compiled pipelines (rebindPipeline), destroying the buffers they no
+      // longer reference to avoid leaking on repeated adds.
+      rebuildSceneRef.current = (active: ActiveSignalRef[]) => {
+        const packed = getMockSegments(packSpecsFor(active));
+        const nextScene = renderer.createSceneBuffers(packed.rowInfo, packed.x0Pool, packed.x1Pool);
+        const nextMulti = renderer.rebindPipeline(multiBit, packed.multi, packed.multiCount, colorBuf, nextScene);
+        const nextSingle = renderer.rebindPipeline(singleBit, packed.single, packed.singleCount, colorBuf, nextScene);
+        multiBit.segmentBuf.destroy();
+        singleBit.segmentBuf.destroy();
+        scene.rowInfo.destroy();
+        scene.x0Pool.destroy();
+        scene.x1Pool.destroy();
+        scene = nextScene;
+        multiBit = nextMulti;
+        singleBit = nextSingle;
+        multiLabels = buildMultiLabels(packed, active, buildEnumLabels(active));
+      };
       const linesBg = lineRenderer.createBatch();
       const linesFg = lineRenderer.createBatch();
       const rectsBg = rectRenderer.createBatch();
@@ -879,17 +972,6 @@ export function App() {
         dim_mask: 0,
       };
 
-      // Cache layout-derived measurements so the rAF loop never calls
-      // getBoundingClientRect (which forces sync reflow). ResizeObserver
-      // refreshes them on size change; matchMedia handles DPR-only changes.
-      const cached = { canvasW: canvas.clientWidth, canvasH: canvas.clientHeight, rowH: 22 };
-      const updateMetrics = () => {
-        cached.canvasW = canvas.clientWidth;
-        cached.canvasH = canvas.clientHeight;
-        const fr = signals.firstElementChild as HTMLElement | null;
-        if (fr) cached.rowH = fr.getBoundingClientRect().height;
-      };
-
       const writeText = (
         batch: typeof textBody,
         startGlyph: number,
@@ -909,11 +991,9 @@ export function App() {
         return gi;
       };
 
-      const ro = new ResizeObserver(() => { resizeCanvas(canvas); updateMetrics(); });
+      const ro = new ResizeObserver(() => { resizeCanvas(canvas); });
       ro.observe(canvas);
-      ro.observe(signals);
       resizeCanvas(canvas);
-      updateMetrics();
 
       // DPR-only changes (e.g. dragging the window between displays at
       // different scales) don't trigger ResizeObserver because clientWidth
@@ -921,21 +1001,23 @@ export function App() {
       let dprMql: MediaQueryList = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
       const onDprChange = () => {
         resizeCanvas(canvas);
-        updateMetrics();
         dprMql.removeEventListener("change", onDprChange);
         dprMql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
         dprMql.addEventListener("change", onDprChange);
       };
       dprMql.addEventListener("change", onDprChange);
 
+      perf.stamp("gpu:ready");
+
       const frame = (now: number) => {
-        // All measurements are in CSS pixels (cached, refreshed by
-        // ResizeObserver). Multiply by DPR to get physical canvas pixels —
-        // the only unit the GPU shader knows about.
+        perf.frameStart(now);
+        // All measurements are in CSS pixels, read live each frame. Multiply by
+        // DPR to get physical canvas pixels — the only unit the GPU shader
+        // knows about.
         const dpr = window.devicePixelRatio || 1;
-        const canvasW = cached.canvasW;
-        const canvasH = cached.canvasH;
-        const rowHeightCSS = cached.rowH;
+        const canvasW = canvas.clientWidth;
+        const canvasH = canvas.clientHeight;
+        const rowHeightCSS = ROW_HEIGHT_CSS;
         const rulerHeightCSS = rowHeightCSS;
         rulerHeightRef.current = rulerHeightCSS;
         const waveHeightCSS = Math.max(0, canvasH - rulerHeightCSS);
@@ -1206,7 +1288,7 @@ export function App() {
         for (const al of rulerArrowLabels) {
           gi = writeText(textBody, gi, al.x, al.y, al.text, al.color, true);
         }
-        for (const lbl of MULTI_BIT_LABELS) {
+        for (const lbl of multiLabels) {
           if (gi >= MAX_GLYPHS) break;
           const startPx = xForTick(lbl.tStart);
           const endPx = xForTick(lbl.tEnd);
@@ -1288,7 +1370,10 @@ export function App() {
         const cursorLabel = clockAnchorRef.current ? formatClockWhole(cursor) : `${formatTime(cursor)} ns`;
         addFlag(xForTick(cursor), cursorLabel, HOT, pillCursor);
 
-        renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, linesFg, textBody, pills: allPills }, vp);
+        const encodeStart = performance.now();
+        renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, linesFg, textBody, pills: allPills }, vp, gpuTimer);
+        perf.frameEnd(performance.now() - encodeStart);
+        perf.markFirstFrame();
         raf = requestAnimationFrame(frame);
       };
       raf = requestAnimationFrame(frame);
@@ -1309,6 +1394,27 @@ export function App() {
     for (const r of activeSignals) m.set(r.row, pickTextColor(r.color));
     textColorByRowRef.current = m;
   }, [activeSignals]);
+
+  // Repack GPU buffers when the structural active set changes — signal/row
+  // membership or radix (which alters multi-bit pill labels). Cosmetic-only
+  // edits (color, selection, hidden, pin) are handled elsewhere and excluded
+  // from the key so they don't trigger a needless repack. Seeded with the
+  // initial key so the first commit (which the GPU effect already built) is a
+  // no-op; the GPU effect may resolve after this runs, so a null rebuild ref
+  // also no-ops (the initial build covers it).
+  const sceneKey = activeSignals.map((r) => `${r.signalId}:${r.row}:${r.radix}`).join("|");
+  const lastSceneKeyRef = useRef(sceneKey);
+  useEffect(() => {
+    if (sceneKey === lastSceneKeyRef.current) return;
+    // GPU not built yet (init still resolving): leave the key unadvanced so the
+    // next active-set change repacks the full current set once the ref lands.
+    if (!rebuildSceneRef.current) return;
+    lastSceneKeyRef.current = sceneKey;
+    rebuildSceneRef.current(activeSignals);
+    // No-op unless an add-signal measurement is in flight (perf.beginAdd);
+    // frameEnd finalizes it once the repacked frame presents.
+    perf.markAddRebuilt(activeSignals.length);
+  }, [sceneKey, activeSignals]);
 
   // Mouse interactivity: wheel = pan, ctrl+wheel = zoom (anchored at mouse x),
   // left click/drag = cursor follows mouse. Native listeners (not React
@@ -1629,6 +1735,34 @@ export function App() {
     setActiveSignals((refs) => refs.map((r) => (r.row === row ? { ...r, hidden: !r.hidden } : r)));
   };
 
+  // Add a signal from the tree to the active list. Appends a new row with
+  // default presentation metadata; the activeSignals effect repacks the GPU
+  // buffers. The same signal may be added multiple times — each copy is an
+  // independent row (own color/radix/selection). No-op past the row-color
+  // buffer's capacity.
+  const addSignalToActive = (signalId: NodeId) => {
+    perf.beginAdd();
+    setActiveSignals((refs) => {
+      const node = SCENE.hierarchy.nodes.get(signalId);
+      if (!node || node.kind !== "signal") return refs;
+      const row = refs.length;
+      if (row >= MAX_ROWS) return refs;
+      return [...refs, makeActiveRef(SCENE.hierarchy, signalId, row)];
+    });
+  };
+
+  // Remove a row from the viewer. Rows are renumbered to stay contiguous (row ==
+  // array position == canvas Y slot), so everything below shifts up by one. The
+  // activeSignals effect repacks the GPU buffers; color/dim/selection follow
+  // their refs.
+  const removeFromView = (row: number) => {
+    setActiveSignals((refs) =>
+      refs
+        .filter((r) => r.row !== row)
+        .map((r, i) => (r.row === i ? r : { ...r, row: i })),
+    );
+  };
+
   const ZOOM_STEP = 1.25;
   // Button zoom: ease toward a center-anchored target instead of snapping.
   // Reads live refs as the start so mid-animation clicks chain smoothly.
@@ -1731,7 +1865,7 @@ export function App() {
         valueAtTick(getSignal(SCENE.hierarchy, hoverSig.signalId).handle, hover.tick),
         getSignal(SCENE.hierarchy, hoverSig.signalId).bitWidth,
         hoverSig.radix,
-        ENUM_LABELS_BY_ROW.get(hoverSig.row),
+        enumLabelsByRow.get(hoverSig.row),
       ),
     }
     : null;
@@ -1810,7 +1944,7 @@ export function App() {
                 </span>
               </div>
               <div className="col-sub"><input className="search" placeholder="filter scope/name" /></div>
-              <SignalTreeView hierarchy={SCENE.hierarchy} expanded={expandedScopes} onToggle={toggleScope} />
+              <SignalTreeView hierarchy={SCENE.hierarchy} expanded={expandedScopes} onToggle={toggleScope} onAdd={addSignalToActive} />
             </div>
           )}
         </div>
@@ -1861,7 +1995,7 @@ export function App() {
           <div
             className="signals"
             ref={signalsRef}
-            onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
+            onContextMenu={(e) => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY, row: -1 }); }}
             onClick={(e) => { if (e.target === e.currentTarget) setActiveSignals((refs) => refs.map((r) => (r.selected ? { ...r, selected: false } : r))); }}
           >
             {activeSignals.map((ref, i) => {
@@ -1880,10 +2014,11 @@ export function App() {
                   hidden={ref.hidden}
                   collapsed={activeCollapsed}
                   sliding={rowSliding}
-                  value={formatSegmentValue(valueAtTick(sig.handle, cursorTicks), sig.bitWidth, ref.radix, ENUM_LABELS_BY_ROW.get(ref.row))}
+                  value={formatSegmentValue(valueAtTick(sig.handle, cursorTicks), sig.bitWidth, ref.radix, enumLabelsByRow.get(ref.row))}
                   onPinClick={(e) => setPicker({ row: ref.row, anchorRect: (e.currentTarget as HTMLElement).getBoundingClientRect() })}
                   onToggleVisible={() => toggleSignalHidden(ref.row)}
                   onClick={() => handleRowClick(ref.row)}
+                  onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, row: ref.row }); }}
                 />
               );
             })}
@@ -2019,9 +2154,18 @@ export function App() {
         />
       )}
       {ctxMenu && (
-        <ContextMenu x={ctxMenu.x} y={ctxMenu.y} items={ACTIVE_SIGNAL_MENU} onClose={() => setCtxMenu(null)} />
+        <ContextMenu
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          items={ACTIVE_SIGNAL_MENU}
+          onClose={() => setCtxMenu(null)}
+          onSelect={(label) => {
+            if (label === "Remove from View" && ctxMenu.row >= 0) removeFromView(ctxMenu.row);
+          }}
+        />
       )}
       <GlobalTooltip />
+      <PerfOverlay />
     </div>
   );
 }

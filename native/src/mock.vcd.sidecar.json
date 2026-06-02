@@ -34,8 +34,7 @@
       {
         "path": "top.keysched.waves.state[1:0]",
         "radix": "dec",
-        "color": "#B48CFF",
-        "selected": true
+        "color": "#B48CFF"
       },
       {
         "path": "top.keysched.waves.cycle_count[7:0]",
@@ -85,6 +84,11 @@
         "color": "#4FD2BD"
       },
       {
+        "path": "top.keysched.waves.wide_data[63:0]",
+        "radix": "hex",
+        "color": "#E6B14E"
+      },
+      {
         "path": "derived.busy",
         "radix": "bin",
         "color": "#4FD2BD",
@@ -99,6 +103,21 @@
         "derived": {
           "expr": "state == DONE"
         }
+      },
+      {
+        "path": "top.mem_ctrl.addr[7:0]",
+        "radix": "hex",
+        "color": "#727BF5"
+      },
+      {
+        "path": "top.mem_ctrl.wen",
+        "radix": "bin",
+        "color": "#72F5DF"
+      },
+      {
+        "path": "top.mem_ctrl.rdata[7:0]",
+        "radix": "hex",
+        "color": "#B48CFF"
       }
     ],
     "markers": []
@@ -116,7 +135,8 @@
         "derived",
         "top",
         "top.keysched",
-        "top.keysched.waves"
+        "top.keysched.waves",
+        "top.mem_ctrl"
       ]
     },
     "toggles": {

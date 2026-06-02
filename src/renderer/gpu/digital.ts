@@ -8,6 +8,9 @@ export interface SignalPipeline {
   pipeline: GPURenderPipeline;
   bindGroup: GPUBindGroup;
   segmentCount: number;
+  // The per-variant segment storage buffer backing this pipeline's bind group.
+  // Tracked so a scene rebuild (add/remove active signal) can destroy it.
+  segmentBuf: GPUBuffer;
 }
 
 // Shared per-scene buffers consumed by both single/multi pipelines.
@@ -33,6 +36,17 @@ export interface DigitalRenderer {
     colorBuf: GPUBuffer,
     scene: SceneBuffers,
   ): Promise<SignalPipeline>;
+  // Reuse an already-compiled pipeline with a fresh segment buffer + scene
+  // (rebound bind group). Synchronous — no pipeline recompile — so an active
+  // signal add/remove can repack on the spot. Caller owns destroying the old
+  // SignalPipeline.segmentBuf and SceneBuffers.
+  rebindPipeline(
+    prev: SignalPipeline,
+    packed: Uint32Array<ArrayBuffer>,
+    segmentCount: number,
+    colorBuf: GPUBuffer,
+    scene: SceneBuffers,
+  ): SignalPipeline;
 }
 
 export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
@@ -63,8 +77,12 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
   } as const;
 
   function writeStorage(bytes: ArrayBuffer): GPUBuffer {
-    // WebGPU requires storage buffer size > 0; pad empty pools to 4 bytes.
-    const size = Math.max(4, bytes.byteLength);
+    // WebGPU validates each binding against the pipeline's required size even
+    // for a 0-instance draw. An empty scene (fresh trace, nothing active) yields
+    // an empty rowInfo buffer; binding 3 is array<RowInfo> (16 B stride), so pad
+    // to 16 — not 4 — or validation rejects it as "too small". 16 is harmless
+    // for the u32 pools too.
+    const size = Math.max(16, bytes.byteLength);
     const buf = device.createBuffer({ size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     if (bytes.byteLength > 0) device.queue.writeBuffer(buf, 0, bytes);
     return buf;
@@ -100,6 +118,17 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
       primitive: { topology: "triangle-strip" },
     });
 
+    return bindSegments(pipeline, packed, segmentCount, colorBuf, scene);
+  }
+
+  // Build the segment storage buffer + bind group for a (re)used pipeline.
+  function bindSegments(
+    pipeline: GPURenderPipeline,
+    packed: Uint32Array<ArrayBuffer>,
+    segmentCount: number,
+    colorBuf: GPUBuffer,
+    scene: SceneBuffers,
+  ): SignalPipeline {
     const segmentBuf = device.createBuffer({
       size: Math.max(16, packed.byteLength),
       usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
@@ -118,7 +147,17 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
       ],
     });
 
-    return { pipeline, bindGroup, segmentCount };
+    return { pipeline, bindGroup, segmentCount, segmentBuf };
+  }
+
+  function rebindPipeline(
+    prev: SignalPipeline,
+    packed: Uint32Array<ArrayBuffer>,
+    segmentCount: number,
+    colorBuf: GPUBuffer,
+    scene: SceneBuffers,
+  ): SignalPipeline {
+    return bindSegments(prev.pipeline, packed, segmentCount, colorBuf, scene);
   }
 
   function writeViewport(vp: Viewport): void {
@@ -126,5 +165,5 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
     device.queue.writeBuffer(uniformBuf, 0, viewportScratch);
   }
 
-  return { ctx, module, bgl, layout, uniformBuf, viewportScratch, writeViewport, createSceneBuffers, buildPipelineFromPacked };
+  return { ctx, module, bgl, layout, uniformBuf, viewportScratch, writeViewport, createSceneBuffers, buildPipelineFromPacked, rebindPipeline };
 }

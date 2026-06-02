@@ -16,7 +16,12 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
     throw new GPUInitError("No WebGPU adapter found — check that hardware acceleration is enabled");
   }
 
-  const device = await adapter.requestDevice();
+  // Opt into timestamp-query when the adapter exposes it, so the perf overlay
+  // can measure real GPU pass time. Absent on some backends — the GpuTimer
+  // no-ops in that case.
+  const requiredFeatures: GPUFeatureName[] = [];
+  if (adapter.features.has("timestamp-query")) requiredFeatures.push("timestamp-query");
+  const device = await adapter.requestDevice({ requiredFeatures });
 
   device.lost.then((info) => {
     console.error(`WebGPU device lost: ${info.message} (reason: ${info.reason})`);

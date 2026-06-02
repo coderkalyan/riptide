@@ -14,15 +14,18 @@ export function SignalTreeView({
   hierarchy,
   expanded,
   onToggle,
+  onAdd,
 }: {
   hierarchy: Hierarchy;
   expanded: Set<NodeId>;
   onToggle: (id: NodeId) => void;
+  // Add a signal node to the active list (the per-row "+" button).
+  onAdd: (id: NodeId) => void;
 }) {
   return (
     <div className="tree">
       {hierarchy.rootIds.map((id) => (
-        <TreeNode key={id} id={id} depth={0} hierarchy={hierarchy} expanded={expanded} toggle={onToggle} />
+        <TreeNode key={id} id={id} depth={0} hierarchy={hierarchy} expanded={expanded} toggle={onToggle} add={onAdd} />
       ))}
     </div>
   );
@@ -34,12 +37,14 @@ function TreeNode({
   hierarchy,
   expanded,
   toggle,
+  add,
 }: {
   id: NodeId;
   depth: number;
   hierarchy: Hierarchy;
   expanded: Set<NodeId>;
   toggle: (id: NodeId) => void;
+  add: (id: NodeId) => void;
 }) {
   const node = hierarchy.nodes.get(id)!;
   const indent = depth > 0 ? `indent-${depth}` : "";
@@ -65,6 +70,7 @@ function TreeNode({
                 hierarchy={hierarchy}
                 expanded={expanded}
                 toggle={toggle}
+                add={add}
               />
             ))}
           </div>
@@ -79,7 +85,11 @@ function TreeNode({
       <span className="chev" />
       <span className={`icon ${kind}`}><Activity size={12} /></span>
       <span className="lbl">{node.name}</span>
-      <span className="plus" data-tip="add to viewer"><Plus size={12} /></span>
+      <span
+        className="plus"
+        data-tip="add to viewer"
+        onClick={(e) => { e.stopPropagation(); add(id); }}
+      ><Plus size={12} /></span>
     </div>
   );
 }

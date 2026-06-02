@@ -14,33 +14,39 @@ pub const PackOpts = struct {
     gate_id: ?tide.Signal.Id = null,
 };
 
-// Read a little-endian byte slice (tide stores `bytes_per_sample` bytes per
-// sample, full width) into a 32-bit lsb/msb pair the way the pool/shader
-// convention expects. Width ≤ 32 ⇒ ≤ 4 bytes, so this never overflows.
-fn readBits(x0: []const u8, x1: []const u8) seg.Bits {
-    var lsb: u32 = 0;
-    var msb: u32 = 0;
-    for (x0, 0..) |b, i| lsb |= @as(u32, b) << @intCast(i * 8);
-    for (x1, 0..) |b, i| msb |= @as(u32, b) << @intCast(i * 8);
-    return .{ .lsb = lsb, .msb = msb };
+// True if any byte in the slice is non-zero (used for x/z presence tests).
+fn anyNonzero(bytes: []const u8) bool {
+    for (bytes) |b| {
+        if (b != 0) return true;
+    }
+    return false;
 }
 
-// Value (lsb/msb) of `id` at tick `t`. `query(id, t, t)` returns the single
-// sample active at `t` (tide's lo = upperBound-1). Used by the value column and
-// the gate-mute test.
-pub fn valueAt(db: *const tide.Database, id: tide.Signal.Id, t: u64) ?seg.Bits {
+// The full-width little-endian byte runs of `id`'s sample at tick `t`, plus its
+// declared width. `query(id, t, t)` returns the single sample active at `t`
+// (tide's lo = upperBound-1). Used by getValueAt and the gate-mute test. The
+// returned slices borrow into the database storage (valid until the next query).
+pub const ValueSlice = struct {
+    x0: []const u8,
+    x1: []const u8,
+    width: u32,
+};
+
+pub fn valueAt(db: *const tide.Database, id: tide.Signal.Id, t: u64) ?ValueSlice {
     const q = db.query(id, t, t) orelse return null;
     if (q.len == 0) return null;
     const bps = q.type.bytes();
     const last = (@as(usize, @intCast(q.len)) - 1) * bps;
-    return readBits(q.x0s[last .. last + bps], q.x1s[last .. last + bps]);
+    return .{ .x0 = q.x0s[last .. last + bps], .x1 = q.x1s[last .. last + bps], .width = q.type.width };
 }
 
 // A gated signal (e.g. in_data behind in_valid) is muted whenever its gate is
-// not exactly logic-1. Matches main's MUTE_IN/MUTE_OUT derivation.
+// not exactly logic-1. Matches main's MUTE_IN/MUTE_OUT derivation. The gate is
+// 1-bit, so logic-1 == low byte 1, no unknown bits.
 fn gateMutedAt(db: *const tide.Database, gate_id: tide.Signal.Id, t: u64) bool {
     const v = valueAt(db, gate_id, t) orelse return true;
-    return !(v.lsb == 1 and v.msb == 0);
+    const is_one = v.x0.len > 0 and v.x0[0] == 1 and !anyNonzero(v.x1);
+    return !is_one;
 }
 
 // Walk a tide query (one entry per value transition) and push each transition
@@ -65,10 +71,8 @@ pub fn packQuery(
         else
             opts.end_t;
 
-        const bits = readBits(
-            query.x0s[i * bps .. (i + 1) * bps],
-            query.x1s[i * bps .. (i + 1) * bps],
-        );
+        const x0 = query.x0s[i * bps .. (i + 1) * bps];
+        const x1 = query.x1s[i * bps .. (i + 1) * bps];
 
         const has_next = i + 1 < len;
         var draw_right = has_next;
@@ -77,11 +81,11 @@ pub fn packQuery(
 
         switch (opts.kind) {
             .clk => {
-                // val lives in lsb (clock is 2-state, msb == 0). The low
+                // val lives in the low byte (clock is 1-bit, 2-state). The low
                 // half-period (val==0) owns the rising caret's left arm at its
                 // right boundary; the high half-period (val==1) owns the right
                 // arm at its left boundary.
-                const val = bits.lsb;
+                const val: u8 = if (x0.len > 0) x0[0] else 0;
                 rising = (val == 0) and has_next;
                 rising_left = (val == 1);
             },
@@ -89,11 +93,8 @@ pub fn packQuery(
                 // Single-bit transitions touching x/z have no clean edge to
                 // draw — suppress the right-edge flag on the left segment.
                 if (draw_right and opts.width == 1) {
-                    const next = readBits(
-                        query.x0s[(i + 1) * bps .. (i + 2) * bps],
-                        query.x1s[(i + 1) * bps .. (i + 2) * bps],
-                    );
-                    if (bits.msb != 0 or next.msb != 0) draw_right = false;
+                    const next_x1 = query.x1s[(i + 1) * bps .. (i + 2) * bps];
+                    if (anyNonzero(x1) or anyNonzero(next_x1)) draw_right = false;
                 }
             },
         }
@@ -111,6 +112,6 @@ pub fn packQuery(
             (if (rising_left) seg.FLAG_RISING_EDGE_LEFT else @as(u32, 0)) |
             (if (muted) seg.FLAG_MUTE else @as(u32, 0));
 
-        try scene.pushSegment(target, opts.row, opts.width, t_start, t_end, bits, flags);
+        try scene.pushSegment(target, opts.row, opts.width, t_start, t_end, x0, x1, flags);
     }
 }
