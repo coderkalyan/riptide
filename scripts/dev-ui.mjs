@@ -1,7 +1,8 @@
-import { spawn } from "child_process";
+import * as esbuild from "esbuild";
 import { watch, copyFileSync, mkdirSync, utimesSync } from "fs";
 import { resolve, dirname } from "path";
 import { fileURLToPath } from "url";
+import { buildOptions } from "./build-ui.mjs";
 
 const root    = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC_HTML = resolve(root, "src/renderer/index.html");
@@ -19,17 +20,9 @@ watch(SRC_HTML, () => {
   utimesSync(ENTRY, t, t);
 });
 
-spawn("node_modules/.bin/esbuild", [
-  "src/renderer/index.tsx",
-  "--bundle",
-  `--outfile=${DST_DIR}/index.js`,
-  "--format=iife", "--target=es2022",
-  "--loader:.tsx=tsx", "--loader:.wgsl=text", "--jsx=automatic",
-  "--external:../native/riptide.node",
-  "--external:fs", "--external:path",
-  "--watch",
-  "--serve=localhost:5173",
-  `--servedir=${DST_DIR}`,
-], { cwd: root, stdio: "inherit" });
+// esbuild JS API (not the CLI) so the react-compiler plugin can run.
+const ctx = await esbuild.context(buildOptions);
+await ctx.watch();
+await ctx.serve({ host: "localhost", port: 5173, servedir: DST_DIR });
 
 console.log("UI dev server → http://localhost:5173");

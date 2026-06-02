@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight, Clock, Grid2x2, Maximize, Minus, PanelLeftClose, PanelLeftOpen, Plus, X } from "lucide-react";
 import { ActiveSignal, type ActiveSignalKind } from "./ActiveSignal";
@@ -668,6 +668,80 @@ function ContextMenu({ x, y, items, onClose, onSelect }: { x: number; y: number;
   );
 }
 
+// Hover readout lives in an external store + its own component, NOT App state.
+// A pointer move fires ~display-Hz; routing it through App's `useState` would
+// re-render the entire (un-compiled) App per move — recomputing per-row native
+// value queries etc. — which blows the frame budget (25ms frames). The canvas
+// guide line is already ref-driven; only the status-bar text needs hover, so we
+// scope re-renders to just <HoverReadout> via useSyncExternalStore.
+type HoverState = { tick: number; row: number } | null;
+const hoverStore = (() => {
+  let state: HoverState = null;
+  const subs = new Set<() => void>();
+  return {
+    set(v: HoverState) { state = v; for (const s of subs) s(); },
+    subscribe(fn: () => void) { subs.add(fn); return () => { subs.delete(fn); }; },
+    get: () => state,
+  };
+})();
+
+function HoverReadout({ activeSignals, enumLabels }: {
+  activeSignals: ActiveSignalRef[];
+  enumLabels: Map<number, Map<number, string>>;
+}) {
+  const hover = useSyncExternalStore(hoverStore.subscribe, hoverStore.get);
+  if (!hover) return <span className="muted st-item st-val">hover over a signal to inspect</span>;
+  const ref = hover.row >= 0 ? activeSignals.find((r) => r.row === hover.row) ?? null : null;
+  const sig = ref ? getSignal(SCENE.hierarchy, ref.signalId) : null;
+  return (
+    <>
+      <span className="st-item"><span className="lbl-t">time </span><b>{formatTime(hover.tick)}</b><span className="unit"> ns</span></span>
+      <span className="sep">·</span>
+      {sig && ref ? (
+        <span className="st-item st-val"><span className="lbl-v">{sig.name} = </span><b>{formatSegmentValue(valueAtTick(sig.handle, hover.tick), sig.bitWidth, ref.radix, enumLabels.get(ref.row))}</b></span>
+      ) : (
+        <span className="muted st-item st-val">hover over a signal to inspect</span>
+      )}
+    </>
+  );
+}
+
+// Tree panel — its own component so the React Compiler can compile + memoize it
+// (App itself isn't compiled: its imperative WebGPU frame loop uses constructs
+// the compiler can't lower, so it bails the whole component). Receives only
+// referentially-stable inputs — the two state setters; the hierarchy is the
+// module-const SCENE — so on an unrelated App re-render (e.g. add-signal) the
+// compiler's cache returns the identical <SignalTreeView> element and React
+// bails the whole (potentially thousands-of-nodes) subtree. The toggle/add
+// callbacks are defined here so the compiler stabilizes their identity; defining
+// them in un-compiled App would make them fresh each render and defeat this.
+function SignalTreePanel({ expanded, setExpanded, setActiveSignals }: {
+  expanded: Set<NodeId>;
+  setExpanded: React.Dispatch<React.SetStateAction<Set<NodeId>>>;
+  setActiveSignals: React.Dispatch<React.SetStateAction<ActiveSignalRef[]>>;
+}) {
+  const toggle = (id: NodeId) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  // Append a signal to the active list (same signal may be added multiple times —
+  // each copy is an independent row). No-op past the row-color buffer's capacity.
+  const add = (signalId: NodeId) => {
+    perf.beginAdd();
+    setActiveSignals((refs) => {
+      const node = SCENE.hierarchy.nodes.get(signalId);
+      if (!node || node.kind !== "signal") return refs;
+      const row = refs.length;
+      if (row >= MAX_ROWS) return refs;
+      return [...refs, makeActiveRef(SCENE.hierarchy, signalId, row)];
+    });
+  };
+  return <SignalTreeView hierarchy={SCENE.hierarchy} expanded={expanded} onToggle={toggle} onAdd={add} />;
+}
+
 // Inline click-to-edit number for the range label. Renders as plain text until
 // clicked, then swaps to a content-sized <input> in the same spot (no new
 // chrome). Enter/blur commits via onCommit; Esc cancels; a rejected commit
@@ -759,10 +833,10 @@ export function App() {
   // Live pointer readout for the status bar: the unsnapped tick under the
   // pointer and the signal row it's over (null when off the wave area). Drives
   // a per-move single-point value query, independent of the selected cursor.
-  const [hover, setHover] = useState<{ tick: number; row: number } | null>(null);
   // Ref drives the rAF guide line; written synchronously in the pointer handler
-  // (not synced from `hover` state) so the line tracks the pointer with no
-  // React-commit lag. `hover` state only feeds the status-bar text.
+  // so the line tracks the pointer with no React-commit lag. The status-bar text
+  // reads hover from hoverStore (external store) via <HoverReadout>, so a move
+  // never re-renders App — see the hoverStore/HoverReadout notes above.
   const hoverRef = useRef<{ tick: number; row: number } | null>(null);
   // Reactive mirror of the visible [start, end] tick window, synced from the
   // RAF loop. Drives the editable range label; edits write it back via refs.
@@ -794,15 +868,9 @@ export function App() {
   const draggingMarkerRef = useRef<number | null>(null);
 
   // Signal-tree expansion lives here (lifted from SignalTreeView) so it can be
-  // persisted to the sidecar.
+  // persisted to the sidecar. Toggle/add live in the SignalTreePanel child (a
+  // compiled component) rather than here — see its definition for why.
   const [expandedScopes, setExpandedScopes] = useState<Set<NodeId>>(SCENE.initialExpanded);
-  const toggleScope = (id: NodeId) =>
-    setExpandedScopes((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
   // Bumped on viewport-settle (pan end / wheel / zoom-anim end) to trigger one
   // sidecar write of the final viewport — viewRange itself is not a save dep
   // (the RAF loop updates it per frame during interaction).
@@ -862,7 +930,6 @@ export function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -903,6 +970,7 @@ export function App() {
       // longer reference to avoid leaking on repeated adds.
       rebuildSceneRef.current = (active: ActiveSignalRef[]) => {
         const packed = getMockSegments(packSpecsFor(active));
+        perf.addMark("native repack (getMockSegments)");
         const nextScene = renderer.createSceneBuffers(packed.rowInfo, packed.x0Pool, packed.x1Pool);
         const nextMulti = renderer.rebindPipeline(multiBit, packed.multi, packed.multiCount, colorBuf, nextScene);
         const nextSingle = renderer.rebindPipeline(singleBit, packed.single, packed.singleCount, colorBuf, nextScene);
@@ -914,7 +982,9 @@ export function App() {
         scene = nextScene;
         multiBit = nextMulti;
         singleBit = nextSingle;
+        perf.addMark("GPU buffer rebuild (scene + rebind)");
         multiLabels = buildMultiLabels(packed, active, buildEnumLabels(active));
+        perf.addMark("rebuild pill labels");
       };
       const linesBg = lineRenderer.createBatch();
       const linesFg = lineRenderer.createBatch();
@@ -1410,9 +1480,11 @@ export function App() {
     // next active-set change repacks the full current set once the ref lands.
     if (!rebuildSceneRef.current) return;
     lastSceneKeyRef.current = sceneKey;
+    // This passive effect runs after React render+commit+paint, so the mark here
+    // closes the "react" phase since the click. The repack closure emits its own
+    // sub-marks. All no-op unless an add measurement is in flight (perf.beginAdd).
+    perf.addMark("react render + commit + paint");
     rebuildSceneRef.current(activeSignals);
-    // No-op unless an add-signal measurement is in flight (perf.beginAdd);
-    // frameEnd finalizes it once the repacked frame presents.
     perf.markAddRebuilt(activeSignals.length);
   }, [sceneKey, activeSignals]);
 
@@ -1518,7 +1590,7 @@ export function App() {
       // Ref drives the rAF guide line (synchronous, no React round-trip);
       // state drives the status-bar text (a commit behind is fine there).
       hoverRef.current = { tick, row };
-      setHover({ tick, row });
+      hoverStore.set({ tick, row });
     };
     const onPointerMove = (e: PointerEvent) => {
       updateHover(e.clientX, e.clientY);
@@ -1548,7 +1620,7 @@ export function App() {
     host.addEventListener("pointermove", onPointerMove);
     host.addEventListener("pointerup", onPointerUp);
     host.addEventListener("pointercancel", onPointerUp);
-    const onPointerLeave = () => { hoverRef.current = null; setHover(null); };
+    const onPointerLeave = () => { hoverRef.current = null; hoverStore.set(null); };
     host.addEventListener("pointerleave", onPointerLeave);
     return () => {
       host.removeEventListener("wheel", onWheel);
@@ -1735,22 +1807,6 @@ export function App() {
     setActiveSignals((refs) => refs.map((r) => (r.row === row ? { ...r, hidden: !r.hidden } : r)));
   };
 
-  // Add a signal from the tree to the active list. Appends a new row with
-  // default presentation metadata; the activeSignals effect repacks the GPU
-  // buffers. The same signal may be added multiple times — each copy is an
-  // independent row (own color/radix/selection). No-op past the row-color
-  // buffer's capacity.
-  const addSignalToActive = (signalId: NodeId) => {
-    perf.beginAdd();
-    setActiveSignals((refs) => {
-      const node = SCENE.hierarchy.nodes.get(signalId);
-      if (!node || node.kind !== "signal") return refs;
-      const row = refs.length;
-      if (row >= MAX_ROWS) return refs;
-      return [...refs, makeActiveRef(SCENE.hierarchy, signalId, row)];
-    });
-  };
-
   // Remove a row from the viewer. Rows are renumbered to stay contiguous (row ==
   // array position == canvas Y slot), so everything below shifts up by one. The
   // activeSignals effect repacks the GPU buffers; color/dim/selection follow
@@ -1854,21 +1910,6 @@ export function App() {
   };
 
   const selectedMarker = markers.find((m) => m.id === selectedMarkerId) ?? null;
-  // Live pointer readout. Time shows whenever the pointer is over the canvas;
-  // the signal value is a single-point query that only resolves when the
-  // pointer is over an actual signal row (off-row → null).
-  const hoverSig = hover ? activeSignals.find((r) => r.row === hover.row) ?? null : null;
-  const hoverValue = hover && hoverSig
-    ? {
-      name: getSignal(SCENE.hierarchy, hoverSig.signalId).name,
-      value: formatSegmentValue(
-        valueAtTick(getSignal(SCENE.hierarchy, hoverSig.signalId).handle, hover.tick),
-        getSignal(SCENE.hierarchy, hoverSig.signalId).bitWidth,
-        hoverSig.radix,
-        enumLabelsByRow.get(hoverSig.row),
-      ),
-    }
-    : null;
 
   return (
     <div className="app">
@@ -1944,7 +1985,7 @@ export function App() {
                 </span>
               </div>
               <div className="col-sub"><input className="search" placeholder="filter scope/name" /></div>
-              <SignalTreeView hierarchy={SCENE.hierarchy} expanded={expandedScopes} onToggle={toggleScope} onAdd={addSignalToActive} />
+              <SignalTreePanel expanded={expandedScopes} setExpanded={setExpandedScopes} setActiveSignals={setActiveSignals} />
             </div>
           )}
         </div>
@@ -2129,19 +2170,7 @@ export function App() {
         </div>
 
         <div className="status" style={{ gridColumn: "1 / 3", gridRow: 2 }}>
-          {hover ? (
-            <>
-              <span className="st-item"><span className="lbl-t">time </span><b>{formatTime(hover.tick)}</b><span className="unit"> ns</span></span>
-              <span className="sep">·</span>
-              {hoverValue ? (
-                <span className="st-item st-val"><span className="lbl-v">{hoverValue.name} = </span><b>{hoverValue.value}</b></span>
-              ) : (
-                <span className="muted st-item st-val">hover over a signal to inspect</span>
-              )}
-            </>
-          ) : (
-            <span className="muted st-item st-val">hover over a signal to inspect</span>
-          )}
+          <HoverReadout activeSignals={activeSignals} enumLabels={enumLabelsByRow} />
         </div>
       </div>
 
