@@ -8,7 +8,7 @@ import { initGPU, resizeCanvas, GPUInitError } from "./gpu/device";
 import { createDigitalRenderer } from "./gpu/digital";
 import { renderFrame } from "./gpu/frame";
 import { createColorBuffer, writeRowColors, MAX_ROWS } from "./gpu/colors";
-import { MOCK_CLOCK_TICK_NS, MOCK_END_TICKS, unpackSegmentHeaders } from "./gpu/data";
+import { MOCK_CLOCK_TICK_NS, MOCK_END_TICKS, unpackSegmentHeaders, type SegmentHeader } from "./gpu/data";
 import { createTextRenderer, packRgba, MAX_GLYPHS, ATLAS_MIDDLE_DOT } from "./gpu/text";
 import { createLabelRenderer } from "./gpu/labels";
 import { createLineRenderer } from "./gpu/lines";
@@ -193,23 +193,61 @@ function buildEnumLabels(active: ActiveSignalRef[]): Map<number, Map<number, str
   return out;
 }
 
+// Per-signal label cache, keyed by signalId. A label's text depends only on
+// (signalId, radix): getValueAt(handle, tStart) is deterministic per signal+trace,
+// and the segment set (tStart/tEnd, mute flags) is deterministic per signal+gate.
+// The row index only affects placement, not text. So formatted labels are cached
+// per signal and reused across repacks (reassigning row), so the getValueAt storm
+// runs only for newly added / radix-changed signals — not every active signal.
+// Cleared on trace swap (resetForTrace), since a new trace re-parses the hierarchy
+// (handles/values change). `labels` are stored row-stripped (row reassigned on use).
+const labelCache = new Map<NodeId, { radix: Radix; labels: MultiBitLabel[] }>();
+
 // Value labels drawn inside multi-bit pills. The segment timing/flags come from
 // the native multi-pipeline buffer; the value at each segment's start tick comes
-// from a tide point query (getValueAt). Recomputed alongside the GPU repack.
+// from a tide point query (getValueAt). Recomputed alongside the GPU repack, but
+// incrementally — unchanged signals reuse their cached labels (see labelCache).
 function buildMultiLabels(
   native: ReturnType<typeof getMockSegments>,
   active: ActiveSignalRef[],
   enumLabels: Map<number, Map<number, string>>,
 ): MultiBitLabel[] {
-  return unpackSegmentHeaders(native.multi, native.multiCount)
-    .filter((s) => (s.rowFlags & FLAG_MUTE) === 0)
-    .map((s) => {
-      const row = s.rowFlags & 0xffff;
-      const ref = active.find((r) => r.row === row)!;
-      const sig = getSignal(SCENE.hierarchy, ref.signalId);
+  // Group surviving (un-muted) segments by row. Cheap — no native calls.
+  const byRow = new Map<number, SegmentHeader[]>();
+  for (const s of unpackSegmentHeaders(native.multi, native.multiCount)) {
+    if ((s.rowFlags & FLAG_MUTE) !== 0) continue;
+    const row = s.rowFlags & 0xffff;
+    const arr = byRow.get(row);
+    if (arr) arr.push(s);
+    else byRow.set(row, [s]);
+  }
+
+  const out: MultiBitLabel[] = [];
+  for (const ref of active) {
+    const cached = labelCache.get(ref.signalId);
+    if (cached && cached.radix === ref.radix) {
+      // Hit: reuse formatted text, only the row may have shifted (reorder).
+      for (const l of cached.labels) out.push({ ...l, row: ref.row });
+      continue;
+    }
+    // Miss (new signal or radix change): query + format this row's segments.
+    const sig = getSignal(SCENE.hierarchy, ref.signalId);
+    const enumMap = enumLabels.get(ref.row);
+    const labels = (byRow.get(ref.row) ?? []).map((s) => {
       const value = valueAtTick(sig.handle, s.tStart);
-      return { row, tStart: s.tStart, tEnd: s.tEnd, text: formatSegmentValue(value, sig.bitWidth, ref.radix, enumLabels.get(row)) };
+      return { row: ref.row, tStart: s.tStart, tEnd: s.tEnd, text: formatSegmentValue(value, sig.bitWidth, ref.radix, enumMap) };
     });
+    labelCache.set(ref.signalId, { radix: ref.radix, labels });
+    for (const l of labels) out.push(l);
+  }
+
+  // Bound memory: drop cache entries for signals no longer active.
+  if (labelCache.size > active.length) {
+    const live = new Set(active.map((r) => r.signalId));
+    for (const id of labelCache.keys()) if (!live.has(id)) labelCache.delete(id);
+  }
+
+  return out;
 }
 
 // Native packed scene: GPU buffers (multi/single segments + RowInfo + value
@@ -1937,6 +1975,7 @@ export function App() {
   const resetForTrace = (vcdPath: string) => {
     perf.beginSwap();
     swapTrace(vcdPath); // emits swapMark("native loadVcd") + swapMark("buildScene")
+    labelCache.clear(); // new trace → handles/values change; cached labels are stale
 
     // Marker seeds, recomputed from the new INITIAL (mirrors the module consts).
     const newMarkers: Marker[] = INITIAL.markers.map((m, i) => ({ id: i + 1, name: m.name, tick: m.tick, color: m.color }));
