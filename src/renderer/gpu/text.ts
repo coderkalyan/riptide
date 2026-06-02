@@ -34,6 +34,10 @@ export interface TextRenderer {
   cellLg: GlyphCell;
   cellSm: GlyphCell;
   createBatch(): TextBatch;
+  // Exposed so the instanced label pipeline (labels.ts) can share the large
+  // glyph atlas + sampler instead of building its own.
+  atlasLgView: GPUTextureView;
+  sampler: GPUSampler;
 }
 
 const FONT_FAMILY = "'JetBrains Mono', ui-monospace, monospace";
@@ -247,6 +251,8 @@ export async function createTextRenderer(
     cellLg: cellOf(atlasLg),
     cellSm: cellOf(atlasSm),
     createBatch,
+    atlasLgView: lgView,
+    sampler,
   };
 }
 

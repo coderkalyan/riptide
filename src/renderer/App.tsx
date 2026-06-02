@@ -10,6 +10,7 @@ import { renderFrame } from "./gpu/frame";
 import { createColorBuffer, writeRowColors, MAX_ROWS } from "./gpu/colors";
 import { MOCK_CLOCK_TICK_NS, MOCK_END_TICKS, unpackSegmentHeaders } from "./gpu/data";
 import { createTextRenderer, packRgba, MAX_GLYPHS, ATLAS_MIDDLE_DOT } from "./gpu/text";
+import { createLabelRenderer } from "./gpu/labels";
 import { createLineRenderer } from "./gpu/lines";
 import { createRectRenderer } from "./gpu/rect";
 import { INITIAL, SCENE, RESET_HELD_TICKS, buildPackSpecs, packSpecsFor, makeActiveRef, swapTrace, type ActiveSignalRef, type Radix } from "./hier/scene";
@@ -256,15 +257,6 @@ function markerColorCss(packed: number): string {
   const r = packed & 0xff, g = (packed >> 8) & 0xff, b = (packed >> 16) & 0xff;
   return `#${(0x1000000 | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
 }
-// Blend a packed color 50% toward the waveform bg (rgb 27/29/33 = the
-// 0.106/0.114/0.129 the digital shader composites against), keeping alpha.
-// Used to fade value-label text on eye-dimmed rows so the text dims with the
-// waveform (the shader handles the pill itself).
-function dimToBg(packed: number): number {
-  const r = packed & 0xff, g = (packed >> 8) & 0xff, b = (packed >> 16) & 0xff, a = (packed >>> 24) & 0xff;
-  const mix = (c: number, bg: number) => Math.round(c + (bg - c) * 0.5);
-  return packRgba(mix(r, 27), mix(g, 29), mix(b, 33), a);
-}
 const GRID_GRAY = packRgba(0x86, 0x8c, 0x96, 0x70);
 const DEAD_ZONE_GRAY = packRgba(0x78, 0x7c, 0x86, 0x70);
 const RESET_RED = packRgba(0xe8, 0x6a, 0x5a, 0x60);
@@ -314,8 +306,7 @@ function formatRulerLabel(t: number, spacing: number): string {
 }
 
 // Clock period in ticks (full cycle = two half-period segments). Cycle `c`'s
-// rising edge lands at tick `MOCK_CLOCK_TICK_NS + (c-1)*PERIOD` (5, 15, 25…),
-// matching `CLOCK_EDGE_TICKS`.
+// rising edge lands at tick `MOCK_CLOCK_TICK_NS + (c-1)*PERIOD` (5, 15, 25…).
 const CLOCK_PERIOD_NS = 2 * MOCK_CLOCK_TICK_NS;
 
 // Count clock rising edges in the open-low/closed-high span (a, b] — i.e. the
@@ -394,12 +385,6 @@ function snapToClockEdge(tick: number): number {
   return Math.round((tick - MOCK_CLOCK_TICK_NS) / period) * period + MOCK_CLOCK_TICK_NS;
 }
 
-// Clock positive-edge ticks: the mock clock toggles every half-period starting
-// low, so the 0→1 transitions land at ticks 5, 15, 25, ...
-const CLOCK_EDGE_TICKS: number[] = [];
-for (let t = MOCK_CLOCK_TICK_NS; t < MOCK_END_TICKS; t += 2 * MOCK_CLOCK_TICK_NS) {
-  CLOCK_EDGE_TICKS.push(t);
-}
 // Single delegated tooltip for every [data-tip] element. Rendered through a
 // portal at <body> so it escapes overflow/scroll ancestors and the WebGPU
 // canvas. Anchors to the hovered element's top-center; CSS lifts it above.
@@ -835,7 +820,7 @@ export function App() {
   const [activeSignals, setActiveSignals] = useState<ActiveSignalRef[]>(SCENE.activeSignals);
   // Enum label maps per row, recomputed when the active set changes — feeds both
   // the active-panel value column and the hover readout. The GPU repack builds
-  // its own copy for the canvas pill labels (multiLabelsRef).
+  // its own copy for the canvas value labels (labelBatch.setLabels).
   const enumLabelsByRow = useMemo(() => buildEnumLabels(activeSignals), [activeSignals]);
   const [picker, setPicker] = useState<{ row: number; anchorRect: DOMRect } | null>(null);
   // row: which active-signal row was right-clicked (-1 = empty area), so the
@@ -975,7 +960,6 @@ export function App() {
       // set changes. The frame loop reads these live (closure vars), so a repack
       // takes effect on the next rAF with no effect re-run.
       let scene = renderer.createSceneBuffers(NATIVE.rowInfo, NATIVE.x0Pool, NATIVE.x1Pool);
-      let multiLabels = MULTI_BIT_LABELS;
       const [multiBitInit, singleBitInit, textRenderer, lineRenderer, rectRenderer] = await Promise.all([
         renderer.buildPipelineFromPacked("multi", NATIVE.multi, NATIVE.multiCount, colorBuf, scene),
         renderer.buildPipelineFromPacked("single", NATIVE.single, NATIVE.singleCount, colorBuf, scene),
@@ -985,6 +969,15 @@ export function App() {
       ]);
       let multiBit = multiBitInit;
       let singleBit = singleBitInit;
+
+      // Multi-bit value labels: instanced, GPU-positioned + culled. Glyph
+      // instances are built once here (and on each repack) — no per-frame label
+      // loop. Shares the large glyph atlas + sampler from textRenderer.
+      const labelRenderer = await createLabelRenderer(
+        gpuCtx, renderer.uniformBuf, textRenderer.atlasLgView, textRenderer.sampler, textRenderer.cellLg,
+      );
+      const labelBatch = labelRenderer.createBatch();
+      labelBatch.setLabels(MULTI_BIT_LABELS, scene.rowInfo);
 
       // Push the current hidden set into the live scene's rowInfo flags. Closes
       // over the `scene` closure var, so it always targets the latest scene after
@@ -1011,8 +1004,8 @@ export function App() {
         multiBit = nextMulti;
         singleBit = nextSingle;
         perf.addMark("GPU buffer rebuild (scene + rebind)");
-        multiLabels = buildMultiLabels(packed, active, buildEnumLabels(active));
-        perf.addMark("rebuild pill labels");
+        labelBatch.setLabels(buildMultiLabels(packed, active, buildEnumLabels(active)), scene.rowInfo);
+        perf.addMark("rebuild value labels");
         // New scene → new rowInfo buffer (flags all 0); re-apply the dim set.
         applyDimRef.current?.();
       };
@@ -1340,17 +1333,24 @@ export function App() {
         }
         rectsBg.setRects(rectsBgScratch, bgRectN);
 
-        // Grid: dashed vertical lines left-aligned to each visible rising clock
-        // edge. The line shader left-aligns on `x` (extends THICKNESS right —
-        // see lines.wgsl), so the left edge lands on the clock edge's logical
-        // time. Segment edges are right-justified to the *previous* segment, so
-        // grid lines deliberately do NOT overlap them — the grid sits just to
-        // the right of the boundary the segment edge leads up to.
-        const visStart = startTicks - 1;
-        const visEnd = startTicks + visibleTicks + 1;
+        // Grid: dashed vertical lines on clock rising edges, generated closed-form
+        // from phase (gridEdge0) + period (CLOCK_PERIOD_NS) and decimated like the
+        // ruler — cycleStep ∈ {1,2,5,…} keeps lines from packing tighter than ~8
+        // across the view, so the line count is bounded by viewport width, not
+        // trace length (no per-edge array scan). cycleStep mirrors clockRulerTicks,
+        // so in clock-anchor mode the grid aligns with the ruler notches. Lines are
+        // left-aligned on `x` (lines.wgsl extends THICKNESS right), landing the left
+        // edge on the edge's logical time; segment edges are right-justified to the
+        // previous segment, so the grid deliberately doesn't overlap them.
+        // (Future: emit fully GPU-side from phase/period/step — see PERFORMANCE.md.)
+        const gridEdge0 = MOCK_CLOCK_TICK_NS;
+        const gridStepTicks = Math.max(1, Math.round(rulerSpacing(visibleTicks / CLOCK_PERIOD_NS))) * CLOCK_PERIOD_NS;
+        const gridVisEnd = startTicks + visibleTicks;
+        const gridEps = gridStepTicks * 1e-6;
         let bgLineN = 0;
-        for (const t of CLOCK_EDGE_TICKS) {
-          if (t < visStart || t > visEnd) continue;
+        for (let gk = Math.max(0, Math.floor((startTicks - gridEdge0) / gridStepTicks)); ; gk++) {
+          const t = gridEdge0 + gk * gridStepTicks;
+          if (t > gridVisEnd + gridEps) break;
           const l = getLine(linesBgScratch, bgLineN++);
           l.x = xForTick(t); l.color = GRID_GRAY; l.dashed = true;
         }
@@ -1377,9 +1377,10 @@ export function App() {
         lcur.x = xForTick(cursor); lcur.color = HOT;
         linesFg.setLines(linesFgScratch, fgLineN);
 
-        // Build glyph instances for multi-bit pill values.
-        const cellLg = textRenderer.cellLg;
-        const cellW = cellLg.widthPx;
+        // Build glyph instances for the ruler tick labels + span-arrow labels.
+        // (Multi-bit value labels are no longer emitted here — they're a static
+        // instanced buffer positioned + culled on the GPU; see labelBatch /
+        // labels.wgsl. Row dimming for them lives in RowInfo.flags.)
         let gi = 0;
         const rulerLabelY = Math.round(rulerHeightCSS * 0.5 + 2);
         const bottomLabelY = Math.round(bottomRulerTop + bottomRulerH * 0.5 + 2);
@@ -1391,27 +1392,6 @@ export function App() {
         }
         for (const al of rulerArrowLabels) {
           gi = writeText(textBody, gi, al.x, al.y, al.text, al.color, true);
-        }
-        for (const lbl of multiLabels) {
-          if (gi >= MAX_GLYPHS) break;
-          const startPx = xForTick(lbl.tStart);
-          const endPx = xForTick(lbl.tEnd);
-          const widthPx = endPx - startPx;
-          const textWidthPx = lbl.text.length * cellW;
-          if (widthPx < textWidthPx + 6) continue; // skip if pill too narrow
-          const centerX = (startPx + endPx) * 0.5;
-          const x0 = Math.round(centerX - textWidthPx * 0.5);
-          const y0 = Math.round(rulerHeightCSS + rowHeightCSS * (lbl.row + 0.5) - cellLg.midlinePx);
-          // TODO: switch to `textColorByRowRef.current.get(lbl.row)` to use
-          // the per-row contrast pick. Forced white for now. Dimmed rows (eye
-          // off) fade the label toward bg to match the dimmed waveform.
-          const dimmed = hiddenRowsRef.current.has(lbl.row);
-          const color = dimmed ? dimToBg(TEXT_WHITE) : TEXT_WHITE;
-          for (let k = 0; k < lbl.text.length && gi < MAX_GLYPHS; k++) {
-            const code = lbl.text.charCodeAt(k);
-            if (code < 0x20 || code > 0x7e) continue;
-            textBody.writeGlyph(gi++, x0 + k * cellW, y0, code, color);
-          }
         }
         textBody.setGlyphs(gi);
 
@@ -1475,7 +1455,7 @@ export function App() {
         addFlag(xForTick(cursor), cursorLabel, HOT, pillCursor);
 
         const encodeStart = performance.now();
-        renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, linesFg, textBody, pills: allPills }, vp, gpuTimer);
+        renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, labels: labelBatch, linesFg, textBody, pills: allPills }, vp, gpuTimer);
         const frameDone = performance.now();
         perf.frameEnd(frameDone - encodeStart, frameDone - cpuStart);
         perf.markFirstFrame();

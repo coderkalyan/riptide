@@ -150,6 +150,7 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
     if (packed.byteLength > 0) device.queue.writeBuffer(segmentBuf, 0, packed);
 
     const bindGroup = device.createBindGroup({
+      label: "digital-bindgroup",
       layout: bgl,
       entries: [
         { binding: 0, resource: { buffer: uniformBuf } },

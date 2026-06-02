@@ -7,11 +7,37 @@ if (process.platform === "linux") {
   app.commandLine.appendSwitch("enable-features", "Vulkan");
 }
 
+// RenderDoc capture mode (RIPTIDE_RENDERDOC=1, or =inproc). Chromium runs
+// WebGPU/Dawn's Vulkan in the sandboxed GPU child process, which RenderDoc can't
+// hook by default; these switches make that Vulkan work capturable. Off unless
+// the env var is set, so normal runs are unaffected.
+const renderdoc = process.env.RIPTIDE_RENDERDOC;
+if (renderdoc) {
+  app.commandLine.appendSwitch("no-sandbox");
+  // With --no-sandbox the zygote pre-fork still runs sandbox init and FATALs
+  // (zygote_host_impl_linux.cc "Invalid argument"); --no-zygote disables it.
+  app.commandLine.appendSwitch("no-zygote");
+  app.commandLine.appendSwitch("disable-setuid-sandbox");
+  app.commandLine.appendSwitch("disable-gpu-sandbox");
+  // Don't let the watchdog kill the GPU process while RenderDoc stalls it to capture.
+  app.commandLine.appendSwitch("disable-gpu-watchdog");
+  app.commandLine.appendSwitch("disable-gpu-process-crash-limit");
+  // RenderDoc hooks X11 + Vulkan reliably; Wayland WSI is flaky. Force XWayland.
+  app.commandLine.appendSwitch("ozone-platform", "x11");
+  // =inproc puts the GPU/Vulkan work in the launched process so RenderDoc
+  // captures it directly (no child-process hook needed). It can destabilize
+  // WebGPU on some drivers — if the canvas is blank, drop "inproc" and use
+  // RenderDoc's "Capture Child Processes" option instead.
+  if (renderdoc === "inproc") app.commandLine.appendSwitch("in-process-gpu");
+}
+
 // The trace this window currently shows. Defaults to the bundled mock; the
 // "Open VCD…" menu swaps it and reloads. The path is carried to the renderer in
 // the window URL (?vcd=...) so a reload re-initializes the native db, hierarchy,
 // and sidecar-derived view from scratch — no in-place reactive plumbing needed.
-let currentVcd = path.join(app.getAppPath(), "native/src/mock.vcd");
+let currentVcd = process.env.RIPTIDE_VCD
+  ? path.resolve(process.env.RIPTIDE_VCD)
+  : path.join(app.getAppPath(), "native/src/mock.vcd");
 
 function loadTrace(win: BrowserWindow): void {
   const search = `vcd=${encodeURIComponent(currentVcd)}`;

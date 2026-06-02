@@ -61,7 +61,10 @@ function TreeNode({
   add: (id: NodeId) => void;
 }) {
   const node = hierarchy.nodes.get(id)!;
-  const indent = depth > 0 ? `indent-${depth}` : "";
+  // Indent per depth level. Computed inline so it scales to any nesting depth —
+  // the old `indent-${depth}` classes only existed for depths 1 and 2, so deeper
+  // nodes rendered flush-left. Matches the old steps: depth 1 = 18px, +14px/level.
+  const indentStyle = depth > 0 ? { paddingLeft: 4 + depth * 14 } : undefined;
 
   // Lazy mount: a scope's children are rendered only once the scope has been
   // opened at least once (`everOpened`). A collapsed-and-never-opened subtree
@@ -77,7 +80,7 @@ function TreeNode({
   if (node.kind === "scope") {
     return (
       <>
-        <div className={`t-row ${indent}`.trim()} onClick={() => toggle(id)}>
+        <div className="t-row" style={indentStyle} onClick={() => toggle(id)}>
           <span className="chev">{isOpen ? CHEVRON_DOWN : CHEVRON_RIGHT}</span>
           <span className="icon module">{ICON_MODULE}</span>
           <span className="lbl">{node.name}</span>
@@ -103,7 +106,7 @@ function TreeNode({
 
   const kind = signalIconKind(node);
   return (
-    <div className={`t-row ${indent}`.trim()}>
+    <div className="t-row" style={indentStyle}>
       <span className="chev" />
       <span className={`icon ${kind}`}>{ICON_SIGNAL}</span>
       <span className="lbl">{node.name}</span>

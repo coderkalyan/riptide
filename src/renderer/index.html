@@ -282,12 +282,21 @@
            rule below — including the button-hiding one — which on Linux brings
            back the GTK stepper triangles. The webkit pseudo-elements give full
            control (and no stepper arrows by default). */
-        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        /* Track widened to 12px so the UNIFORM transparent-border padding has room:
+           the visible thumb is 6px (12 − 2×3px border) — its original width — inset
+           3px on every side. background-clip keeps the fill inside the padding box
+           while the full bordered track stays the hit target (bigger grab zone).
+           Uniform border = symmetric corner radius (an asymmetric border can't). */
+        ::-webkit-scrollbar { width: 12px; height: 12px; }
         /* Drop the up/down (and left/right) stepper arrows — keep only the thumb. */
         ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-strong); border-radius: 6px;
+            border: 3px solid transparent;
+            background-clip: padding-box;
+        }
+        ::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: padding-box; }
         .t-row {
             height: 22px; display:flex; align-items:center; gap:4px;
             padding: 0 6px; font-family: 'JetBrains Mono', monospace; font-size: 12px;
@@ -318,8 +327,6 @@
         }
         .t-row:hover .plus { opacity: 1; }
         .t-row .plus:hover { color: var(--text); }
-        .indent-1 { padding-left: 18px !important; }
-        .indent-2 { padding-left: 32px !important; }
         .tree-section {
             margin-top: 8px; padding: 4px 10px 2px; font-size: 10.5px;
             color: var(--muted); letter-spacing: .5px; text-transform: uppercase;

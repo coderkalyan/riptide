@@ -3,6 +3,7 @@ import { DigitalRenderer, SignalPipeline } from "./digital";
 import { LineBatch } from "./lines";
 import { RectBatch } from "./rect";
 import { TextBatch } from "./text";
+import { LabelBatch } from "./labels";
 import { Viewport } from "./data";
 import { GpuTimer } from "./timing";
 
@@ -14,6 +15,9 @@ export interface PillLayer {
 export interface FrameLayers {
   linesBg: LineBatch;
   rectsBg: RectBatch;
+  // Multi-bit value labels — instanced, GPU-positioned + culled. Drawn on top of
+  // the digital pipelines (inside the pills).
+  labels: LabelBatch;
   linesFg: LineBatch;
   textBody: TextBatch;
   // Each pill (marker, cursor, ...) gets its own rect+text pair so its rect
@@ -35,6 +39,12 @@ function drawRects(pass: GPURenderPassEncoder, b: RectBatch): void {
 }
 function drawText(pass: GPURenderPassEncoder, b: TextBatch): void {
   if (b.glyphCount === 0) return;
+  pass.setPipeline(b.pipeline);
+  pass.setBindGroup(0, b.bindGroup);
+  pass.draw(4, b.glyphCount);
+}
+function drawLabels(pass: GPURenderPassEncoder, b: LabelBatch): void {
+  if (b.glyphCount === 0 || !b.bindGroup) return;
   pass.setPipeline(b.pipeline);
   pass.setBindGroup(0, b.bindGroup);
   pass.draw(4, b.glyphCount);
@@ -71,6 +81,9 @@ export function renderFrame(
     pass.setBindGroup(0, pipeline.bindGroup);
     pass.draw(4, pipeline.segmentCount);
   }
+
+  // Value labels sit inside the multi-bit pills → draw after the digital pass.
+  drawLabels(pass, layers.labels);
 
   drawText(pass, layers.textBody);
   drawLines(pass, layers.linesFg);

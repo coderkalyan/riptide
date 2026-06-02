@@ -21,7 +21,18 @@ export async function initGPU(canvas: HTMLCanvasElement): Promise<GPUContext> {
   // no-ops in that case.
   const requiredFeatures: GPUFeatureName[] = [];
   if (adapter.features.has("timestamp-query")) requiredFeatures.push("timestamp-query");
-  const device = await adapter.requestDevice({ requiredFeatures });
+  // The default limits are conservative (maxStorageBufferBindingSize 128 MiB,
+  // maxBufferSize 256 MiB) — too small for large traces' storage buffers (sample
+  // pools, segment buffers, the value-label instance buffer). Request the
+  // adapter's actual maximums so big VCDs fit. Requesting the adapter's own
+  // reported limits is always valid.
+  const device = await adapter.requestDevice({
+    requiredFeatures,
+    requiredLimits: {
+      maxStorageBufferBindingSize: adapter.limits.maxStorageBufferBindingSize,
+      maxBufferSize: adapter.limits.maxBufferSize,
+    },
+  });
 
   device.lost.then((info) => {
     console.error(`WebGPU device lost: ${info.message} (reason: ${info.reason})`);
