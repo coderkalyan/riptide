@@ -1,18 +1,22 @@
 ---
-name: Segment GPU layout (current)
-description: Actual Segment struct byte layout shared between Zig and WGSL — supersedes stale CLAUDE.md "5×u32" claim
-type: project
+name: Segment + RowInfo GPU layout (current)
+description: PackedSegment=3×u32, RowInfo=4×u32 with words_per_sample (word-stride pools). Zig+WGSL canonical; TS Segment is dead code.
+metadata:
+  type: project
 ---
 
-The `Segment`/`PackedSegment` struct is currently **3×u32 = 12 bytes**, NOT 5×u32 as CLAUDE.md states.
+**PackedSegment = 3×u32 = 12 bytes** (NOT 5×u32 as CLAUDE.md prose says elsewhere). Canonical defs: `native/src/segments.zig` `PackedSegment` and `digital.wgsl` `Segment`.
+- t_start: u32
+- t_end: u32
+- row_flags: u32 — `[15:0]` row, `[16]` shade, `[17]` right edge, `[18]` rising, `[19]` falling, `[20]` mute, `[21]` rising-edge-left
 
-Layout (matches `native/src/segments.zig` `PackedSegment` and `digital.wgsl` `Segment`):
-- `t_start: u32`
-- `t_end: u32`
-- `row_flags: u32` — `[15:0]` row, `[16]` shade, `[17]` right edge, `[18]` rising, `[19]` falling, `[20]` mute
+**RowInfo = 4×u32 = 16 bytes** (`segments.zig` + `digital.wgsl`):
+- x0_offset_u32, x1_offset_u32, words_per_sample, segment_start
 
-Sample values (lsb/msb) were factored out into shared bit-packed pools `x0_pool`/`x1_pool` indexed via `RowInfo { x0_offset_u32, x1_offset_u32, bits_per_sample, segment_start }` — `bits_per_sample` is nextPow2 of bit_width so samples never cross u32 boundaries.
+`words_per_sample = ceil(bit_width/32)` (changed from earlier `bits_per_sample`=nextPow2). Each sample = that many consecutive u32 words in shared `x0Pool`/`x1Pool` (LSB/MSB planes), full declared width, little-endian, zero-padded. Sample index for instance ii of a row = `ii - segment_start`; base word = `sample_index * words_per_sample`. Shader `decodeSample` OR-folds all words (only needs whole-sample non-zeroness for line/crosshatch/color). Per-row segments MUST be contiguous in their pipeline (Zig asserts `segment_start + count == target.len`).
 
-**Why:** Zig backend (`native/src/segments.zig`) became the canonical GPU producer. The TS `Segment` interface in `src/renderer/gpu/data.ts` still has `valueLsb`/`valueMsb` and TS builders still produce 5×u32 packing — but **none of that TS code feeds the GPU anymore**. It's vestigial; only `MOCK_SCENE.segments` (from `hier/mock`) is consumed for CPU-side cursor lookup.
+Two pipelines partition by width: `width > 1` → multi (pill), else single (line). See main.zig getMockSegments.
 
-**How to apply:** When reviewing GPU layout sync, check Zig ↔ WGSL only. The TS Segment interface is legacy. Flag any new code that re-introduces 5×u32 assumptions or adds value fields back to the GPU Segment.
+**TS Segment interface (`gpu/data.ts`) is DEAD CODE** — has valueLsb/valueMsb + 5×u32 builders (buildDataSignal/buildClockSegments/buildSegments, CYCLE_DURS, valueBits, sameValue, RawSegmentSpec, maskForWidth, SegValue). None feeds the GPU anymore; the native Zig path is canonical. `unpackSegmentHeaders` (reads 3×u32) IS live (used for pill labels in buildMultiLabels). Flag any new code re-introducing 5×u32 or value fields on the GPU Segment.
+
+**How to apply:** verify Zig↔WGSL only for layout sync. Pools are word-stride; GPU only renders ≤32-bit rows but DB stores full width (mock_db MAX_VALUE_BYTES=1024 = 8192-bit). `finalize` asserts every segment's row points to a populated RowInfo (words_per_sample>0) — once at build, not per-frame.

@@ -1,19 +1,27 @@
 ---
 name: Viewport uniform layout
-description: 8×4B = 32-byte uniform; slot 6 is i32 (selected_row), all others f32. Written via aliased Float32/Int32 views.
-type: project
+description: 48-byte (12×4B) uniform. start_ticks split int/frac. Slots 1 & 7 are i32, slot 9 is u32 (dim_mask). DPR retained but UNUSED by shaders.
+metadata:
+  type: project
 ---
 
-Viewport uniform = 32 bytes (16-aligned per WebGPU). Slots:
+Viewport uniform = **48 bytes (12 × 4B)**, 16-aligned per WebGPU. (Was 32B/8 slots in an older revision — corrected 2026-06-02.) Written via aliased Float32Array + Int32Array over one ArrayBuffer in `writeViewportInto` (`gpu/data.ts`), no per-frame alloc. Slots:
+
 0. ticks_per_pixel: f32
-1. start_ticks: f32
-2. width: f32 (CSS px)
-3. height: f32 (CSS px)
-4. row_height: f32 (CSS px)
-5. dpr: f32
-6. selected_row: **i32** (the only int slot)
-7. wave_y_offset: f32
+1. start_ticks_int: **i32**  (split from start_ticks)
+2. start_ticks_frac: f32
+3. width: f32 (CSS px)
+4. height: f32 (CSS px)
+5. row_height: f32 (CSS px)
+6. dpr: f32  (RETAINED but UNUSED by shaders — see DPR contract)
+7. selected_row: **i32**
+8. wave_y_offset: f32
+9. dim_mask: **u32** (per-row 50%-opacity bitmask; row i → bit i; only rows < 32)
+10. _pad1: f32
+11. _pad2: f32
 
-CSS-pixel + DPR contract: dimensions stay in CSS px, dpr is passed separately, shaders multiply (e.g. `1.0 * viewport.dpr` for line thickness, `gap_px = 2.0 * dpr`). The canvas backing store sized via `resizeCanvas(canvas)` accounts for DPR, and clip-space division by CSS `width`/`height` yields correct NDC because aspect/scale is preserved.
+start_ticks split int/frac is intentional: shader does `f32(i32(t_start) - start_ticks_int) - start_ticks_frac` to keep full integer precision for tick values > 2^24.
 
-**How to apply:** `writeViewportInto(f32, i32, vp)` in `data.ts` writes via aliased views — preserve this pattern, no per-frame allocation. Any new uniform field must keep total size a multiple of 16B.
+**DPR contract (do NOT flag):** all viewport dims + vertex coords are CSS px. Shaders divide by CSS width/height; framebuffer is clientSize×dpr so clip→framebuffer already scales DPR. Shader size literals (line thickness 2.0/2.5, radius 4.0, hatch 8.0, border 2.0) are bare CSS px and must NOT be multiplied by dpr. DPR applied in exactly one place: `resizeCanvas` (device.ts). dim_mask only covers rows 0..31 (`r.row < 32` guard in App.tsx) — rows ≥ 32 silently can't be dimmed.
+
+**How to apply:** THREE copies of the Viewport struct exist — `digital.wgsl`, `lines.wgsl` (its copy still names slot 9 `_pad0`, semantically fine since it doesn't read dim_mask), and writeViewportInto. rect.wgsl/text.wgsl also bind the same uniform. Any field change = update all WGSL copies + writeViewportInto. Total must stay multiple of 16B.

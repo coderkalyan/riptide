@@ -1,16 +1,16 @@
 ---
-name: Per-frame allocation hotspot in App.tsx rAF
-description: rAF body in App.tsx allocates fresh arrays/closures every frame for rectsBg, linesBg, flagRects, addFlag — GC pressure target
-type: project
+name: rAF frame body is now allocation-free (resolved)
+description: The old per-frame array/closure allocation smell in App.tsx frame() was fixed — pooled scratch + hoisted vp. Don't re-flag.
+metadata:
+  type: project
 ---
 
-Recurring smell: `App.tsx`'s `frame()` rAF body allocates per call:
-- `rectsBg.setRects([{...}, {...}, ...rulerTicks.map(...), {...}])` — fresh array + spread
-- `linesBg.setLines(CLOCK_EDGE_TICKS.filter(...).map(...))`
-- `linesFg.setLines([{...}, {...}])`
-- `flagRects: [...] = []` and inline `addFlag` closure
-- spread/map/filter in hot loops
+RESOLVED (confirmed 2026-06-02). `App.tsx`'s `frame()` rAF body no longer allocates per frame. It now uses:
+- pooled `rectsBgScratch` / `linesBgScratch` / `linesFgScratch` / `pillRectScratch` reused arrays with `getRect(arr,i)` / `getLine(arr,i)` accessors that grow-but-never-shrink and reset flag fields in place
+- a hoisted `vp` viewport object mutated in place
+- batch `setRects(scratch, count)` / `setLines(scratch, count)` / `setGlyphs(count)` APIs that take an explicit count so a pooled array longer than the live region works
+- a fixed pool of MAX_MARKERS pill batches (`markerPills`) + `allPills` built once
 
-**Why:** the rect/line/text batch APIs take whole arrays each frame, which encourages this pattern. Sub-millisecond per frame today (small N), but problematic when VCD scale lands or zoomed-out renders include thousands of grid ticks.
+Remaining minor per-frame allocs are trivial: `rulerArrowLabels` array (small), `dynamicRulerTicks`/`clockRulerTicks` returning fresh `{ticks,labels}` arrays, and `[...markers].sort(...)` for marker draw order (only when a marker is selected). These are bounded by visible ruler ticks / marker count (≤16), NOT by segment count — leave them unless a profile says otherwise.
 
-**How to apply:** when reviewing/refactoring, prefer reusable scratch buffers and direct push APIs (`batch.clear(); batch.pushRect(...)`) over array-rebuilds. Hoist closures out of rAF. Don't flag minor cases; flag when N grows or new per-frame allocations appear.
+**Do NOT re-flag the rAF body for allocations.** The real remaining CPU costs are [[perf_no_viewport_culling]] (GPU draw count) and [[perf_repack_and_value_queries]] (React value column + native repack). Focus reviews there.

@@ -1,4 +1,7 @@
-- [Segment GPU layout (current)](layout_segment.md) — 3×u32 (Zig+WGSL), TS Segment interface is legacy/dead-code; CLAUDE.md "5×u32" is stale
-- [Viewport uniform layout](layout_viewport.md) — 8×4B, slot 6 is i32, dpr passed separately, shaders scale
-- [Per-frame allocation hotspot](perf_per_frame_allocs.md) — App.tsx rAF rebuilds rect/line arrays + closures every frame
-- [Two-pipeline split](arch_two_pipelines.md) — single/multi pipelines share module+BGL, differ in fragment fill style
+- [Segment + RowInfo GPU layout](layout_segment.md) — PackedSegment 3×u32, RowInfo 4×u32 (words_per_sample). Zig+WGSL canonical; TS Segment is dead code
+- [Viewport uniform layout](layout_viewport.md) — 48B/12 slots, start_ticks split int/frac, slots 1&7 i32, slot 9 u32 dim_mask, dpr unused by shaders
+- [No viewport culling (TOP perf issue)](perf_no_viewport_culling.md) — draws ALL segments every frame; instanceCount=total not visible; no binary search anywhere
+- [Repack-all + per-render value queries](perf_repack_and_value_queries.md) — add-signal repacks all signals; cursor drag re-runs N napi getValueAt per frame
+- [rAF body now alloc-free (resolved)](perf_per_frame_allocs.md) — old per-frame alloc smell is FIXED (pooled scratch + hoisted vp); don't re-flag
+- [Two-pipeline split](arch_two_pipelines.md) — single/multi pipelines share module+BGL+layout, differ in fragment fill + VARIANT override constant
+- [GpuTimer pool race (perf-only)](bug_gpu_timer_pool_race.md) — timing.ts begin() doesn't reserve buffer; latent, render output unaffected
