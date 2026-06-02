@@ -96,44 +96,15 @@ submit. Mitigations now in place:
 
 The cap exposes the deeper point: **pure-resident doesn't scale past the GPU's
 binding limit**, full stop. Windowing (below) is the actual fix — it bounds the
-buffer to O(visible) so the ceiling is never approached. (Related: `buildMultiLabels`
-issues one `getValueAt` napi call *per* multi-bit segment at repack — 500k+ calls on
-this trace, a slow load independent of the buffer crash; windowing fixes that too by
-only formatting visible labels.)
-
-### Multi-bit value labels (loop 1.3) — incremental per-signal cache — DONE
-
-Was: every repack (add/remove/reorder/recolor/radix from the active set) re-ran
-`buildMultiLabels` over **all** active rows — one `getValueAt` per multi-bit segment
-of **every** signal, not just the one that changed. So adding the Nth signal paid the
-full-trace `getValueAt` storm for the N−1 signals already present — the "rebuild value
-labels" perf mark grew with the active-signal count, not with the added signal.
-
-Now: `buildMultiLabels` (`App.tsx`) caches formatted labels per `signalId` in a
-module-level `labelCache`, keyed `signalId → { radix, labels }`. A label's text depends
-only on `(signalId, radix)`: the `getValueAt(handle, tStart)` query is deterministic per
-signal+trace and the segment set (incl. mute flags) is deterministic per signal+gate —
-the **row index only affects placement, not text**. Each repack groups the native
-segments by row (cheap, no napi), then per active signal: **cache hit** (same
-`signalId`+`radix`) reuses the cached label text, reassigning only `row` (covers
-reorder) — zero `getValueAt`; **miss** (new signal or radix change) queries+formats just
-that signal's segments and caches them. The cache is pruned to the active set each
-repack (bounds memory to ≈ the resident label set) and cleared on trace swap
-(`resetForTrace`, since a new trace re-parses handles/values). So the `getValueAt` storm
-now scales with the **changed** signal, not the whole active set.
-
-This does **not** fix the resident-buffer ceiling or the off-screen-glyph VS cost above
-— `setLabels` still rebuilds the full glyph instance buffer each repack (pure JS
-expansion + one `writeBuffer`, far cheaper than the napi storm). Windowing (below)
-remains the fix for those and would subsume this cache.
+buffer to O(visible) so the ceiling is never approached.
 
 *Future optimization (now the real fix, not just an optimization):* binary-search
 the visible label range — labels are row-grouped and sorted by `tStart`, and the
 multi-pipeline `RowInfo.segment_start` gives each row's sub-range, so the **same
 visible-window index built for the segment draw cull** can pick `[firstInstance,
 instanceCount)` per row and build/draw only on-screen labels. That turns the VS work
-from O(total glyphs) into O(visible glyphs), bounds the buffer regardless of trace
-size, and avoids the per-segment `getValueAt` storm.
+from O(total glyphs) into O(visible glyphs) and bounds the buffer regardless of trace
+size.
 
 ---
 

@@ -7,6 +7,7 @@ const seg = @import("segments.zig");
 const mock_db = @import("mock_db.zig");
 const pack = @import("pack.zig");
 const hier = @import("hier.zig");
+const label = @import("label.zig");
 
 const page = std.heap.page_allocator;
 
@@ -46,6 +47,17 @@ fn makeArrayBufferFromU32s(env: c.napi_env, words: []const u32) c.napi_value {
     if (byte_len > 0) {
         const dest = @as([*]u8, @ptrCast(data.?))[0..byte_len];
         @memcpy(dest, std.mem.sliceAsBytes(words));
+    }
+    return result;
+}
+
+fn makeArrayBufferFromU8s(env: c.napi_env, bytes: []const u8) c.napi_value {
+    var data: ?*anyopaque = null;
+    var result: c.napi_value = undefined;
+    _ = c.napi_create_arraybuffer(env, bytes.len, &data, &result);
+    if (bytes.len > 0) {
+        const dest = @as([*]u8, @ptrCast(data.?))[0..bytes.len];
+        @memcpy(dest, bytes);
     }
     return result;
 }
@@ -173,6 +185,8 @@ const PackSpec = struct {
     kind: pack.PackKind,
     shaded: bool,
     gate: ?tide.Signal.Id,
+    radix: label.Radix,
+    enums: []const label.EnumEntry,
 };
 
 fn parseHandle(env: c.napi_env, v: c.napi_value) ?tide.Signal.Id {
@@ -183,7 +197,40 @@ fn parseHandle(env: c.napi_env, v: c.napi_value) ?tide.Signal.Id {
     return @enumFromInt(id_int);
 }
 
-fn parseSpec(env: c.napi_env, v: c.napi_value) ?PackSpec {
+// Parse the per-row enum int→label table ([{ value, label }]) into arena-owned
+// EnumEntry slices. Labels are copied so they outlive the napi scope (formatValue
+// only borrows them during packing). Returns an empty slice when absent.
+fn parseEnums(env: c.napi_env, v: c.napi_value, arena: std.mem.Allocator) []const label.EnumEntry {
+    var enums_v: c.napi_value = undefined;
+    if (c.napi_get_named_property(env, v, "enums", &enums_v) != c.napi_ok) return &.{};
+    var vt: c.napi_valuetype = undefined;
+    _ = c.napi_typeof(env, enums_v, &vt);
+    if (vt != c.napi_object) return &.{};
+    var elen: u32 = 0;
+    if (c.napi_get_array_length(env, enums_v, &elen) != c.napi_ok or elen == 0) return &.{};
+
+    const out = arena.alloc(label.EnumEntry, elen) catch return &.{};
+    var k: u32 = 0;
+    while (k < elen) : (k += 1) {
+        var ev: c.napi_value = undefined;
+        _ = c.napi_get_element(env, enums_v, k, &ev);
+        var val_v: c.napi_value = undefined;
+        var lab_v: c.napi_value = undefined;
+        _ = c.napi_get_named_property(env, ev, "value", &val_v);
+        _ = c.napi_get_named_property(env, ev, "label", &lab_v);
+        var val: u32 = 0;
+        _ = c.napi_get_value_uint32(env, val_v, &val);
+        var slen: usize = 0;
+        _ = c.napi_get_value_string_utf8(env, lab_v, null, 0, &slen);
+        const sbuf = arena.alloc(u8, slen + 1) catch return out[0..k];
+        var written: usize = 0;
+        _ = c.napi_get_value_string_utf8(env, lab_v, sbuf.ptr, sbuf.len, &written);
+        out[k] = .{ .value = val, .label = sbuf[0..written] };
+    }
+    return out;
+}
+
+fn parseSpec(env: c.napi_env, v: c.napi_value, arena: std.mem.Allocator) ?PackSpec {
     var row_v: c.napi_value = undefined;
     var handle_v: c.napi_value = undefined;
     var kind_v: c.napi_value = undefined;
@@ -212,7 +259,19 @@ fn parseSpec(env: c.napi_env, v: c.napi_value) ?PackSpec {
     _ = c.napi_typeof(env, gate_v, &gate_type);
     const gate: ?tide.Signal.Id = if (gate_type == c.napi_string) parseHandle(env, gate_v) else null;
 
-    return .{ .row = row, .handle = handle, .kind = kind, .shaded = shaded, .gate = gate };
+    // radix: optional string, defaults to bin (matches makeActiveRef scalars).
+    var radix: label.Radix = .bin;
+    var radix_v: c.napi_value = undefined;
+    if (c.napi_get_named_property(env, v, "radix", &radix_v) == c.napi_ok) {
+        var rbuf: [8]u8 = undefined;
+        var rlen: usize = 0;
+        if (c.napi_get_value_string_utf8(env, radix_v, &rbuf, rbuf.len, &rlen) == c.napi_ok) {
+            const rs = rbuf[0..rlen];
+            radix = if (std.mem.eql(u8, rs, "hex")) .hex else if (std.mem.eql(u8, rs, "dec")) .dec else .bin;
+        }
+    }
+
+    return .{ .row = row, .handle = handle, .kind = kind, .shaded = shaded, .gate = gate, .radix = radix, .enums = parseEnums(env, v, arena) };
 }
 
 fn getMockSegments(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.napi_value {
@@ -228,6 +287,11 @@ fn getMockSegments(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.n
     const db = &loaded.db;
     const end_t: u32 = loaded.end_t;
 
+    // Scratch arena for per-spec enum tables parsed out of the JS specs (the
+    // label strings must outlive parseSpec). Freed when this call returns.
+    var arena = std.heap.ArenaAllocator.init(page);
+    defer arena.deinit();
+
     var scene = seg.Scene.init(page);
     defer scene.deinit();
 
@@ -235,7 +299,7 @@ fn getMockSegments(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.n
     while (i < arr_len) : (i += 1) {
         var elem: c.napi_value = undefined;
         _ = c.napi_get_element(env, argv[0], i, &elem);
-        const s = parseSpec(env, elem) orelse @panic("invalid spec");
+        const s = parseSpec(env, elem, arena.allocator()) orelse @panic("invalid spec");
 
         const q = db.query(s.handle, 0, end_t) orelse @panic("missing signal");
         const width: u32 = q.type.width;
@@ -249,6 +313,8 @@ fn getMockSegments(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.n
             .end_t = end_t,
             .kind = s.kind,
             .gate_id = s.gate,
+            .radix = s.radix,
+            .enums = s.enums,
         }) catch @panic("packQuery failed");
     }
 
@@ -264,6 +330,9 @@ fn getMockSegments(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.n
     setProp(env, obj, "rowCount", jsU32(env, @intCast(final.row_infos.items.len)));
     setProp(env, obj, "x0Pool", makeArrayBufferFromU32s(env, final.x0_pool.items));
     setProp(env, obj, "x1Pool", makeArrayBufferFromU32s(env, final.x1_pool.items));
+    // Native value labels, aligned with `multi` (label i = bytes[off[i]..off[i+1]]).
+    setProp(env, obj, "labelBytes", makeArrayBufferFromU8s(env, scene.multi_label_bytes.items));
+    setProp(env, obj, "labelOffsets", makeArrayBufferFromU32s(env, scene.multi_label_offsets.items));
     return obj;
 }
 

@@ -5,24 +5,26 @@ import WGSL from "./labels.wgsl";
 // 16 B per glyph instance: t_start, t_end, row, packed.
 const LABEL_U32 = 4;
 
-// One multi-bit value label: its pill tick span + row + the formatted text.
-// Structurally compatible with App's MultiBitLabel.
-export interface LabelInput {
-  row: number;
-  tStart: number;
-  tEnd: number;
-  text: string;
-}
-
 export interface LabelBatch {
   pipeline: GPURenderPipeline;
   // (Re)built by setLabels — references the current instance + rowInfo buffers.
   bindGroup: GPUBindGroup | null;
   glyphCount: number;
-  // Expand labels → per-glyph instances built ONCE here (not per frame), upload
-  // (growing the instance buffer as needed), and rebind against the current
-  // rowInfo buffer (which changes on every scene rebuild). Call at repack.
-  setLabels(labels: LabelInput[], rowInfo: GPUBuffer): void;
+  // Expand the native value labels → per-glyph instances built ONCE here (not per
+  // frame), upload (growing the instance buffer as needed), and rebind against the
+  // current rowInfo buffer (which changes on every scene rebuild). Call at repack.
+  //
+  // Labels come straight from the native pack (no JS formatting): `multi` is the
+  // 3×u32 multi PackedSegment buffer (t_start, t_end, row_flags) and label i is the
+  // ASCII byte range labelBytes[labelOffsets[i] .. labelOffsets[i+1]] — so segment
+  // i's pill text is read directly from the blob, no per-segment JS string.
+  setLabels(
+    multi: Uint32Array,
+    multiCount: number,
+    labelBytes: Uint8Array,
+    labelOffsets: Uint32Array,
+    rowInfo: GPUBuffer,
+  ): void;
 }
 
 export interface LabelRenderer {
@@ -88,7 +90,7 @@ export async function createLabelRenderer(
       pipeline,
       bindGroup: null,
       glyphCount: 0,
-      setLabels(labels, rowInfo) {
+      setLabels(multi, multiCount, labelBytes, labelOffsets, rowInfo) {
         // The instance buffer is a storage buffer bound to the shader, so it can
         // never exceed maxStorageBufferBindingSize. A huge/wide trace (e.g. 64-bit
         // values × 500k cycles → ~16 glyphs/label × millions of labels) would
@@ -97,10 +99,9 @@ export async function createLabelRenderer(
         // PERFORMANCE.md "Multi-bit value labels") — until then, cap, don't crash.
         const maxGlyphs = Math.floor(device.limits.maxStorageBufferBindingSize / (LABEL_U32 * 4));
 
-        // Upper bound on glyph instances (counts non-atlas chars too — fine for
-        // sizing + the cap estimate).
-        let wanted = 0;
-        for (const l of labels) wanted += Math.min(l.text.length, 255);
+        // Upper bound on glyph instances: one per label byte (non-atlas bytes get
+        // skipped below — fine for sizing + the cap estimate).
+        const wanted = labelBytes.length;
         const total = Math.min(wanted, maxGlyphs);
         if (wanted > maxGlyphs) {
           console.warn(
@@ -122,13 +123,15 @@ export async function createLabelRenderer(
         }
 
         let gi = 0;
-        outer: for (const l of labels) {
-          const len = Math.min(l.text.length, 255);
-          const ts = l.tStart >>> 0;
-          const te = l.tEnd >>> 0;
-          const row = l.row >>> 0;
+        outer: for (let i = 0; i < multiCount; i++) {
+          const start = labelOffsets[i];
+          const len = Math.min(labelOffsets[i + 1] - start, 255); // empty for muted segments
+          if (len <= 0) continue;
+          const ts = multi[i * 3] >>> 0;
+          const te = multi[i * 3 + 1] >>> 0;
+          const row = multi[i * 3 + 2] & 0xffff;
           for (let k = 0; k < len; k++) {
-            const code = l.text.charCodeAt(k);
+            const code = labelBytes[start + k];
             if (code < 0x20 || code > 0x7e) continue; // non-atlas — skip, keep column k
             if (gi >= total) break outer; // cap to fit the storage binding
             const off = gi * LABEL_U32;

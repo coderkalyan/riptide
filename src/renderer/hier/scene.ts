@@ -128,9 +128,20 @@ function lookupByPath(h: Hierarchy, path: string): NodeId {
 const GATE_BY_PATH = new Map<string, string>();
 for (const r of ROWS) if (r.gatePath) GATE_BY_PATH.set(r.path, r.gatePath);
 
+// Per-row enum int→label table for the native label formatter (label.zig). Built
+// from the signal's overlaid enumTypeId (see buildScene); empty for non-enum rows.
+// value = parseInt(member.raw, 2), matching the old JS buildEnumLabels key.
+function enumsForSignal(h: Hierarchy, signalId: NodeId): { value: number; label: string }[] {
+  const sig = getSignal(h, signalId);
+  if (sig.enumTypeId == null) return [];
+  const enumType = h.enumTypes.get(sig.enumTypeId);
+  if (!enumType) return [];
+  return enumType.members.map((m) => ({ value: parseInt(m.raw, 2), label: m.label }));
+}
+
 // Native pack specs from the active signal list — what tide should query + how
 // to pack each row. kind/shade from role; gate is path-keyed, handle resolved
-// from the loaded hierarchy.
+// from the loaded hierarchy. radix + enums drive the native value-label format.
 function specsFromActive(h: Hierarchy, active: ActiveSignalRef[]): NativePackSpec[] {
   return active.map((s) => {
     const gatePath = GATE_BY_PATH.get(s.path);
@@ -140,6 +151,8 @@ function specsFromActive(h: Hierarchy, active: ActiveSignalRef[]): NativePackSpe
       kind: s.role === "clock" ? "clk" : "data",
       shaded: s.role !== "clock",
       gateHandle: gatePath ? signalAt(h, gatePath).handle : null,
+      radix: s.radix,
+      enums: enumsForSignal(h, s.signalId),
     };
   });
 }

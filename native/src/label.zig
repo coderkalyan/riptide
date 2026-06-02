@@ -77,7 +77,10 @@ fn appendDecimal(out: *std.ArrayList(u8), gpa: Allocator, x0: []const u8, width:
 
 // Format a multi-bit value into `out`. x0/x1 are tide's per-sample little-endian
 // byte planes (value bits / unknown bits). Faithful port of the renderer's
-// formatSegmentValue (src/renderer/App.tsx) so labels match byte-for-byte.
+// formatSegmentValue (src/renderer/App.tsx) so labels match byte-for-byte — the
+// renderer still uses formatSegmentValue for the single cursor/hover value column,
+// so the two MUST stay in sync. Wired into the pill-label path via Scene.pushMultiLabel
+// (segments.zig) / packQuery (pack.zig) → getMockSegments' labelBytes/labelOffsets.
 pub fn formatValue(
     out: *std.ArrayList(u8),
     gpa: Allocator,

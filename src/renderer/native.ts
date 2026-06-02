@@ -50,6 +50,11 @@ export interface NativePackSpec {
   kind: "clk" | "data";
   shaded: boolean;
   gateHandle: string | null;
+  // Multi-bit rows: how the native side formats the pill value label (label.zig).
+  radix: "bin" | "hex" | "dec";
+  // Per-row enum int→label table (empty for non-enum rows). value = the integer
+  // key the formatter matches against the low word of the sample.
+  enums: { value: number; label: string }[];
 }
 
 interface NativeModule {
@@ -63,6 +68,8 @@ interface NativeModule {
     rowCount: number;
     x0Pool: ArrayBuffer;
     x1Pool: ArrayBuffer;
+    labelBytes: ArrayBuffer;
+    labelOffsets: ArrayBuffer;
   };
   getHierarchy(): RawHierarchy;
   getValueAt(handle: string, tick: number): { lsb: number[]; msb: number[] } | null;
@@ -97,6 +104,10 @@ export interface NativeMockSegments {
   rowCount: number;
   x0Pool: ArrayBuffer;
   x1Pool: ArrayBuffer;
+  // Native value labels for the multi pipeline: concatenated ASCII bytes +
+  // multiCount+1 prefix offsets aligned with `multi` (label i = bytes[off[i]..off[i+1]]).
+  labelBytes: Uint8Array<ArrayBuffer>;
+  labelOffsets: Uint32Array<ArrayBuffer>;
 }
 
 export function getMockSegments(specs: NativePackSpec[]): NativeMockSegments {
@@ -110,6 +121,8 @@ export function getMockSegments(specs: NativePackSpec[]): NativeMockSegments {
     rowCount: r.rowCount,
     x0Pool: r.x0Pool,
     x1Pool: r.x1Pool,
+    labelBytes: new Uint8Array(r.labelBytes),
+    labelOffsets: new Uint32Array(r.labelOffsets),
   };
 }
 

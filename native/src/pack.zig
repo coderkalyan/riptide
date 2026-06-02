@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const tide = @import("tide");
 const seg = @import("segments.zig");
+const label = @import("label.zig");
 
 pub const PackKind = enum { data, clk };
 
@@ -12,6 +13,9 @@ pub const PackOpts = struct {
     end_t: u32,
     kind: PackKind = .data,
     gate_id: ?tide.Signal.Id = null,
+    // Multi-bit rows only: how to format the pill value label (label.zig).
+    radix: label.Radix = .bin,
+    enums: []const label.EnumEntry = &.{},
 };
 
 // True if any byte in the slice is non-zero (used for x/z presence tests).
@@ -122,5 +126,12 @@ pub fn packQuery(
             (if (muted) seg.FLAG_MUTE else @as(u32, 0));
 
         try scene.pushSegment(target, opts.row, opts.width, t_start, t_end, x0, x1, flags);
+
+        // Multi-bit rows render a value pill; format its label here (native) in
+        // lockstep with the multi push so labels stay aligned with `scene.multi`.
+        // x0/x1 still borrow valid db storage (no query since they were taken).
+        if (opts.width > 1) {
+            try scene.pushMultiLabel(x0, x1, opts.width, opts.radix, opts.enums, muted);
+        }
     }
 }

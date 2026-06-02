@@ -1,5 +1,6 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const label = @import("label.zig");
 
 pub const FLAG_SHADE: u32 = 1 << 16;
 pub const FLAG_RIGHT_EDGE: u32 = 1 << 17;
@@ -80,6 +81,12 @@ pub const Scene = struct {
     gpa: Allocator,
     multi: std.ArrayList(PackedSegment) = .empty,
     single: std.ArrayList(PackedSegment) = .empty,
+    // Per multi-bit segment value label, formatted natively (label.zig) so the
+    // renderer needs no per-segment getValueAt + JS formatting. `multi_label_bytes`
+    // is the concatenated ASCII; `multi_label_offsets` holds multiCount+1 prefix
+    // offsets aligned with `multi` (label i = bytes[off[i]..off[i+1]]).
+    multi_label_bytes: std.ArrayList(u8) = .empty,
+    multi_label_offsets: std.ArrayList(u32) = .empty,
     rows: [MAX_ROWS]RowAccum = [_]RowAccum{.{}} ** MAX_ROWS,
 
     pub fn init(gpa: Allocator) Scene {
@@ -89,7 +96,26 @@ pub const Scene = struct {
     pub fn deinit(self: *Scene) void {
         self.multi.deinit(self.gpa);
         self.single.deinit(self.gpa);
+        self.multi_label_bytes.deinit(self.gpa);
+        self.multi_label_offsets.deinit(self.gpa);
         for (&self.rows) |*r| r.deinit(self.gpa);
+    }
+
+    // Append one multi-bit segment's value label. Call exactly once per `multi`
+    // push, in the same order, so label i aligns with multi[i]. Muted segments get
+    // an empty label (no glyphs drawn), matching the old JS mute skip.
+    pub fn pushMultiLabel(
+        self: *Scene,
+        x0: []const u8,
+        x1: []const u8,
+        width: u32,
+        radix: label.Radix,
+        enums: []const label.EnumEntry,
+        muted: bool,
+    ) !void {
+        if (self.multi_label_offsets.items.len == 0) try self.multi_label_offsets.append(self.gpa, 0);
+        if (!muted) try label.formatValue(&self.multi_label_bytes, self.gpa, x0, x1, width, radix, enums);
+        try self.multi_label_offsets.append(self.gpa, @intCast(self.multi_label_bytes.items.len));
     }
 
     // Push one transition. `x0`/`x1` are tide's per-sample little-endian byte
