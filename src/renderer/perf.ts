@@ -1,6 +1,7 @@
 // Perf instrumentation — four tracked concerns:
 //   1. Canvas (WebGPU) frame time — real GPU ms via timestamp-query (gpu/timing.ts
-//      feeds pushGpu); canvas fps = 1000/gpu_ms. CPU encode ms tracked alongside.
+//      feeds pushGpu); canvas fps = 1000/gpu_ms. Full per-frame CPU ms (whole rAF
+//      callback) tracked alongside, with the encode+submit subset broken out.
 //   2. Electron (main-thread) present fps — rAF interval, with dropped-frame and
 //      long-task (jank) detection. This is the "never below 60fps" headline.
 //   3. VCD load breakdown — module-load stamps (native db, hierarchy, scene,
@@ -61,7 +62,8 @@ function percentile(sorted: Float64Array, p: number): number {
 }
 
 const dtRing = ring(WINDOW);       // inter-frame interval (ms) → present fps
-const encodeRing = ring(WINDOW);   // CPU time to encode+submit a frame (ms)
+const cpuRing = ring(WINDOW);      // full per-frame CPU time (whole rAF callback, ms)
+const encodeRing = ring(WINDOW);   // CPU time to encode+submit a frame (ms) — subset of cpu
 const gpuRing = ring(WINDOW);      // GPU time for the render pass (ms)
 let lastFrameTs = 0;
 let dropped = 0;                   // frames slower than DROP_THRESHOLD_MS, lifetime
@@ -94,10 +96,13 @@ export function frameStart(now: number): void {
   frames++;
 }
 
-// Call at the end of the rAF callback with the CPU ms spent encoding+submitting.
+// Call at the end of the rAF callback. `cpuMs` is the full main-thread cost of
+// the whole callback (layout reads, geometry builds, encode+submit) — the number
+// that gates 60fps; `encodeMs` is the encode+submit subset of it.
 // Finalizes a pending add-signal measurement once its repacked frame has drawn.
-export function frameEnd(encodeMs: number): void {
+export function frameEnd(encodeMs: number, cpuMs: number): void {
   push(encodeRing, encodeMs);
+  push(cpuRing, cpuMs);
   if (pendingAdd && pendingAdd.rebuilt) {
     lastAdd = finalizeMarks(pendingAdd);
     pendingAdd = null;
@@ -214,6 +219,7 @@ export interface PerfSnapshot {
   enabled: boolean;
   frames: number;
   present: { fps: number; minFps: number; p50Ms: number; p95Ms: number; maxMs: number; dropped: number };
+  cpu: { p50Ms: number; p95Ms: number; maxMs: number };
   encode: { p50Ms: number; p95Ms: number; maxMs: number };
   gpu: { p50Ms: number; p95Ms: number; maxMs: number; supported: boolean };
   jank: { longTasks: number; longTaskMs: number };
@@ -227,6 +233,7 @@ export function setGpuSupported(v: boolean): void { gpuSupported = v; }
 
 export function snapshot(): PerfSnapshot {
   const dt = snapshotSorted(dtRing);
+  const cpu = snapshotSorted(cpuRing);
   const enc = snapshotSorted(encodeRing);
   const gpu = snapshotSorted(gpuRing);
   const maxDt = dt.length ? dt[dt.length - 1] : 0;
@@ -241,6 +248,7 @@ export function snapshot(): PerfSnapshot {
       maxMs: maxDt,
       dropped,
     },
+    cpu: { p50Ms: percentile(cpu, 50), p95Ms: percentile(cpu, 95), maxMs: cpu.length ? cpu[cpu.length - 1] : 0 },
     encode: { p50Ms: percentile(enc, 50), p95Ms: percentile(enc, 95), maxMs: enc.length ? enc[enc.length - 1] : 0 },
     gpu: { p50Ms: percentile(gpu, 50), p95Ms: percentile(gpu, 95), maxMs: gpu.length ? gpu[gpu.length - 1] : 0, supported: gpuSupported },
     jank: { longTasks: longTaskCount, longTaskMs },
@@ -252,6 +260,7 @@ export function snapshot(): PerfSnapshot {
 
 export function reset(): void {
   dtRing.len = dtRing.head = 0;
+  cpuRing.len = cpuRing.head = 0;
   encodeRing.len = encodeRing.head = 0;
   gpuRing.len = gpuRing.head = 0;
   lastFrameTs = 0; dropped = 0; frames = 0; emaFps = 0;
@@ -278,7 +287,7 @@ try {
       console.log(
         `[perf] present ${s.present.fps.toFixed(1)}fps (min ${s.present.minFps.toFixed(1)}, ${s.present.dropped} dropped) · ` +
         `gpu p50 ${s.gpu.p50Ms.toFixed(2)}ms p95 ${s.gpu.p95Ms.toFixed(2)}ms · ` +
-        `encode p50 ${s.encode.p50Ms.toFixed(2)}ms · jank ${s.jank.longTasks} (${s.jank.longTaskMs.toFixed(0)}ms)`,
+        `cpu p50 ${s.cpu.p50Ms.toFixed(2)}ms (encode ${s.encode.p50Ms.toFixed(2)}ms) · jank ${s.jank.longTasks} (${s.jank.longTaskMs.toFixed(0)}ms)`,
       );
       if (s.load) {
         console.log(`[perf] boot → first frame (once) ${s.load.total.toFixed(1)}ms · ${s.load.nodes} hierarchy nodes`);

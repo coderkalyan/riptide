@@ -85,7 +85,8 @@ export function PerfOverlay() {
       {snap.gpu.supported
         ? row("canvas gpu ms (p50/p95)", `${ms(snap.gpu.p50Ms)} / ${ms(snap.gpu.p95Ms)}`, budgetColor(snap.gpu.p95Ms))
         : row("canvas gpu ms", "n/a (no timestamp-query)")}
-      {row("cpu encode ms (p50/p95)", `${ms(snap.encode.p50Ms)} / ${ms(snap.encode.p95Ms)}`)}
+      {row("cpu frame ms (p50/p95)", `${ms(snap.cpu.p50Ms)} / ${ms(snap.cpu.p95Ms)}`, budgetColor(snap.cpu.p95Ms))}
+      {phaseRow("of which encode (p50)", snap.encode.p50Ms)}
       {row("main-thread jank", `${snap.jank.longTasks} task / ${snap.jank.longTaskMs.toFixed(0)}ms`, snap.jank.longTasks > 0 ? "#e6b14e" : undefined)}
       <div style={{ height: 1, background: "#2f333a", margin: "5px 0" }} />
 
