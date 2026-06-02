@@ -7,3 +7,5 @@ out/
 zig-out/
 .mcp.json
 .preview/
+release/
+screenshot.png
