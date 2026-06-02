@@ -1,0 +1,40 @@
+{
+    "rdocCaptureSettings": 1,
+    "settings": {
+        "autoStart": false,
+        "commandLine": "",
+        "environment": [
+            {
+                "separator": "Platform style",
+                "type": "Set",
+                "value": "1",
+                "variable": "RIPTIDE_RENDERDOC"
+            },
+            {
+                "separator": "Platform style",
+                "type": "Set",
+                "value": "/home/kalyan/Documents/verilog-stream/waveforms/demo_wide_n64_500kcyc.vcd",
+                "variable": "RIPTIDE_VCD"
+            }
+        ],
+        "executable": "/home/kalyan/Documents/riptide/node_modules/.pnpm/electron@41.3.0/node_modules/electron/dist/electron",
+        "inject": false,
+        "numQueuedFrames": 0,
+        "options": {
+            "allowFullscreen": true,
+            "allowVSync": true,
+            "apiValidation": false,
+            "captureAllCmdLists": false,
+            "captureCallstacks": false,
+            "captureCallstacksOnlyDraws": false,
+            "debugOutputMute": true,
+            "delayForDebugger": 0,
+            "hookIntoChildren": true,
+            "refAllResources": false,
+            "softMemoryLimit": 0,
+            "verifyBufferAccess": false
+        },
+        "queuedFrameCap": 0,
+        "workingDir": "/home/kalyan/Documents/riptide"
+    }
+}
