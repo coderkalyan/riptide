@@ -394,8 +394,8 @@ function snapToClockEdge(tick: number): number {
   return Math.round((tick - MOCK_CLOCK_TICK_NS) / period) * period + MOCK_CLOCK_TICK_NS;
 }
 
-// Clock positive-edge ticks: `buildClockSegments` emits alternating half-period
-// segments starting low, so the 0→1 transitions land at ticks 5, 15, 25, ...
+// Clock positive-edge ticks: the mock clock toggles every half-period starting
+// low, so the 0→1 transitions land at ticks 5, 15, 25, ...
 const CLOCK_EDGE_TICKS: number[] = [];
 for (let t = MOCK_CLOCK_TICK_NS; t < MOCK_END_TICKS; t += 2 * MOCK_CLOCK_TICK_NS) {
   CLOCK_EDGE_TICKS.push(t);
@@ -915,18 +915,22 @@ export function App() {
     setSelectedMarkerId((sel) => (sel === id ? null : sel));
   };
   const selectedRowRef = useRef(SCENE.activeSignals.find((r) => r.selected)?.row ?? -1);
-  // Bitmask of rows whose eye is toggled off (row i → bit i). Read per-frame and
-  // packed into the viewport uniform; the digital shader dims those rows to 50%.
-  const dimMaskRef = useRef(0);
+  // Rows whose eye is toggled off. Pushed into RowInfo.flags (bit 0) of the GPU
+  // rowInfo buffer via renderer.setDimFlags — a tiny writeBuffer, NOT a repack
+  // (hidden is excluded from sceneKey). applyDimRef, set in the GPU effect,
+  // writes the live scene; calling it re-applies the current hidden set.
+  const hiddenRowsRef = useRef<Set<number>>(new Set());
+  const applyDimRef = useRef<(() => void) | null>(null);
   // Mirror the clock-anchor toggle into a ref so the rAF frame loop can read it
   // without re-subscribing. On → ruler counts clock cycles instead of ns.
   const clockAnchorRef = useRef(clockAnchor);
   useEffect(() => { clockAnchorRef.current = clockAnchor; }, [clockAnchor]);
   useEffect(() => {
     selectedRowRef.current = activeSignals.find((r) => r.selected)?.row ?? -1;
-    let mask = 0;
-    for (const r of activeSignals) if (r.hidden && r.row < 32) mask |= 1 << r.row;
-    dimMaskRef.current = mask >>> 0;
+    const hidden = new Set<number>();
+    for (const r of activeSignals) if (r.hidden) hidden.add(r.row);
+    hiddenRowsRef.current = hidden;
+    applyDimRef.current?.();
   }, [activeSignals]);
 
   // Keyboard: `m` drops a marker at the cursor, Delete/Backspace removes the
@@ -982,6 +986,13 @@ export function App() {
       let multiBit = multiBitInit;
       let singleBit = singleBitInit;
 
+      // Push the current hidden set into the live scene's rowInfo flags. Closes
+      // over the `scene` closure var, so it always targets the latest scene after
+      // a rebuild. Called from the [activeSignals] effect (eye toggle) and at the
+      // end of rebuildSceneRef (fresh native rowInfo starts with flags=0).
+      applyDimRef.current = () => renderer.setDimFlags(scene, (row) => hiddenRowsRef.current.has(row));
+      applyDimRef.current();
+
       // Repack the GPU buffers + pill labels for a new active list. Reuses the
       // compiled pipelines (rebindPipeline), destroying the buffers they no
       // longer reference to avoid leaking on repeated adds.
@@ -1002,6 +1013,8 @@ export function App() {
         perf.addMark("GPU buffer rebuild (scene + rebind)");
         multiLabels = buildMultiLabels(packed, active, buildEnumLabels(active));
         perf.addMark("rebuild pill labels");
+        // New scene → new rowInfo buffer (flags all 0); re-apply the dim set.
+        applyDimRef.current?.();
       };
       const linesBg = lineRenderer.createBatch();
       const linesFg = lineRenderer.createBatch();
@@ -1056,7 +1069,6 @@ export function App() {
         dpr: 1,
         selected_row: -1,
         wave_y_offset: 0,
-        dim_mask: 0,
       };
 
       const writeText = (
@@ -1098,6 +1110,7 @@ export function App() {
 
       const frame = (now: number) => {
         perf.frameStart(now);
+        const cpuStart = performance.now();
         // All measurements are in CSS pixels, read live each frame. Multiply by
         // DPR to get physical canvas pixels — the only unit the GPU shader
         // knows about.
@@ -1166,8 +1179,6 @@ export function App() {
         vp.dpr = dpr;
         vp.selected_row = selectedRowRef.current;
         vp.wave_y_offset = rulerHeightCSS;
-        const dimMask = dimMaskRef.current;
-        vp.dim_mask = dimMask;
 
         // Right-edge dead zone: extend leftward to the data end when the
         // user has zoomed out past MOCK_END_TICKS, so the OOB area shows
@@ -1394,7 +1405,7 @@ export function App() {
           // TODO: switch to `textColorByRowRef.current.get(lbl.row)` to use
           // the per-row contrast pick. Forced white for now. Dimmed rows (eye
           // off) fade the label toward bg to match the dimmed waveform.
-          const dimmed = ((dimMask >>> lbl.row) & 1) !== 0;
+          const dimmed = hiddenRowsRef.current.has(lbl.row);
           const color = dimmed ? dimToBg(TEXT_WHITE) : TEXT_WHITE;
           for (let k = 0; k < lbl.text.length && gi < MAX_GLYPHS; k++) {
             const code = lbl.text.charCodeAt(k);
@@ -1465,7 +1476,8 @@ export function App() {
 
         const encodeStart = performance.now();
         renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, linesFg, textBody, pills: allPills }, vp, gpuTimer);
-        perf.frameEnd(performance.now() - encodeStart);
+        const frameDone = performance.now();
+        perf.frameEnd(frameDone - encodeStart, frameDone - cpuStart);
         perf.markFirstFrame();
         raf = requestAnimationFrame(frame);
       };

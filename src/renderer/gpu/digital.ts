@@ -4,6 +4,12 @@ import WGSL from "./digital.wgsl";
 
 type ShaderVariant = "multi" | "single";
 
+// RowInfo is 5×u32 (see segments.zig / digital.wgsl): x0_offset, x1_offset,
+// words_per_sample, segment_start, flags. Word 4 is the per-row flags; bit 0 =
+// dim. ROW_FLAG_DIM must match digital.wgsl's ROW_FLAG_DIM.
+const ROW_INFO_WORDS = 5;
+const ROW_FLAG_DIM = 1 << 0;
+
 export interface SignalPipeline {
   pipeline: GPURenderPipeline;
   bindGroup: GPUBindGroup;
@@ -18,6 +24,9 @@ export interface SceneBuffers {
   rowInfo: GPUBuffer;
   x0Pool: GPUBuffer;
   x1Pool: GPUBuffer;
+  // CPU-side copy of the rowInfo records, retained so setDimFlags can patch the
+  // per-row flags word and re-upload without a repack.
+  rowInfoCpu: Uint32Array<ArrayBuffer>;
 }
 
 export interface DigitalRenderer {
@@ -47,6 +56,10 @@ export interface DigitalRenderer {
     colorBuf: GPUBuffer,
     scene: SceneBuffers,
   ): SignalPipeline;
+  // Set the per-row dim flag (eye toggle) by patching the rowInfo buffer's flags
+  // column and re-uploading it. One small writeBuffer, no repack — call after a
+  // scene (re)build and whenever the hidden set changes.
+  setDimFlags(scene: SceneBuffers, isHidden: (row: number) => boolean): void;
 }
 
 export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
@@ -76,13 +89,13 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
     alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
   } as const;
 
-  function writeStorage(bytes: ArrayBuffer): GPUBuffer {
+  function writeStorage(bytes: ArrayBuffer, minSize = 16): GPUBuffer {
     // WebGPU validates each binding against the pipeline's required size even
     // for a 0-instance draw. An empty scene (fresh trace, nothing active) yields
-    // an empty rowInfo buffer; binding 3 is array<RowInfo> (16 B stride), so pad
-    // to 16 — not 4 — or validation rejects it as "too small". 16 is harmless
-    // for the u32 pools too.
-    const size = Math.max(16, bytes.byteLength);
+    // an empty rowInfo buffer; binding 3 is array<RowInfo> (20 B stride), so it
+    // must pad to one stride (minSize = 20) or validation rejects it as "too
+    // small". The u32 pools use the default minSize 16 (harmless).
+    const size = Math.max(minSize, bytes.byteLength);
     const buf = device.createBuffer({ size, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST });
     if (bytes.byteLength > 0) device.queue.writeBuffer(buf, 0, bytes);
     return buf;
@@ -90,9 +103,10 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
 
   function createSceneBuffers(rowInfo: ArrayBuffer, x0Pool: ArrayBuffer, x1Pool: ArrayBuffer): SceneBuffers {
     return {
-      rowInfo: writeStorage(rowInfo),
+      rowInfo: writeStorage(rowInfo, ROW_INFO_WORDS * 4),
       x0Pool: writeStorage(x0Pool),
       x1Pool: writeStorage(x1Pool),
+      rowInfoCpu: new Uint32Array(rowInfo),
     };
   }
 
@@ -165,5 +179,14 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
     device.queue.writeBuffer(uniformBuf, 0, viewportScratch);
   }
 
-  return { ctx, module, bgl, layout, uniformBuf, viewportScratch, writeViewport, createSceneBuffers, buildPipelineFromPacked, rebindPipeline };
+  function setDimFlags(scene: SceneBuffers, isHidden: (row: number) => boolean): void {
+    const cpu = scene.rowInfoCpu;
+    const rows = cpu.length / ROW_INFO_WORDS;
+    for (let r = 0; r < rows; r++) {
+      cpu[r * ROW_INFO_WORDS + 4] = isHidden(r) ? ROW_FLAG_DIM : 0;
+    }
+    if (cpu.byteLength > 0) device.queue.writeBuffer(scene.rowInfo, 0, cpu);
+  }
+
+  return { ctx, module, bgl, layout, uniformBuf, viewportScratch, writeViewport, createSceneBuffers, buildPipelineFromPacked, rebindPipeline, setDimFlags };
 }

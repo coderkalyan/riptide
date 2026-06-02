@@ -65,16 +65,30 @@ pub fn packQuery(
     const len: usize = @intCast(query.len);
     var i: usize = 0;
     while (i < len) : (i += 1) {
+        // Tick path is u32 at the GPU boundary; @intCast panics (ReleaseSafe) on
+        // overflow rather than wrapping. Traces exceeding 2^32 ticks need a u64
+        // widening — see TIDE_INTEGRATION.md §3.10.
+        std.debug.assert(query.timestamps[i] <= std.math.maxInt(u32));
         const t_start: u32 = @intCast(query.timestamps[i]);
         const t_end: u32 = if (i + 1 < len)
-            @intCast(query.timestamps[i + 1])
+            @intCast(query.timestamps[i + 1]) // same u32 tick ceiling as t_start
         else
             opts.end_t;
+
+        const has_next = i + 1 < len;
+
+        // Compute the gate-mute BEFORE acquiring the x0/x1 slices below.
+        // gateMutedAt runs a nested db.query, and tide query slices borrow into
+        // db storage ("valid until the next query") — so we must not hold the
+        // x0/x1 borrows across that nested query.
+        const muted = if (opts.gate_id) |gid|
+            gateMutedAt(db, gid, query.timestamps[i])
+        else
+            false;
 
         const x0 = query.x0s[i * bps .. (i + 1) * bps];
         const x1 = query.x1s[i * bps .. (i + 1) * bps];
 
-        const has_next = i + 1 < len;
         var draw_right = has_next;
         var rising = false;
         var rising_left = false;
@@ -98,11 +112,6 @@ pub fn packQuery(
                 }
             },
         }
-
-        const muted = if (opts.gate_id) |gid|
-            gateMutedAt(db, gid, query.timestamps[i])
-        else
-            false;
 
         const shaded = opts.shaded and opts.kind == .data;
         const flags = (opts.row & 0xffff) |

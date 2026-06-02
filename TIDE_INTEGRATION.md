@@ -38,7 +38,7 @@ this repo); `native/build.zig.zon` references them as `../../tide` / `../../tide
         ▼
  Scene.finalize()  packRow()
         │   • concat each row's word-stride samples → x0_pool / x1_pool (u32 words)
-        │   • RowInfo{x0_off,x1_off,words_per_sample,segment_start} per row
+        │   • RowInfo{x0_off,x1_off,words_per_sample,segment_start,flags} per row
         ▼
  native/src/main.zig  getMockSegments()
         │   • napi ArrayBuffers: multi, single, rowInfo, x0Pool, x1Pool
@@ -127,8 +127,10 @@ appends:
 x0_offset_u32 = pool.len   // word offset of this row's run
 pool.appendSlice(row.lsbs) // word-stride samples, already packed
 ```
-`RowInfo{ x0_offset_u32, x1_offset_u32, words_per_sample, segment_start }` records
-where each row's run starts in the pools and its first instance index. There is no
+`RowInfo{ x0_offset_u32, x1_offset_u32, words_per_sample, segment_start, flags }`
+records where each row's run starts in the pools and its first instance index.
+`flags` (bit 0 = dim) is emitted as 0 by the packer; the renderer sets it later via
+`setDimFlags` on the eye toggle (a tiny `writeBuffer`, no repack). There is no
 bit-packing, mask, or `nextPow2` anymore (an 8-bit signal uses one full word per
 sample rather than 4-per-word — negligible since pools are per-transition).
 
@@ -293,6 +295,18 @@ Still mocked / rough here:
   `warp_hart_tb.vcd` (1100+ signals): a 1-bit signal's scalar change landed on a
   32-bit signal's builder. Fixed by offsetting 2-byte codes past the 1-byte range;
   added a regression test.
+
+### 3.10 u32 tick ceiling  *(known limitation, accepted)*
+- **Where:** the GPU tick path narrows tide's `u64` timestamps to `u32` at the
+  native boundary — `pack.zig` (`t_start`/`t_end`), `main.zig`/`mock_db.zig`
+  (`end_t`). The shader's `start_ticks` int/frac split preserves precision for the
+  *f32* math, but storage and the napi boundary are u32-capped.
+- **Behavior:** all sites use the **checked** `@intCast` and the native build is
+  `-Doptimize=ReleaseSafe`, so a trace exceeding 2³² ticks **panics** ("integer
+  cast truncated bits") rather than silently wrapping/corrupting. `pack.zig` adds
+  an explicit `std.debug.assert(ts <= maxInt(u32))` so the failure is legible.
+- **Replace when:** large real traces (long runs in ps/fs) land — widen the GPU
+  tick path to u64 (or rebase ticks to the view window). Accepted as-is for now.
 
 ---
 

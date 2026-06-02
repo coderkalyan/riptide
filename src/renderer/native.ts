@@ -91,7 +91,7 @@ export interface NativeMockSegments {
   multiCount: number;
   single: Uint32Array<ArrayBuffer>;
   singleCount: number;
-  // 4×u32 RowInfo records, indexed by row, + the shared word-stride value pools
+  // 5×u32 RowInfo records, indexed by row, + the shared word-stride value pools
   // (each sample = words_per_sample consecutive u32 words, full declared width).
   rowInfo: ArrayBuffer;
   rowCount: number;

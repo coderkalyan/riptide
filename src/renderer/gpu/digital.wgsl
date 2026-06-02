@@ -11,9 +11,9 @@ struct Viewport {
     dpr: f32,
     selected_row: i32,
     wave_y_offset: f32,
-    // Bitmask of rows to dim to 50% output opacity (row i → bit i). Wired to the
-    // per-signal eye toggle. Occupies the former _pad0 slot (same 4 bytes).
-    dim_mask: u32,
+    // Slot 9: pad. (Row dimming moved to RowInfo.flags bit 0 so it scales past
+    // the 32-row limit of the old dim_mask bitfield.)
+    _pad0: f32,
     _pad1: f32,
     _pad2: f32,
 }
@@ -44,7 +44,14 @@ struct RowInfo {
     // First instance index for this row in its pipeline. Sample index for an
     // instance ii of this row is `ii - segment_start`.
     segment_start: u32,
+    // Per-row render flags (bit 0 = dim). Written directly into the rowInfo
+    // buffer by the renderer on eye toggle (no repack). See ROW_FLAG_DIM.
+    flags: u32,
 }
+
+// RowInfo.flags bits (distinct from the VertexData F_* flags below). Must match
+// ROW_FLAG_DIM in segments.zig / digital.ts.
+const ROW_FLAG_DIM: u32 = 1u << 0u;
 
 // Pipeline-creation constant: 0 = single-bit, 1 = multi-bit. Folded at
 // pipeline-compile time so per-variant branches have no runtime cost.
@@ -156,7 +163,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
     let lsb_nonzero = value.x != 0u;
     let msb_nonzero = value.y != 0u;
     let highlight = i32(row) == viewport.selected_row;
-    let dimmed = ((viewport.dim_mask >> row) & 1u) != 0u;
+    let dimmed = (rows[row].flags & ROW_FLAG_DIM) != 0u;
 
     // Synthesize vertices for a triangle strip rect in [0, 1]^2.
     let corner_x = f32(vi & 1u);

@@ -29,7 +29,13 @@ pub const RowInfo = extern struct {
     x1_offset_u32: u32,
     words_per_sample: u32,
     segment_start: u32,
+    // Per-row render flags (bit 0 = dim; see ROW_FLAG_DIM in digital.wgsl /
+    // digital.ts). Native always emits 0 — the renderer sets this directly in
+    // the GPU rowInfo buffer (eye toggle) without a repack.
+    flags: u32,
 };
+
+pub const ROW_FLAG_DIM: u32 = 1 << 0;
 
 pub const ROW_INFO_BYTES: usize = @sizeOf(RowInfo);
 
@@ -165,13 +171,13 @@ pub fn finalize(scene: *Scene, gpa: Allocator) !Finalized {
     while (i < row_count) : (i += 1) {
         const r = scene.rows[i];
         if (r.bit_width == 0) {
-            row_infos.appendAssumeCapacity(.{ .x0_offset_u32 = 0, .x1_offset_u32 = 0, .words_per_sample = 0, .segment_start = 0 });
+            row_infos.appendAssumeCapacity(.{ .x0_offset_u32 = 0, .x1_offset_u32 = 0, .words_per_sample = 0, .segment_start = 0, .flags = 0 });
             continue;
         }
         const wps = wordsPerSample(r.bit_width);
         const off0 = try packRow(&x0, gpa, r.lsbs.items);
         const off1 = try packRow(&x1, gpa, r.msbs.items);
-        row_infos.appendAssumeCapacity(.{ .x0_offset_u32 = off0, .x1_offset_u32 = off1, .words_per_sample = wps, .segment_start = r.segment_start });
+        row_infos.appendAssumeCapacity(.{ .x0_offset_u32 = off0, .x1_offset_u32 = off1, .words_per_sample = wps, .segment_start = r.segment_start, .flags = 0 });
     }
 
     // Shader invariant: every segment's row index must point to a populated

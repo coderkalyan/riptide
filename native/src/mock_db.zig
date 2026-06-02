@@ -219,6 +219,7 @@ pub fn load(gpa: Allocator, path: []const u8) !Loaded {
     return .{
         .db = db,
         .hierarchy = hierarchy,
+        // u32 tick ceiling (panics in ReleaseSafe past 2^32) — see TIDE_INTEGRATION.md §3.10.
         .end_t = @intCast(if (end_t == 0) 1 else end_t),
     };
 }

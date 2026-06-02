@@ -36,27 +36,28 @@ export function createGpuTimer(device: GPUDevice, onResult: (ms: number) => void
     device.createBuffer({ size: 16, usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST }));
   const free: GPUBuffer[] = [...pool];
 
-  let active = false;            // begin() ran + claimed a buffer this frame
+  // The readback buffer for the in-flight frame, reserved in begin() and held
+  // until readback() consumes it (then re-pushed once its mapAsync lands). null
+  // when no buffer was free this frame → timing skipped. Reserving in begin()
+  // keeps the pool correct even if frame submission ever overlaps.
   let current: GPUBuffer | null = null;
 
   return {
     supported: true,
     begin() {
-      if (free.length === 0) { active = false; return undefined; }
-      active = true;
+      current = free.pop() ?? null;
+      if (!current) return undefined;
       return { querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 };
     },
     resolve(enc) {
-      if (!active) return;
-      current = free.pop()!;
+      if (!current) return;
       enc.resolveQuerySet(querySet, 0, 2, resolveBuf, 0);
       enc.copyBufferToBuffer(resolveBuf, 0, current, 0, 16);
     },
     readback() {
-      if (!active || !current) return;
+      if (!current) return;
       const buf = current;
       current = null;
-      active = false;
       buf.mapAsync(GPUMapMode.READ).then(() => {
         const ts = new BigUint64Array(buf.getMappedRange().slice(0));
         buf.unmap();
