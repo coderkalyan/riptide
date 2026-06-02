@@ -164,7 +164,8 @@ The value text drawn inside each multi-bit pill no longer comes from a JS segmen
 carrying its value (segments are valueless now). Instead:
 1. `unpackSegmentHeaders(NATIVE.multi, count)` → `{tStart, tEnd, rowFlags}` headers.
 2. For each non-muted header: `getValueAt(handle, tStart)` → format. One tide
-   point query per pill, at module load (not per frame).
+   point query per pill, recomputed alongside each GPU repack (scene build /
+   add-from-tree / trace swap), not per frame.
 
 ---
 
@@ -223,14 +224,20 @@ Each item lists **what** is mocked, **where**, and **why tide can't supply it ye
 - **Replace when:** tide gains real/string + weak/pull state.
 
 ### 3.6 Per-row display config
-- **Where:** `scene.ts` `ROWS[]` — radix, color, role (clock/reset/valid), path,
-  vcdType, pinned, selected, `gatePath`, `enumTypeId`.
+- **Where:** the live active-signal list (radix, color, role, pinned, selected, …)
+  now comes from the **sidecar** (`view.signals`, §3.8), resolved by path in
+  `buildScene`. `scene.ts` `ROWS[]` is no longer the active-list source — it survives
+  as a path-keyed **overlay table** from which only `gatePath` (→ `GATE_BY_PATH`) and
+  `enumTypeId` are still consumed; its radix/color/role/etc. fields are vestigial
+  (the sidecar carries them). `makeActiveRef` supplies defaults for a signal added
+  from the tree (bus → hex, scalar → bin, palette color cycled by row).
 - **Why:** presentation/session state, not trace data (a real app persists this per
   user; it never comes from the trace). Each row binds to its signal by **path**; the
   tide handle is resolved from the loaded hierarchy at scene-build time (tide-vcd
   assigns ids in declaration order, so handles can't be hardcoded). `gatePath` is the
   one semantic bit — it encodes the valid/data relationship consumed by the native
-  packer's mute logic.
+  packer's mute logic, applied by path whether the active list comes from a sidecar
+  or an add-from-tree.
 
 ### 3.7 Navigation-only hierarchy (chrome)
 - **Where:** the VCD fixture declares extra signals/scopes beyond the 14 rendered
@@ -241,22 +248,28 @@ Each item lists **what** is mocked, **where**, and **why tide can't supply it ye
   for free; here the generator synthesizes it.
 
 ### 3.8 Open-file flow + sidecar (wired)
-The "Open VCD…" path is now live. **File → Open VCD…** → `ipcRenderer.invoke
-("riptide:open-vcd")` → main shows a native dialog → on a choice, main sets the
-trace and **reloads the window** with `?vcd=<path>`. A reload re-runs every
-module-level constant (native db, hierarchy, sidecar-derived view, GPU pipelines)
-from scratch, so no in-place reactive plumbing is needed. Native `loadVcd` swaps
-the cached scene on success and throws (keeping the prior trace) on a bad file.
+The "Open VCD…" path is now live and swaps the trace **in place — no window
+reload**. **File → Open VCD…** → `ipcRenderer.invoke("riptide:open-vcd")` → main
+shows a native dialog and **returns the chosen path** (no navigation). The renderer
+then calls `App.resetForTrace(path)` → `scene.ts swapTrace`: native `loadVcd` (swap
+the cached db on success, throw and keep the prior trace on a bad file) → reload the
+sidecar → rebuild `SCENE`/`INITIAL`. Those are `let` exports, so ES live bindings
+hand the new values to every import site; `resetForTrace` then re-seeds all React
+state + refs and forces a synchronous GPU repack (`rebuildSceneRef`), so the App
+stays mounted (device + pipelines + rAF loop persist, no GPU re-init). The initial
+load on launch still goes through the window URL (`?vcd=`, `main/index.ts loadTrace`).
 
 Presentation state lives in a **per-trace sidecar** (`<trace>.sidecar.json`, see
 `docs/sidecar.md`):
 - **Bundled mock** ships `native/src/mock.vcd.sidecar.json`, so opening it restores
-  the curated 14-row view (signals, colors, radices, roles, derived labels, tree
-  expansion). Enum mapping + gating are applied trace-side by path (§3.1/§3.6),
-  independent of the sidecar.
+  the curated 15-row view (signals, colors, radices, roles, derived labels, tree
+  expansion — incl. the 64-bit `wide_data` row). Enum mapping + gating are applied
+  trace-side by path (§3.1/§3.6), independent of the sidecar.
 - **A fresh/arbitrary VCD** has no sidecar → opens with **nothing active** (the
-  SignalTree populates; the wave view is empty). Adding signals from the tree is
-  **not yet wired**, so that is the intended state for now.
+  SignalTree populates; the wave view is empty). **Add-from-tree is now wired**:
+  clicking a tree signal appends an `ActiveSignalRef` (`makeActiveRef`) and repacks
+  the GPU buffers via `packSpecsFor` + `rebindPipeline` (synchronous, no recompile),
+  and the sidecar auto-saves the resulting view.
 
 Still mocked / rough here:
 - **`end_t` vs initial window.** Native `end_t` is the real trace end (max ingested
@@ -310,9 +323,10 @@ This section reflects the VCD-driven update; the §2 pool/pack machinery is unch
 - `build.zig` / `build.zig.zon` — `tide_vcd` dependency alongside `tide`.
 
 **Main (Electron)**
-- `main/index.ts` — **new open path**: `currentVcd` default = bundled mock; `loadTrace`
-  loads the window with `?vcd=<path>`; `ipcMain.handle("riptide:open-vcd")` shows the
-  file dialog and reloads on a choice.
+- `main/index.ts` — **open path**: `currentVcd` default = bundled mock; `loadTrace`
+  does the *initial* window load with `?vcd=<path>`; `ipcMain.handle("riptide:open-vcd")`
+  shows the file dialog and **returns the chosen path** (the renderer swaps in place; no
+  navigation — `currentVcd` is kept only for bookkeeping).
 
 **Renderer (TS)**
 - `runtime.ts` — **new**: reads `?vcd` from the window URL → `VCD_PATH`, derives
@@ -321,10 +335,14 @@ This section reflects the VCD-driven update; the §2 pool/pack machinery is unch
   module load (before scene build queries the hierarchy).
 - `hier/sidecar.ts` — `sidecarPath()` returns the per-trace `SIDECAR_PATH`. (Sidecar
   format/serialize/resolve is the merged sidecar system.)
-- `hier/scene.ts` — `ROWS` bind by **path**; `buildScene` takes the loaded sidecar,
-  resolves the view from it or opens **empty** when absent; enum overlay is
-  path-tolerant; `derived → package` scope overlay (§3.3).
-- `App.tsx` — "Open VCD…" menu item invokes `riptide:open-vcd` via `ipcRenderer`.
+- `hier/scene.ts` — `buildScene` takes the loaded sidecar, resolves the active view
+  from it (by **path**) or opens **empty** when absent; enum/gate overlay (from `ROWS`)
+  is path-tolerant; `derived → package` scope overlay (§3.3). `swapTrace` reassigns the
+  `let` exports `SCENE`/`INITIAL`/`SIDECAR` for the in-place trace swap; `makeActiveRef`
+  / `packSpecsFor` back add-from-tree.
+- `App.tsx` — "Open VCD…" invokes `riptide:open-vcd` via `ipcRenderer`, then swaps the
+  trace in place via `resetForTrace` (§3.8). Add-from-tree (`add` → `makeActiveRef`)
+  repacks the GPU buffers with `rebindPipeline` (no window reload, no pipeline recompile).
 
 ---
 
