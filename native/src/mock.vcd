@@ -34,27 +34,28 @@ $scope module top $end
       $var reg 4 6 fifo_level[3:0] $end
       $var wire 1 7 fifo_empty $end
       $var wire 8 8 dbus[7:0] $end
+      $var reg 64 9 wide_data[63:0] $end
     $upscope $end
   $upscope $end
   $scope module mem_ctrl $end
-    $var wire 8 9 addr[7:0] $end
-    $var wire 1 : wen $end
-    $var wire 8 ; rdata[7:0] $end
+    $var wire 8 : addr[7:0] $end
+    $var wire 1 ; wen $end
+    $var wire 8 < rdata[7:0] $end
   $upscope $end
   $scope module dma $end
-    $var wire 16 < src[15:0] $end
-    $var wire 16 = dst[15:0] $end
-    $var wire 1 > active $end
+    $var wire 16 = src[15:0] $end
+    $var wire 16 > dst[15:0] $end
+    $var wire 1 ? active $end
   $upscope $end
   $scope module uart $end
-    $var wire 1 ? tx $end
-    $var wire 1 @ rx $end
-    $var wire 16 A baud[15:0] $end
+    $var wire 1 @ tx $end
+    $var wire 1 A rx $end
+    $var wire 16 B baud[15:0] $end
   $upscope $end
 $upscope $end
 $scope module derived $end
-  $var wire 1 B busy $end
-  $var wire 1 C done $end
+  $var wire 1 C busy $end
+  $var wire 1 D done $end
 $upscope $end
 $enddefinitions $end
 #0
@@ -84,16 +85,17 @@ bx 6
 x7
 bx 8
 bx 9
-0:
-bx ;
+bx :
+0;
 bx <
 bx =
-0>
-1?
+bx >
+0?
 1@
-b110110010 A
-0B
+1A
+b110110010 B
 0C
+0D
 $end
 #5
 1!
@@ -112,9 +114,9 @@ b0 0
 b0 6
 17
 bz 8
-b10000000000000 <
-b11000000000000 =
-1>
+b10000000000000 =
+b11000000000000 >
+1?
 #20
 0!
 b10100001 $
@@ -122,8 +124,8 @@ b10110010 %
 b11000011 &
 b1 (
 0-
-b1000000 9
-1:
+b1000000 :
+1;
 #25
 1!
 b1 )
@@ -137,13 +139,14 @@ b1000000000000 3
 b1 6
 07
 b1010101 8
-1B
+b1101111010101101101111101110111111001010111111101011000010111010 9
+1C
 #30
 0!
 b1 #
 b11001010111111101111000000001101 '
 0-
-0:
+0;
 #35
 1!
 b100 ,
@@ -152,11 +155,11 @@ b1 /
 b10 0
 b1000000000100 3
 b10 6
-0?
+0@
 #40
 0!
 0-
-b10011001 ;
+b10011001 <
 #45
 1!
 b10 )
@@ -170,7 +173,7 @@ bx 3
 14
 b11011110101011011011111011101111 5
 bz 8
-1?
+1@
 #50
 0!
 b10 #
@@ -184,11 +187,12 @@ b100 0
 b10110111 2
 b1000000001000 3
 b11110000 8
+b100100011010001010110011110001001101010111100110111101111 9
 #60
 0!
 b10 (
 0-
-b1000100 9
+b1000100 :
 #65
 1!
 b1000 ,
@@ -215,8 +219,8 @@ bx 3
 b0 6
 17
 bz 8
-0>
-1C
+0?
+1D
 #80
 0!
 0-
@@ -226,6 +230,7 @@ bz 8
 b111 0
 04
 bx 5
-0B
+bx 9
 0C
+0D
 #90

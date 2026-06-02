@@ -18,6 +18,7 @@ export interface ActiveSignalProps {
   onPinClick?: (e: React.MouseEvent<HTMLElement>) => void;
   onToggleVisible?: (e: React.MouseEvent<HTMLElement>) => void;
   onClick?: (e: React.MouseEvent<HTMLElement>) => void;
+  onContextMenu?: (e: React.MouseEvent<HTMLElement>) => void;
 }
 
 const ICON = {
@@ -45,13 +46,13 @@ export function ActiveSignal(props: ActiveSignalProps) {
   // tooltip so value + identity stay recoverable on hover.
   if (props.collapsed) {
     return (
-      <div className={cls} onClick={props.onClick} data-tip={`${props.name} · ${props.value}`}>
+      <div className={cls} onClick={props.onClick} onContextMenu={props.onContextMenu} data-tip={`${props.name} · ${props.value}`}>
         <span className="n">{props.name}</span>
       </div>
     );
   }
   return (
-    <div className={cls} onClick={props.onClick} data-tip={props.tip}>
+    <div className={cls} onClick={props.onClick} onContextMenu={props.onContextMenu} data-tip={props.tip}>
       <span
         className="pin"
         style={{ background: props.color }}

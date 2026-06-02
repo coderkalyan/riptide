@@ -4,6 +4,7 @@ import { LineBatch } from "./lines";
 import { RectBatch } from "./rect";
 import { TextBatch } from "./text";
 import { Viewport } from "./data";
+import { GpuTimer } from "./timing";
 
 export interface PillLayer {
   rects: RectBatch;
@@ -47,6 +48,7 @@ export function renderFrame(
   pipelines: SignalPipeline[],
   layers: FrameLayers,
   vp: Viewport,
+  gpuTimer?: GpuTimer,
 ): void {
   renderer.writeViewport(vp);
 
@@ -58,6 +60,7 @@ export function renderFrame(
       clearValue: CLEAR_VALUE,
       storeOp: "store",
     }],
+    timestampWrites: gpuTimer?.begin(),
   });
 
   drawLines(pass, layers.linesBg);
@@ -80,6 +83,8 @@ export function renderFrame(
   }
 
   pass.end();
+  gpuTimer?.resolve(enc);
 
   device.queue.submit([enc.finish()]);
+  gpuTimer?.readback();
 }

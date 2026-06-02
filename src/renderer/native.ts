@@ -10,6 +10,7 @@ import type {
   VarType,
 } from "./hier/types";
 import { VCD_PATH } from "./runtime";
+import { stamp } from "./perf";
 
 declare const require: (m: string) => unknown;
 
@@ -64,15 +65,18 @@ interface NativeModule {
     x1Pool: ArrayBuffer;
   };
   getHierarchy(): RawHierarchy;
-  getValueAt(handle: string, tick: number): { lsb: number; msb: number } | null;
+  getValueAt(handle: string, tick: number): { lsb: number[]; msb: number[] } | null;
 }
 
+stamp("native:require");
 const native = require("../native/riptide.node") as NativeModule;
 
 // Load the trace named in the window URL before anything queries it (scene.ts
 // builds SCENE at module load, which calls getHierarchy). On a reload — e.g.
 // after "Open VCD…" — this re-runs with the new path and swaps the native db.
+stamp("native:start");
 if (VCD_PATH) native.loadVcd(VCD_PATH);
+stamp("native:end");
 
 export interface NativeMockSegments {
   // 3×u32 PackedSegment records (t_start, t_end, row_flags) — values stripped
@@ -81,7 +85,8 @@ export interface NativeMockSegments {
   multiCount: number;
   single: Uint32Array<ArrayBuffer>;
   singleCount: number;
-  // 4×u32 RowInfo records, indexed by row, + the shared bit-packed value pools.
+  // 4×u32 RowInfo records, indexed by row, + the shared word-stride value pools
+  // (each sample = words_per_sample consecutive u32 words, full declared width).
   rowInfo: ArrayBuffer;
   rowCount: number;
   x0Pool: ArrayBuffer;
@@ -103,8 +108,10 @@ export function getMockSegments(specs: NativePackSpec[]): NativeMockSegments {
 }
 
 // Decoded (lsb, msb) of a signal at a tick — the CPU-side value lookup that
-// replaces scanning a JS segment list. Returns null off the end of the trace.
-export function getValueAt(handle: string, tick: number): { lsb: number; msb: number } | null {
+// replaces scanning a JS segment list. lsb/msb are little-endian u32 word arrays
+// (one word per 32 bits of declared width), so signals wider than 32 bits are
+// carried in full. Returns null off the end of the trace.
+export function getValueAt(handle: string, tick: number): { lsb: number[]; msb: number[] } | null {
   return native.getValueAt(handle, tick);
 }
 

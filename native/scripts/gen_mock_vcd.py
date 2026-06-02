@@ -63,6 +63,10 @@ waves = Scope("waves", sigs=[
     Sig("fifo_level[3:0]", 4, "reg", [(0, X), (15, 0), (25, 1), (35, 2), (65, 1), (75, 0)]),
     Sig("fifo_empty", 1, "wire", [(0, X), (15, 1), (25, 0), (75, 1)]),
     Sig("dbus[7:0]", 8, "wire", [(0, X), (15, Z), (25, 0x55), (45, Z), (55, 0xF0), (75, Z)]),
+    # A >32-bit bus: exercises the multi-word (word-stride) value pool + the
+    # wide-signal CPU formatting path (values span two u32 words).
+    Sig("wide_data[63:0]", 64, "reg",
+        [(0, X), (25, 0xDEADBEEFCAFEB0BA), (55, 0x0123456789ABCDEF), (85, X)]),
 ])
 
 # Derived signals: stored as ordinary precomputed waveforms (busy = in_valid |

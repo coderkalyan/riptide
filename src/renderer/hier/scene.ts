@@ -1,5 +1,8 @@
-import type { EnumType, Hierarchy, NodeId, Scope, Signal } from "./types";
+import type { EnumType, Hierarchy, NodeId, Scope, Signal, VarType } from "./types";
+import { pathOf } from "./types";
+import { getSignal } from "./hierarchy";
 import { getHierarchy, type NativePackSpec } from "../native";
+import { stamp } from "../perf";
 import { MOCK_END_TICKS } from "../gpu/data";
 import {
   buildPathIndex,
@@ -146,8 +149,54 @@ export function buildPackSpecs(): NativePackSpec[] {
   return SCENE_PACK_SPECS;
 }
 
+// Pack specs for an arbitrary active list against the loaded scene hierarchy.
+// Used when the active set changes at runtime (add-from-tree) to repack the GPU
+// buffers without rebuilding the whole scene.
+export function packSpecsFor(active: ActiveSignalRef[]): NativePackSpec[] {
+  return specsFromActive(SCENE.hierarchy, active);
+}
+
+// reg-like VCD var types render as "reg" in the row tooltip; everything else as
+// a net. Derived signals carry their own vcdType and never come through here.
+function vcdTypeOf(varType: VarType): VcdType {
+  switch (varType) {
+    case "vcd_reg":
+    case "vcd_integer":
+    case "vcd_time":
+    case "vcd_trireg":
+    case "sv_logic":
+    case "sv_bit":
+    case "sv_int":
+    case "sv_shortint":
+    case "sv_longint":
+    case "sv_byte":
+    case "sv_enum":
+      return "reg";
+    default:
+      return "net";
+  }
+}
+
+// Default presentation metadata for a signal newly added from the tree. Buses
+// default to hex, scalars to bin; color cycles a palette by row so adjacent adds
+// read apart.
+const ADD_PALETTE = ["#72F5DF", "#B48CFF", "#F4A698", "#57C88A", "#E6B14E", "#4FD2BD", "#F06B5B", "#727BF5"];
+export function makeActiveRef(h: Hierarchy, signalId: NodeId, row: number): ActiveSignalRef {
+  const sig = getSignal(h, signalId);
+  return {
+    signalId,
+    row,
+    radix: sig.bitWidth > 1 ? "hex" : "bin",
+    color: ADD_PALETTE[row % ADD_PALETTE.length],
+    path: pathOf(h, signalId),
+    vcdType: vcdTypeOf(sig.varType),
+  };
+}
+
 function buildScene(sc: Sidecar | null): Scene {
+  stamp("scene:start");
   const hierarchy = getHierarchy();
+  stamp("scene:hierarchy");
 
   // Overlay TS-only metadata that the VCD/tide hierarchy doesn't carry. Enum
   // association is keyed by path, independent of the sidecar.
@@ -187,6 +236,7 @@ function buildScene(sc: Sidecar | null): Scene {
   }
 
   SCENE_PACK_SPECS = specsFromActive(hierarchy, activeSignals);
+  stamp("scene:end");
   return { hierarchy, activeSignals, initialExpanded };
 }
 
