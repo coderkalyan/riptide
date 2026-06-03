@@ -7,7 +7,7 @@
 //
 // Mirrors src/main/index.ts's window config + GPU switches. Throwaway: not the
 // production main.
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const path = require("node:path");
 
 app.commandLine.appendSwitch("enable-unsafe-webgpu");
@@ -26,6 +26,16 @@ function createWindow() {
   win.webContents.on("will-navigate", (e) => e.preventDefault());
   win.loadFile(html, { search: `vcd=${encodeURIComponent(vcd)}` });
 }
+
+// Open-VCD: in automated runs RIPTIDE_OPEN_VCD forces a path (re-opens the mock
+// by default to exercise the swap); otherwise show the real native dialog.
+ipcMain.handle("riptide:open-vcd", async (e) => {
+  if (process.env.RIPTIDE_OPEN_VCD) return path.resolve(process.env.RIPTIDE_OPEN_VCD);
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win) return null;
+  const r = await dialog.showOpenDialog(win, { title: "Open VCD", properties: ["openFile"], filters: [{ name: "Value Change Dump", extensions: ["vcd"] }] });
+  return r.canceled || !r.filePaths.length ? null : r.filePaths[0];
+});
 
 app.whenReady().then(createWindow);
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
