@@ -27,6 +27,7 @@ import {
   writeSidecarFile,
   sidecarPath,
 } from "../../renderer/hier/sidecar";
+import { MARKER_PALETTE } from "../wave/palette";
 
 // ---- types --------------------------------------------------------------
 
@@ -116,18 +117,6 @@ export interface Actions {
 }
 
 export type AppState = DocState & UiState & Actions;
-
-// ---- marker color palette (mirrors App.tsx MARKER_PALETTE) --------------
-// Local packRgba avoids coupling the store to the GPU text module.
-const packRgba = (r: number, g: number, b: number, a = 0xff) =>
-  (((a << 24) | (b << 16) | (g << 8) | r) >>> 0);
-const MARKER_PALETTE = [
-  packRgba(0x4f, 0xd2, 0xbd), // teal
-  packRgba(0xe8, 0xb3, 0x4f), // amber
-  packRgba(0xb4, 0x8c, 0xff), // purple
-  packRgba(0x72, 0xf5, 0xb4), // green
-  packRgba(0x72, 0x7b, 0xf5), // blue
-];
 
 // ---- monotonic counters (module-scoped latches, never rendered) ---------
 let rowSeq = 1;   // unique row id; never reused, so <For>/reconcile identity is stable
