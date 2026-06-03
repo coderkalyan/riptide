@@ -159,7 +159,7 @@ export function markFirstFrame(): void {
     ["scene:end", "scene build (overlays/sidecar)"],
     ["pack:end", "initial segment pack"],
     ["render:start", "app module eval tail (labels)"],
-    ["render:committed", "react render + commit (build DOM, incl. full tree)"],
+    ["render:committed", "solid render + commit (build DOM)"],
     ["gpu:start", "browser layout + paint"],
     ["gpu:ready", "GPU init (adapter/device/pipelines)"],
     ["frame:first", "first frame draw + present"],
