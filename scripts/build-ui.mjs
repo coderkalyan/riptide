@@ -2,7 +2,7 @@ import * as esbuild from "esbuild";
 import { copyFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { reactCompilerPlugin } from "./esbuild-react-compiler.mjs";
+import { solidPlugin } from "./esbuild-solid.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DST_DIR = resolve(root, "dist/renderer");
@@ -11,22 +11,22 @@ const DST_DIR = resolve(root, "dist/renderer");
 // builder / `build:prod`). Dev + dev:ui leave it unset → readable bundle.
 const PROD = process.env.NODE_ENV === "production";
 
-// Shared esbuild options for the renderer bundle — used by the one-shot prod
-// build (below) and the dev:ui watch server (dev-ui.mjs). The react-compiler
-// plugin runs Babel's auto-memoization over .tsx before esbuild bundles.
+// Shared esbuild options for the SolidJS renderer bundle — used by the one-shot
+// prod build (below) and the dev:ui watch server (dev-ui.mjs). The solid plugin
+// runs babel-preset-solid over .tsx (lowering JSX to template()/insert() calls)
+// before esbuild bundles; plain .ts (gpu/, hier/, perf.ts) compile natively.
 export const buildOptions = {
-  entryPoints: [resolve(root, "src/renderer/index.tsx")],
+  entryPoints: [resolve(root, "src/renderer-solid/index.tsx")],
   bundle: true,
   outfile: `${DST_DIR}/index.js`,
   format: "iife",
   target: "es2022",
-  loader: { ".tsx": "tsx", ".wgsl": "text" },
-  jsx: "automatic",
+  loader: { ".wgsl": "text" },
   minify: PROD,
   sourcemap: PROD ? false : "linked",
   define: { "process.env.NODE_ENV": JSON.stringify(PROD ? "production" : "development") },
   external: ["../native/riptide.node", "fs", "path", "electron"],
-  plugins: [reactCompilerPlugin()],
+  plugins: [solidPlugin()],
 };
 
 // Run directly (`node scripts/build-ui.mjs`) → one-shot build + copy index.html.
