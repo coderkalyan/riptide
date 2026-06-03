@@ -72,6 +72,10 @@ export interface UiState {
   // persists the final window — viewRange itself is excluded from the save
   // trigger (the rAF loop writes it per frame during interaction).
   viewSaveNonce: number;
+  // Bumped by resetForTrace (in-app Open VCD…). The canvas subscribes to it to
+  // reset the viewport + re-instrument perf; the repack/colors flow through the
+  // normal activeSignals subscriptions since the active set changes too.
+  traceNonce: number;
 }
 
 export interface Actions {
@@ -146,7 +150,7 @@ function hydrateDoc(): DocState {
   };
 }
 
-const freshUi = (): UiState => ({ hover: null, picker: null, ctxMenu: null, viewSaveNonce: 0 });
+const freshUi = (): Omit<UiState, "traceNonce"> => ({ hover: null, picker: null, ctxMenu: null, viewSaveNonce: 0 });
 
 // Renumber rows so `row` stays the contiguous 0..N-1 canvas/Y slot. Keeps each
 // surviving row's `id` (identity) so reconcile/<For> reuse its DOM.
@@ -158,6 +162,7 @@ const vanilla = createVanilla<AppState>()(
   subscribeWithSelector((set, get) => ({
     ...hydrateDoc(),
     ...freshUi(),
+    traceNonce: 0,
 
     addSignal: (signalId) => set((s) => {
       const node = SCENE.hierarchy.nodes.get(signalId);
@@ -238,7 +243,7 @@ const vanilla = createVanilla<AppState>()(
     setPicker: (p) => set({ picker: p }),
     setCtxMenu: (m) => set({ ctxMenu: m }),
 
-    resetForTrace: () => set({ ...hydrateDoc(), ...freshUi() }),
+    resetForTrace: () => set((st) => ({ ...hydrateDoc(), ...freshUi(), traceNonce: st.traceNonce + 1 })),
   })),
 );
 

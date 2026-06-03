@@ -544,6 +544,17 @@ export function WaveCanvas() {
           perf.markAddRebuilt(rows.length);
         },
       );
+      // C (trace swap): the repack/colors flow through A+B (activeSignals
+      // changed), so here we only reset the viewport + close out the swap perf
+      // marks. Registered last → runs after B's repack on the swap's atomic set.
+      const unsubTrace = useAppStore.subscribe(
+        (s) => s.traceNonce,
+        () => {
+          view.resetForTrace();
+          perf.swapMark("GPU repack");
+          perf.markSwapRebuilt(useAppStore.getState().activeSignals.length);
+        },
+      );
 
       cleanups.push(
         () => ro.disconnect(),
@@ -557,6 +568,7 @@ export function WaveCanvas() {
         () => window.removeEventListener("keydown", onKey),
         unsubCosmetic,
         unsubStructural,
+        unsubTrace,
       );
     }).catch((e) => {
       if (e instanceof GPUInitError) console.error("GPU init failed:", e.message);
