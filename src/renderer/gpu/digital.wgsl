@@ -34,13 +34,13 @@ struct Segment {
     row_flags: u32,
 }
 
-// Per-row metadata: where this row's samples live in the shared x0/x1 pools,
-// plus its words-per-sample (ceil(bit_width / 32); each sample is that many
-// consecutive u32 words, full declared width — no sub-word packing).
+// Per-row metadata: where this row's samples live in the shared x0/x1 pools
+// (BYTE offsets), plus its bytes-per-sample (ceil(bit_width / 8) = tide's native
+// stride; each sample is that many consecutive bytes, memcpy'd straight from tide).
 struct RowInfo {
-    x0_offset_u32: u32,
-    x1_offset_u32: u32,
-    words_per_sample: u32,
+    x0_offset: u32,
+    x1_offset: u32,
+    bytes_per_sample: u32,
     // First instance index for this row in its pipeline. Sample index for an
     // instance ii of this row is `ii - segment_start`.
     segment_start: u32,
@@ -82,21 +82,27 @@ const F_DIM: u32 = 1u << 13u; // row's eye toggled off → 50% output opacity
 @group(0) @binding(4) var<storage, read> x0_pool: array<u32>;
 @group(0) @binding(5) var<storage, read> x1_pool: array<u32>;
 
-// Decode a segment's sample into OR-reduced (lsb, msb) words. A sample spans
-// words_per_sample consecutive words; the renderer only needs whole-sample
-// non-zeroness (any defined-1 bit, any unknown bit) to pick line/crosshatch/
-// color, so OR-folding every word is exact for that purpose and width-agnostic.
-// For 1-bit rows (words_per_sample == 1) this returns the single word verbatim.
+// Decode a segment's sample into OR-reduced (lsb, msb). A sample spans
+// bytes_per_sample consecutive bytes (tide's native byte run, memcpy'd into the
+// pools); the renderer only needs whole-sample non-zeroness (any defined-1 bit,
+// any unknown bit) to pick line/crosshatch/color, so OR-folding every byte is
+// exact for that purpose and width-agnostic. The pools are bound as array<u32>
+// (WGSL can't bind byte storage), so each byte is extracted from its word; bytes
+// that spill past a sample are masked off per byte (`& 0xff`), so reading into a
+// neighbouring sample's word is harmless.
 fn decodeSample(row: u32, instance_index: u32) -> vec2<u32> {
     let info = rows[row];
-    let words = info.words_per_sample;
+    let bps = info.bytes_per_sample;
     let sample_index = instance_index - info.segment_start;
-    let base = sample_index * words;
+    let x0_base = info.x0_offset + sample_index * bps;
+    let x1_base = info.x1_offset + sample_index * bps;
     var lsb: u32 = 0u;
     var msb: u32 = 0u;
-    for (var w: u32 = 0u; w < words; w = w + 1u) {
-        lsb = lsb | x0_pool[info.x0_offset_u32 + base + w];
-        msb = msb | x1_pool[info.x1_offset_u32 + base + w];
+    for (var b: u32 = 0u; b < bps; b = b + 1u) {
+        let bi = x0_base + b;
+        let bj = x1_base + b;
+        lsb = lsb | ((x0_pool[bi >> 2u] >> ((bi & 3u) * 8u)) & 0xffu);
+        msb = msb | ((x1_pool[bj >> 2u] >> ((bj & 3u) * 8u)) & 0xffu);
     }
     return vec2<u32>(lsb, msb);
 }

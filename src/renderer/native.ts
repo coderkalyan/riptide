@@ -98,8 +98,9 @@ export interface NativeMockSegments {
   multiCount: number;
   single: Uint32Array<ArrayBuffer>;
   singleCount: number;
-  // 5×u32 RowInfo records, indexed by row, + the shared word-stride value pools
-  // (each sample = words_per_sample consecutive u32 words, full declared width).
+  // 5×u32 RowInfo records, indexed by row, + the shared byte-stride value pools
+  // (each sample = bytes_per_sample consecutive bytes — tide's native byte run,
+  // memcpy'd straight in; bound as array<u32> on the GPU and byte-addressed).
   rowInfo: ArrayBuffer;
   rowCount: number;
   x0Pool: ArrayBuffer;

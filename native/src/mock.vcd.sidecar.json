@@ -132,6 +132,7 @@
     },
     "tree": {
       "expanded": [
+        "top",
         "top.keysched",
         "top.keysched.waves",
         "top.mem_ctrl"

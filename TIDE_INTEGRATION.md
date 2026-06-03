@@ -29,16 +29,17 @@ this repo); `native/build.zig.zon` references them as `../../tide` / `../../tide
  tide.Database (per-signal transition store)
         │  db.query(id, 0, END) → Query{ timestamps[], x0s[], x1s[], type }
         ▼
- native/src/pack.zig  packQuery()         ── per transition ──┐
-        │  (x0,x1) byte runs passed straight through           │
-        ▼                                                      │
- native/src/segments.zig  Scene.pushSegment()                 │
+ native/src/pack.zig  packSignal()        ── per transition ──┐
+        │  one PackedSegment header per transition (flags/labels)│
+        │  + ps.setSamples(query.x0s, query.x1s)  ── ONE memcpy ─┘
+        ▼
+ native/src/segments.zig  Scene.pushPackedSignal()
         │   • PackedSegment{t_start,t_end,row_flags} → multi/single list
-        │   • (x0,x1) bytes → words_per_sample words, per-row accumulators
+        │   • (x0,x1) bytes → per-row accumulators (bulk appendSlice, byte stride)
         ▼
  Scene.finalize()  packRow()
-        │   • concat each row's word-stride samples → x0_pool / x1_pool (u32 words)
-        │   • RowInfo{x0_off,x1_off,words_per_sample,segment_start,flags} per row
+        │   • concat each row's byte-stride run → x0_pool / x1_pool (u8, 4B-padded)
+        │   • RowInfo{x0_off,x1_off,bytes_per_sample,segment_start,flags} per row
         ▼
  native/src/main.zig  getMockSegments()
         │   • napi ArrayBuffers: multi, single, rowInfo, x0Pool, x1Pool
@@ -70,22 +71,29 @@ The `(x0, x1)` pair is the standard 4-state encoding: `(0,0)=0`, `(1,0)=1`,
 `(0,1)=x`, `(1,1)=z` **per bit** (lsb stream = value bits, msb stream = unknown
 bits). This matches Riptide's existing LSB/MSB convention exactly — no remap.
 
-### 2.2 bytes → u32 words (`segments.zig appendWords`, `main.zig jsWordArray`)
-tide stores `bps = type.bytes()` little-endian bytes per sample; the pools (and
-the CPU value lookup) work in `u32` words. The single shared transform reads each
-sample's byte run into `words_per_sample = ceil(width / 32)` zero-padded words:
-```zig
-// per word w, per byte b in [0,4): word |= bytes[w*4 + b] << (b*8) (if in range)
-```
-This is the **only** difference from tide's bytes — the values are identical, just
-grouped into u32 containers instead of a flat byte run. There is no longer a
-narrowing to a single `u32` (the old `readBits`), so widths > 32 carry in full.
+### 2.2 bytes → pool (direct memcpy — `segments.zig setSamples`, `finalize`)
+tide stores `bps = type.bytes() = ceil(width / 8)` little-endian bytes per sample and
+lays a signal's samples out contiguously (`x0s`/`x1s`, `len·bps` bytes). The GPU pools
+now use that **same byte stride — there is no transform**: `PackedSignal.setSamples`
+copies tide's whole `query.x0s` / `query.x1s` plane straight into the cache unit in one
+`appendSlice` (memcpy), and `finalize`/`packRow` concatenate each row's byte run into
+`x0_pool` / `x1_pool`. The pools are bound as `array<u32>` on the GPU (WGSL has no
+byte-storage type), so each pool is padded to a 4-byte multiple and the **shader
+byte-addresses it** (§2.6): `pool[bi >> 2] >> ((bi & 3) * 8) & 0xff`. The old
+byte→u32-word repack — `appendWords`, `words_per_sample`, the long-gone `readBits` /
+`nextPow2` — is **deleted**; the pool now holds tide's bytes verbatim.
 
-### 2.3 `packQuery` — transitions → segments + samples (`pack.zig`)
+> The CPU value path keeps a word-array shape: `getValueAt` → `main.zig jsWordArray`
+> still packs tide's bytes into `u32` words for `formatSegmentValue` (§2.7). It's
+> independent of the pools, so it is the **sole** remaining byte→word conversion (and
+> the only surviving caller of `seg.wordsPerSample`).
+
+### 2.3 `packSignal` — transitions → segment headers + samples (`pack.zig`)
 Walks the query once. For transition `i`:
 - `t_start = timestamps[i]`, `t_end = timestamps[i+1]` (or `end_t` for the last).
-- `x0 = x0s[i*bps .. (i+1)*bps]`, `x1 = …` — the per-sample byte runs, passed
-  straight to `pushSegment` (no per-transition narrowing).
+- `x0 = x0s[i*bps .. (i+1)*bps]`, `x1 = …` — the per-sample byte runs, used only for
+  flag computation + the multi-bit label (`pushLabel`). The **sample bytes themselves
+  are not copied per-transition** — `setSamples` bulk-copies the whole plane once.
 - **Flag computation** (mirrors the old `mock_scene.zig` byte-for-byte so GPU
   output is identical). The few flags that inspect the value only need low bits
   and read the byte run directly: clock `val = x0[0]`; the 1-bit x/z right-edge
@@ -101,65 +109,75 @@ Walks the query once. For transition `i`:
   - `FLAG_MUTE` (bit 20) — gated signal whose gate isn't logic-1 at `t_start`
     (see `gateMutedAt`); reproduces `MUTE_IN`/`MUTE_OUT`.
   - Low 16 bits = row index.
-- Pushed via `Scene.pushSegment(target, row, width, t_start, t_end, x0, x1, flags)`.
+- Header pushed via `PackedSignal.pushSegment(t_start, t_end, flags)`; the value
+  bytes via `PackedSignal.setSamples(query.x0s, query.x1s)` — one memcpy of tide's
+  whole byte planes, after the walk (the `i`-th `bps`-byte run lines up with segment `i`).
 
-### 2.4 `Scene.pushSegment` — split timing from value (`segments.zig`)
-Appends a lean `PackedSegment{ t_start, t_end, row_flags }` (3×u32 = 12 B) to the
-multi or single pipeline list, **and** appends this sample's `words_per_sample`
-LSB/MSB words (via `appendWords`) to that row's `lsbs` / `msbs` accumulators.
-Asserts each row's segments are contiguous in the pipeline (so a single
-`segment_start` index suffices on the GPU); the contiguity check uses the row's
-sample `count`, not the word-count of the accumulators.
+### 2.4 `pushSegment` / `setSamples` / `pushPackedSignal` — timing vs. value (`segments.zig`)
+`PackedSignal.pushSegment` appends a lean `PackedSegment{ t_start, t_end, row_flags }`
+(3×u32 = 12 B) to the cache unit's segment list — **header only**. `setSamples` then
+appends tide's whole `x0s`/`x1s` byte planes to the unit's `lsbs`/`msbs` (one
+`appendSlice` each — the single surviving sample copy). At placement,
+`Scene.pushPackedSignal` copies the unit's segments into the multi/single pipeline list
+(OR'ing in the row) and bulk-copies its byte run into the row's accumulator
+(`appendSlice`, byte stride). It asserts each row is filled by exactly one signal and
+that `lsbs.len == count·bytes_per_sample` (guards a double-copy / stride drift), so a
+single `segment_start` index suffices on the GPU.
 
 ### 2.5 `finalize` / `packRow` — concatenate the value pools (`segments.zig`)
-The pools now mirror tide's per-sample byte run, just word-granular:
+The pools are now **identical in layout to tide's byte planes** — no transform:
 
 | | tide `x0s`/`x1s` | Riptide `x0Pool`/`x1Pool` |
 |---|---|---|
-| granularity | `bytes_per_sample` **bytes** / sample | `words_per_sample` **u32 words** / sample |
-| stride | `8 * type.bytes()` bits | `ceil(width / 32)` words, full width |
-| container | flat byte slice per signal | shared `u32` word pools, all rows |
+| granularity | `bytes_per_sample` **bytes** / sample | `bytes_per_sample` **bytes** / sample |
+| stride | `ceil(width / 8)` bytes, full width | `ceil(width / 8)` bytes, full width |
+| container | flat byte slice per signal | shared `u8` pools, all rows concatenated |
 
-`packRow` is now a plain concatenation — each row's accumulator already holds the
-final word-stride stream, so it records the row's starting word offset and
-appends:
+`packRow` is a plain concatenation — each row's accumulator already holds tide's
+byte run, so it records the row's starting **byte** offset and appends:
 ```
-x0_offset_u32 = pool.len   // word offset of this row's run
-pool.appendSlice(row.lsbs) // word-stride samples, already packed
+x0_offset = pool.len       // byte offset of this row's run
+pool.appendSlice(row.lsbs) // tide's byte-stride samples, verbatim
 ```
-`RowInfo{ x0_offset_u32, x1_offset_u32, words_per_sample, segment_start, flags }`
-records where each row's run starts in the pools and its first instance index.
-`flags` (bit 0 = dim) is emitted as 0 by the packer; the renderer sets it later via
-`setDimFlags` on the eye toggle (a tiny `writeBuffer`, no repack). There is no
-bit-packing, mask, or `nextPow2` anymore (an 8-bit signal uses one full word per
-sample rather than 4-per-word — negligible since pools are per-transition).
+`RowInfo{ x0_offset, x1_offset, bytes_per_sample, segment_start, flags }` records where
+each row's run starts and its first instance index. `flags` (bit 0 = dim) is emitted as
+0 by the packer; the renderer sets it later via `setDimFlags` on the eye toggle (a tiny
+`writeBuffer`, no repack). Each pool is then **padded to a 4-byte multiple** (zeros, one
+pad per pool) so `writeBuffer` accepts it and the `array<u32>` binding can address the
+last sample's word. No bit-packing, mask, `nextPow2`, or word-padding — an 8-bit signal
+now uses 1 byte/sample (was a full 4-byte word).
 
 ### 2.6 Shader decode (`digital.wgsl`)
-Per instance `ii` of row `r`, OR-folding the sample's `words_per_sample` words:
+The pools are bound as `array<u32>` (WGSL has no byte-storage type), so `decodeSample`
+**byte-addresses** them. Per instance `ii` of row `r`, OR-folding the sample's
+`bytes_per_sample` bytes:
 ```
 sample_index = ii - RowInfo.segment_start
-base = sample_index * words_per_sample
-lsb = OR over w in [0,words): x0_pool[x0_offset_u32 + base + w]
-msb = OR over w in [0,words): x1_pool[x1_offset_u32 + base + w]
+x0_base = RowInfo.x0_offset + sample_index * bytes_per_sample   // byte offset
+lsb = OR over b in [0,bps): (x0_pool[(x0_base+b) >> 2] >> (((x0_base+b) & 3) * 8)) & 0xff
+msb = OR over b in [0,bps): (x1_pool[(x1_base+b) >> 2] >> (((x1_base+b) & 3) * 8)) & 0xff
 ```
-The renderer only needs whole-sample non-zeroness (any defined-1 bit / any unknown
-bit) to choose line vs. crosshatch and the hatch color, so OR-folding every word
-is exact for that purpose and width-agnostic. 1-bit rows (`words_per_sample == 1`)
-decode to the single word verbatim, identical to before.
+The renderer only needs whole-sample non-zeroness (any defined-1 bit / any unknown bit)
+to choose line vs. crosshatch and the hatch color, so OR-folding every byte is exact for
+that purpose and width-agnostic. The per-byte `& 0xff` makes a read that spills into a
+neighbouring sample's word (when `bps` isn't a multiple of 4) inert, so no per-sample
+padding is needed. 1-bit rows (`bytes_per_sample == 1`) fold a single byte.
 
 ### 2.7 `getValueAt` — CPU point lookup (`pack.zig` / `main.zig`)
 Replaces the old JS scan over a segment list. `valueAt(db, id, t)` does
 `db.query(id, t, t)`, takes the last (active) sample, and returns its byte runs +
-width; `main.zig` packs them into `{ lsb: u32[], msb: u32[] }` word arrays (one
-word per 32 bits of width). Used by the active-signal value column, hover readout,
-and the multi-bit pill labels. `App.tsx formatSegmentValue` reads the word arrays
-per bit/nibble (BigInt for decimal), so widths > 32 format in full.
+width; `main.zig jsWordArray` packs them into `{ lsb: u32[], msb: u32[] }` word arrays
+(one word per 32 bits of width). Used by the active-signal value column + hover readout.
+`App.tsx formatSegmentValue` reads the word arrays per bit/nibble (BigInt for decimal),
+so widths > 32 format in full. This path is **independent of the GPU pools** (its own
+`db.query`) and is the only place that still converts tide's bytes to u32 words
+(`seg.wordsPerSample`) — the pools no longer do (§2.2).
 
 ### 2.8 napi ArrayBuffer copy (`main.zig`)
 V8's sandbox in Electron rejects external pointers, so every buffer is allocated
 with `napi_create_arraybuffer` (V8 owns the store) and the packed bytes are
 `@memcpy`'d in. Applies to segments (`packSegmentsInto`), `RowInfo`
-(`packRowInfosInto`), and the raw `u32` pools.
+(`packRowInfosInto`), and the byte pools (`makeArrayBufferFromU8s`, `x0Pool`/`x1Pool`).
 
 ### 2.9 Multi-bit pill labels (`App.tsx`)
 The value text drawn inside each multi-bit pill no longer comes from a JS segment
@@ -215,11 +233,12 @@ Each item lists **what** is mocked, **where**, and **why tide can't supply it ye
   per signal bit, LSB-first), so the **database stores signals of any width** — real
   traces have 64-bit and wider buses (this one has up to 630-bit). Vectors beyond
   `MAX_VALUE_BYTES` (1024 B ≈ 8192 bits) are rejected rather than overflowing.
-  - **GPU width (fixed):** the segment packer, shader, and CPU value lookup now carry
-    full-width **word-stride** samples (`words_per_sample = ceil(width / 32)`), so
-    rows wider than 32 bits render and format correctly — the old `nextPow2 ≤ 32`
-    ceiling and `maskForWidth` panic are gone (see §2.2/§2.5/§2.6). The bundled mock
-    view includes a 64-bit `wide_data[63:0]` row to exercise this.
+  - **GPU width (fixed):** the GPU pools carry full-width **byte-stride** samples
+    (`bytes_per_sample = ceil(width / 8)` — tide's native stride, memcpy'd; the CPU
+    value lookup keeps its own `words_per_sample` u32 packing), so rows of any width
+    render and format correctly — the old `nextPow2 ≤ 32` ceiling and `maskForWidth`
+    panic are gone (see §2.2/§2.5/§2.6). The bundled mock view includes a 64-bit
+    `wide_data[63:0]` row to exercise this.
 - **Extended logic / real / string:** scalar `h l u w -` collapse to `x`;
   `real`/`string` value changes are skipped (tide is quaternary-only). Short VCD
   vectors are left-extended to the declared width (correct VCD behavior).
@@ -329,11 +348,13 @@ This section reflects the VCD-driven update; the §2 pool/pack machinery is unch
 - `main.zig` — `loadVcd(path)` napi: (re)builds the cached scene, swap-on-success,
   throws a JS error on a bad file. `getLoaded`/`getDb`/`getHier` read the cache; `end_t`
   comes from the trace.
-- `pack.zig`, `segments.zig` — the pool format was later **unified with tide + widened
-  past 32 bits**: pools are word-stride (`words_per_sample = ceil(width/32)`), `pushSegment`
-  consumes tide's byte runs directly, and `nextPow2`/`maskForWidth`/the dead mock builders
-  are gone (see §2.2–§2.7). `getValueAt` returns u32-word arrays. `hier.zig` is unchanged.
-  All three still operate on `tide.Database` + `hier.Hierarchy` regardless of source.
+- `pack.zig`, `segments.zig` — the pool format was later **unified with tide's byte
+  layout**: pools are byte-stride (`bytes_per_sample = ceil(width/8)`, tide's native
+  stride), `packSignal` bulk-`memcpy`s tide's whole byte planes (`setSamples`) with no
+  per-sample repack, and `appendWords`/`nextPow2`/`maskForWidth`/the dead mock builders
+  are gone (see §2.2–§2.7). `getValueAt` still returns u32-word arrays (its own path).
+  `hier.zig` is unchanged. All operate on `tide.Database` + `hier.Hierarchy` regardless
+  of source.
 - `build.zig` / `build.zig.zon` — `tide_vcd` dependency alongside `tide`.
 
 **Main (Electron)**
@@ -368,13 +389,19 @@ This section reflects the VCD-driven update; the §2 pool/pack machinery is unch
     `wide_data[63:0]`=64, …).
   - `getValueAt` matches the old mock exactly for ≤32-bit rows: `in_data@25 = 0xA3`,
     `state@45 = 2`, `dbus@15 = Z` (lsb/msb all-1), `out_data@45 = 0xDEADBEEF`,
-    `cycle_count@0 = X`. `words_per_sample` is 1 for the 32-bit row, so the pool words
-    and GPU output are byte-identical to the pre-change bit-packed path.
-  - **Wide (>32-bit) row:** `wide_data[63:0]` carries two words/sample.
+    `cycle_count@0 = X`. `bytes_per_sample` is 4 for the 32-bit row.
+  - **Wide (>32-bit) row:** `wide_data[63:0]` carries 8 bytes/sample.
     `getValueAt@25 = {lsb:[0xcafeb0ba, 0xdeadbeef]}` → `0xDEADBEEFCAFEB0BA`,
     `@55 = 0x0123456789ABCDEF`, `@0/@85 = X` (msb both words all-1); its `RowInfo`
-    has `words_per_sample = 2`. `formatSegmentValue` renders the full hex/dec/bin
+    has `bytes_per_sample = 8`. `formatSegmentValue` renders the full hex/dec/bin
     (BigInt for decimal) — no 32-bit truncation.
+  - **Byte-stride pool migration (§2.2):** a deterministic harness packs the curated
+    rows (widths 1/2/8/16/32/64) and asserts, for every sampled transition, that the
+    `x0Pool`/`x1Pool` bytes at `RowInfo.x0_offset + sample·bytes_per_sample` equal the
+    little-endian value bytes from `getValueAt` (the independent word path), that
+    `bytes_per_sample == ceil(width/8)`, and that each pool length is a 4-byte multiple
+    — i.e. the pools now hold tide's bytes verbatim with no repack. The Stage-2 bulk
+    `setSamples` memcpy produces byte-identical pools to the Stage-1 per-sample copy.
 - Open path: launching `electron .` (no args) loads `native/src/mock.vcd` via `?vcd=`,
   resolves `mock.vcd.sidecar.json`, and renders the curated **15-row** view (now incl.
   the wide row). The app boots and builds the full scene (all rows packed, including the

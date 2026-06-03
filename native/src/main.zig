@@ -75,8 +75,9 @@ fn jsU32(env: c.napi_env, n: u32) c.napi_value {
 }
 
 // A JS array of `words` u32s read little-endian from `bytes` (tide's per-sample
-// byte run), zero-padded when shorter. Mirrors segments.appendWords so the
-// CPU-side value matches the GPU pool layout.
+// byte run), zero-padded when shorter. The CPU value path (getValueAt) keeps this
+// word-array shape for formatSegmentValue; it's independent of the GPU pools, which
+// now carry tide's bytes verbatim (no word repack — see TIDE_INTEGRATION.md §2.2).
 fn jsWordArray(env: c.napi_env, bytes: []const u8, words: u32) c.napi_value {
     const arr = jsArr(env, words);
     var w: u32 = 0;
@@ -392,8 +393,11 @@ fn getMockSegments(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.n
     setProp(env, obj, "singleCount", jsU32(env, @intCast(scene.single.items.len)));
     setProp(env, obj, "rowInfo", makeArrayBufferFromRowInfos(env, final.row_infos.items));
     setProp(env, obj, "rowCount", jsU32(env, @intCast(final.row_infos.items.len)));
-    setProp(env, obj, "x0Pool", makeArrayBufferFromU32s(env, final.x0_pool.items));
-    setProp(env, obj, "x1Pool", makeArrayBufferFromU32s(env, final.x1_pool.items));
+    // Byte-stride value pools (tide's native per-sample byte runs, padded to a
+    // 4-byte multiple in finalize so writeBuffer accepts them). Bound as
+    // array<u32> on the GPU and byte-addressed by decodeSample.
+    setProp(env, obj, "x0Pool", makeArrayBufferFromU8s(env, final.x0_pool.items));
+    setProp(env, obj, "x1Pool", makeArrayBufferFromU8s(env, final.x1_pool.items));
     // Native value labels, aligned with `multi` (label i = bytes[off[i]..off[i+1]]).
     setProp(env, obj, "labelBytes", makeArrayBufferFromU8s(env, scene.multi_label_bytes.items));
     setProp(env, obj, "labelOffsets", makeArrayBufferFromU32s(env, scene.multi_label_offsets.items));

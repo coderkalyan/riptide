@@ -23,9 +23,9 @@ struct Viewport {
 // Mirrors segments.zig / digital.wgsl RowInfo (5×u32). Only `flags` is read here
 // (bit 0 = dim — the same flag the waveform shader reads).
 struct RowInfo {
-    x0_offset_u32: u32,
-    x1_offset_u32: u32,
-    words_per_sample: u32,
+    x0_offset: u32,
+    x1_offset: u32,
+    bytes_per_sample: u32,
     segment_start: u32,
     flags: u32,
 }

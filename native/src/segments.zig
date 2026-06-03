@@ -20,15 +20,16 @@ pub const PackedSegment = extern struct {
 
 pub const PACKED_SEGMENT_BYTES: usize = @sizeOf(PackedSegment);
 
-// Per-row metadata. words_per_sample is ceil(bit_width / 32): each sample
-// occupies that many consecutive u32 words in the pool (full declared width,
-// little-endian, zero-padded — same layout as tide's per-sample byte run, just
-// word-granular). segment_start is this row's first instance index within its
-// pipeline; sample index for instance ii of this row = ii - segment_start.
+// Per-row metadata. bytes_per_sample is ceil(bit_width / 8) (= tide's
+// Type.bytes()): each sample occupies that many consecutive bytes in the pool —
+// tide's native per-sample byte run, little-endian, memcpy'd straight in (no word
+// repacking). x0_offset/x1_offset are BYTE offsets into the (u32-typed) pools.
+// segment_start is this row's first instance index within its pipeline; sample
+// index for instance ii of this row = ii - segment_start.
 pub const RowInfo = extern struct {
-    x0_offset_u32: u32,
-    x1_offset_u32: u32,
-    words_per_sample: u32,
+    x0_offset: u32,
+    x1_offset: u32,
+    bytes_per_sample: u32,
     segment_start: u32,
     // Per-row render flags (bit 0 = dim; see ROW_FLAG_DIM in digital.wgsl /
     // digital.ts). Native always emits 0 — the renderer sets this directly in
@@ -40,34 +41,28 @@ pub const ROW_FLAG_DIM: u32 = 1 << 0;
 
 pub const ROW_INFO_BYTES: usize = @sizeOf(RowInfo);
 
-// Number of u32 words each sample of a `width`-bit signal occupies in the pools.
+// Number of bytes each sample of a `width`-bit signal occupies in the pools —
+// tide's native stride (Type.bytes() = ceil(width/8)), memcpy'd directly.
+pub fn bytesPerSample(width: u32) u32 {
+    std.debug.assert(width >= 1);
+    return (width + 7) / 8;
+}
+
+// ceil(width / 32) — the u32-word count used ONLY by the CPU value path
+// (main.zig getValueAt / jsWordArray), which is independent of the GPU pools and
+// keeps its word-array return shape. Not used by the byte-stride pools.
 pub fn wordsPerSample(width: u32) u32 {
     std.debug.assert(width >= 1);
     return (width + 31) / 32;
-}
-
-// Append `words` u32 words read little-endian from `bytes` (tide's per-sample
-// byte run), zero-padding when `bytes` is shorter than 4·words.
-fn appendWords(pool: *std.ArrayList(u32), gpa: Allocator, bytes: []const u8, words: u32) !void {
-    var w: u32 = 0;
-    while (w < words) : (w += 1) {
-        var word: u32 = 0;
-        var b: u32 = 0;
-        while (b < 4) : (b += 1) {
-            const idx = w * 4 + b;
-            if (idx < bytes.len) word |= @as(u32, bytes[idx]) << @intCast(b * 8);
-        }
-        try pool.append(gpa, word);
-    }
 }
 
 const RowAccum = struct {
     bit_width: u32 = 0, // 0 = unused row
     segment_start: u32 = 0, // first instance index in this row's pipeline
     started: bool = false,
-    count: u32 = 0, // number of samples pushed (lsbs/msbs hold count·words_per_sample)
-    lsbs: std.ArrayList(u32) = .empty,
-    msbs: std.ArrayList(u32) = .empty,
+    count: u32 = 0, // number of samples pushed (lsbs/msbs hold count·bytes_per_sample)
+    lsbs: std.ArrayList(u8) = .empty,
+    msbs: std.ArrayList(u8) = .empty,
 
     fn deinit(self: *RowAccum, gpa: Allocator) void {
         self.lsbs.deinit(gpa);
@@ -81,15 +76,16 @@ pub const MAX_ROWS: usize = 64;
 // (main.zig keys these by signal+config and reuses them across repacks, so an
 // add/remove/reorder only queries tide + formats labels for the changed signal).
 // `row_flags` here have the low 16 bits (row index) zeroed; the row is OR'd in at
-// assembly (pushPackedSignal). `lsbs`/`msbs` hold segments.len·words_per_sample
-// words. `label_offsets` holds segments.len+1 prefix offsets when `is_multi` and a
+// assembly (pushPackedSignal). `lsbs`/`msbs` hold segments.len·bytes_per_sample
+// bytes (tide's raw byte planes, copied in one memcpy by setSamples).
+// `label_offsets` holds segments.len+1 prefix offsets when `is_multi` and a
 // segment exists (label i = label_bytes[off[i]..off[i+1]]), else stays empty.
 pub const PackedSignal = struct {
     is_multi: bool = false,
     bit_width: u32 = 0,
     segments: std.ArrayList(PackedSegment) = .empty,
-    lsbs: std.ArrayList(u32) = .empty,
-    msbs: std.ArrayList(u32) = .empty,
+    lsbs: std.ArrayList(u8) = .empty,
+    msbs: std.ArrayList(u8) = .empty,
     label_bytes: std.ArrayList(u8) = .empty,
     label_offsets: std.ArrayList(u32) = .empty,
 
@@ -101,22 +97,20 @@ pub const PackedSignal = struct {
         self.label_offsets.deinit(gpa);
     }
 
-    // Append one transition while building the signal (called by pack.packSignal).
-    // `flags` must NOT carry row bits. `x0`/`x1` are tide's per-sample byte runs,
-    // packed into words_per_sample zero-padded u32 words.
-    pub fn pushSegment(
-        self: *PackedSignal,
-        gpa: Allocator,
-        t_start: u32,
-        t_end: u32,
-        x0: []const u8,
-        x1: []const u8,
-        flags: u32,
-    ) !void {
-        const words = wordsPerSample(self.bit_width);
-        try appendWords(&self.lsbs, gpa, x0, words);
-        try appendWords(&self.msbs, gpa, x1, words);
+    // Append one transition's timing+flags header (called by pack.packSignal).
+    // `flags` must NOT carry row bits. Sample bytes are NOT copied here — they're
+    // bulk-copied once via setSamples (tide's whole byte plane in one memcpy).
+    pub fn pushSegment(self: *PackedSignal, gpa: Allocator, t_start: u32, t_end: u32, flags: u32) !void {
         try self.segments.append(gpa, .{ .t_start = t_start, .t_end = t_end, .row_flags = flags });
+    }
+
+    // Copy tide's full per-signal byte planes (x0s/x1s, len·bytes_per_sample bytes
+    // each) verbatim into the value pools — the single memcpy that replaces the old
+    // per-sample byte→word repack. Call once, after all pushSegment calls; the i-th
+    // bytes_per_sample-byte run lines up with segment i.
+    pub fn setSamples(self: *PackedSignal, gpa: Allocator, x0s: []const u8, x1s: []const u8) !void {
+        try self.lsbs.appendSlice(gpa, x0s);
+        try self.msbs.appendSlice(gpa, x1s);
     }
 
     // Append this segment's value label (multi-bit rows only). Call once per
@@ -168,7 +162,7 @@ pub const Scene = struct {
     pub fn pushPackedSignal(self: *Scene, target: *std.ArrayList(PackedSegment), row: u32, ps: *const PackedSignal) !void {
         std.debug.assert(row < MAX_ROWS);
         if (ps.segments.items.len == 0) return; // empty signal contributes no row data
-        const wps = wordsPerSample(ps.bit_width);
+        const bps = bytesPerSample(ps.bit_width);
         var ra = &self.rows[row];
         // Each row is filled by exactly one signal, contiguously.
         std.debug.assert(!ra.started);
@@ -176,16 +170,19 @@ pub const Scene = struct {
         ra.segment_start = @intCast(target.items.len);
         ra.started = true;
 
-        for (ps.segments.items, 0..) |s, i| {
-            try ra.lsbs.appendSlice(self.gpa, ps.lsbs.items[i * wps .. (i + 1) * wps]);
-            try ra.msbs.appendSlice(self.gpa, ps.msbs.items[i * wps .. (i + 1) * wps]);
-            ra.count += 1;
+        for (ps.segments.items) |s| {
             try target.append(self.gpa, .{
                 .t_start = s.t_start,
                 .t_end = s.t_end,
                 .row_flags = (s.row_flags & ~@as(u32, 0xffff)) | (row & 0xffff),
             });
         }
+        // One memcpy of the signal's whole byte run into the row's pool (replaces
+        // the per-segment slice copy). One signal fills a row, so ra starts empty.
+        try ra.lsbs.appendSlice(self.gpa, ps.lsbs.items);
+        try ra.msbs.appendSlice(self.gpa, ps.msbs.items);
+        ra.count += @intCast(ps.segments.items.len);
+        std.debug.assert(ra.lsbs.items.len == ra.count * bps); // guards double-copy / stride drift
 
         if (ps.is_multi) {
             if (self.multi_label_offsets.items.len == 0) try self.multi_label_offsets.append(self.gpa, 0);
@@ -201,8 +198,8 @@ pub const Scene = struct {
 
 pub const Finalized = struct {
     row_infos: std.ArrayList(RowInfo),
-    x0_pool: std.ArrayList(u32),
-    x1_pool: std.ArrayList(u32),
+    x0_pool: std.ArrayList(u8),
+    x1_pool: std.ArrayList(u8),
 
     pub fn deinit(self: *Finalized, gpa: Allocator) void {
         self.row_infos.deinit(gpa);
@@ -211,13 +208,13 @@ pub const Finalized = struct {
     }
 };
 
-// Append a row's already word-packed sample stream into the shared pool and
-// return its starting word offset. The samples are word-stride (one sample =
-// words_per_sample consecutive words), so this is a plain copy.
-fn packRow(pool: *std.ArrayList(u32), gpa: Allocator, words: []const u32) !u32 {
-    const start_word: u32 = @intCast(pool.items.len);
-    try pool.appendSlice(gpa, words);
-    return start_word;
+// Append a row's byte-stride sample stream into the shared pool and return its
+// starting BYTE offset. The samples are tide's raw byte run (one sample =
+// bytes_per_sample consecutive bytes), so this is a plain memcpy.
+fn packRow(pool: *std.ArrayList(u8), gpa: Allocator, bytes: []const u8) !u32 {
+    const start_byte: u32 = @intCast(pool.items.len);
+    try pool.appendSlice(gpa, bytes);
+    return start_byte;
 }
 
 pub fn finalize(scene: *Scene, gpa: Allocator) !Finalized {
@@ -229,9 +226,9 @@ pub fn finalize(scene: *Scene, gpa: Allocator) !Finalized {
 
     var row_infos: std.ArrayList(RowInfo) = .empty;
     errdefer row_infos.deinit(gpa);
-    var x0: std.ArrayList(u32) = .empty;
+    var x0: std.ArrayList(u8) = .empty;
     errdefer x0.deinit(gpa);
-    var x1: std.ArrayList(u32) = .empty;
+    var x1: std.ArrayList(u8) = .empty;
     errdefer x1.deinit(gpa);
 
     try row_infos.ensureTotalCapacity(gpa, row_count);
@@ -240,24 +237,31 @@ pub fn finalize(scene: *Scene, gpa: Allocator) !Finalized {
     while (i < row_count) : (i += 1) {
         const r = scene.rows[i];
         if (r.bit_width == 0) {
-            row_infos.appendAssumeCapacity(.{ .x0_offset_u32 = 0, .x1_offset_u32 = 0, .words_per_sample = 0, .segment_start = 0, .flags = 0 });
+            row_infos.appendAssumeCapacity(.{ .x0_offset = 0, .x1_offset = 0, .bytes_per_sample = 0, .segment_start = 0, .flags = 0 });
             continue;
         }
-        const wps = wordsPerSample(r.bit_width);
+        const bps = bytesPerSample(r.bit_width);
         const off0 = try packRow(&x0, gpa, r.lsbs.items);
         const off1 = try packRow(&x1, gpa, r.msbs.items);
-        row_infos.appendAssumeCapacity(.{ .x0_offset_u32 = off0, .x1_offset_u32 = off1, .words_per_sample = wps, .segment_start = r.segment_start, .flags = 0 });
+        row_infos.appendAssumeCapacity(.{ .x0_offset = off0, .x1_offset = off1, .bytes_per_sample = bps, .segment_start = r.segment_start, .flags = 0 });
     }
 
+    // WebGPU writeBuffer needs a 4-byte-multiple size, and the shader reads the
+    // pools as array<u32>; pad each tail to a word boundary with zeros (inert in
+    // the OR-fold — they sit past every sample's byte run). One pad per pool, not
+    // per sample, so inter-row byte offsets are unaffected.
+    while (x0.items.len % 4 != 0) try x0.append(gpa, 0);
+    while (x1.items.len % 4 != 0) try x1.append(gpa, 0);
+
     // Shader invariant: every segment's row index must point to a populated
-    // RowInfo (words_per_sample > 0). decodeSample's loop runs words_per_sample
+    // RowInfo (bytes_per_sample > 0). decodeSample's loop runs bytes_per_sample
     // iterations — 0 would leave the decoded value undefined. Caught here once
     // at scene-build, not per-frame on the GPU.
     for ([_][]const PackedSegment{ scene.multi.items, scene.single.items }) |segs| {
         for (segs) |s| {
             const row = s.row_flags & 0xffff;
             std.debug.assert(row < row_infos.items.len);
-            std.debug.assert(row_infos.items[row].words_per_sample > 0);
+            std.debug.assert(row_infos.items[row].bytes_per_sample > 0);
         }
     }
 

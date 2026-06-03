@@ -5,7 +5,7 @@ import WGSL from "./digital.wgsl";
 type ShaderVariant = "multi" | "single";
 
 // RowInfo is 5×u32 (see segments.zig / digital.wgsl): x0_offset, x1_offset,
-// words_per_sample, segment_start, flags. Word 4 is the per-row flags; bit 0 =
+// bytes_per_sample, segment_start, flags. Word 4 is the per-row flags; bit 0 =
 // dim. ROW_FLAG_DIM must match digital.wgsl's ROW_FLAG_DIM.
 const ROW_INFO_WORDS = 5;
 const ROW_FLAG_DIM = 1 << 0;

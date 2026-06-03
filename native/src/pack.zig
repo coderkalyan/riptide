@@ -53,11 +53,12 @@ fn gateMutedAt(db: *const tide.Database, gate_id: tide.Signal.Id, t: u64) bool {
 }
 
 // Walk a tide query (one entry per value transition) and build a row-agnostic
-// PackedSignal: one PackedSegment + one pooled (lsb,msb) sample per transition,
-// plus a native value label for multi-bit rows. The caller caches this and places
-// it at a row via Scene.pushPackedSignal; finalize() bit-packs the per-row sample
-// lists into x0/x1 pools. Flag logic mirrors mock_scene's buildClockSegments /
-// buildDataSignal so the GPU output is identical to the old hardcoded path. Row
+// PackedSignal: one PackedSegment header per transition + the signal's tide byte
+// planes copied verbatim into the value pools (one bulk memcpy via setSamples, no
+// repack), plus a native value label for multi-bit rows. The caller caches this and
+// places it at a row via Scene.pushPackedSignal; finalize() concatenates the per-row
+// byte runs into the x0/x1 pools. Flag logic mirrors mock_scene's buildClockSegments
+// / buildDataSignal so the GPU output is identical to the old hardcoded path. Row
 // bits are left 0 here (OR'd in at placement). The returned PackedSignal owns its
 // allocations (free with deinit).
 pub fn packSignal(
@@ -129,7 +130,7 @@ pub fn packSignal(
             (if (rising_left) seg.FLAG_RISING_EDGE_LEFT else @as(u32, 0)) |
             (if (muted) seg.FLAG_MUTE else @as(u32, 0));
 
-        try ps.pushSegment(gpa, t_start, t_end, x0, x1, flags);
+        try ps.pushSegment(gpa, t_start, t_end, flags);
 
         // Multi-bit rows render a value pill; format its label here (native) in
         // lockstep with the segment push so labels stay aligned.
@@ -137,5 +138,10 @@ pub fn packSignal(
             try ps.pushLabel(gpa, x0, x1, opts.radix, opts.enums, muted);
         }
     }
+    // One memcpy of tide's whole byte planes into the value pools — the per-sample
+    // repack is gone; the loop above now only computes timing/flags/labels. The
+    // i-th bytes_per_sample-byte run lines up with segment i (tide stores x0s/x1s
+    // contiguously, len·bps bytes — db.zig invariant).
+    try ps.setSamples(gpa, query.x0s, query.x1s);
     return ps;
 }
