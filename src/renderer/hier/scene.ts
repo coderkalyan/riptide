@@ -18,7 +18,7 @@ import {
   type Sidecar,
 } from "./sidecar";
 
-export type Radix = "bin" | "hex" | "dec";
+export type Radix = "bin" | "hex" | "dec" | "enum";
 export type ActiveRole = "clock" | "reset" | "valid";
 
 // VCD variable kind shown in the row tooltip. Mock for now; "derived" covers
@@ -68,7 +68,7 @@ const W = "top.keysched.waves";
 const ROWS: (RowConfig & { path: string })[] = [
   { row: 0,  radix: "bin", role: "clock", pinned: true,                 color: "#72F5DF", path: `${W}.clk`,              vcdType: "net" },
   { row: 1,  radix: "bin", role: "reset",                               color: "#F06B5B", path: `${W}.rst`,              vcdType: "reg" },
-  { row: 2,  radix: "dec", selected: true, enumTypeId: 1,               color: "#B48CFF", path: `${W}.state[1:0]`,       vcdType: "reg" },
+  { row: 2,  radix: "enum", selected: true, enumTypeId: 1,              color: "#B48CFF", path: `${W}.state[1:0]`,       vcdType: "reg" },
   { row: 3,  radix: "dec",                                              color: "#B48CFF", path: `${W}.cycle_count[7:0]`, vcdType: "reg" },
   { row: 4,  radix: "bin", role: "valid",                               color: "#F4A698", path: `${W}.in_valid`,         vcdType: "reg" },
   { row: 5,  radix: "hex", gatePath: `${W}.in_valid`,                   color: "#F4A698", path: `${W}.in_data[7:0]`,     vcdType: "reg" },

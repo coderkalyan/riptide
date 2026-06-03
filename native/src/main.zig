@@ -135,6 +135,51 @@ fn jsHandle(env: c.napi_env, id: tide.Signal.Id) c.napi_value {
 // startup with the trace path from the window URL).
 var cached: ?mock_db.Loaded = null;
 
+// Per-signal pack cache, keyed by everything that determines a signal's packed
+// output (handle + render kind/shade/gate + label radix/enums) but NOT its row.
+// An add/remove/reorder/radix change repacks only the changed signal; the rest are
+// reassembled from cache (Scene.pushPackedSignal) without a tide query. Cleared on
+// loadVcd (a new trace re-parses handles/values, invalidating every entry).
+const PackKey = struct {
+    handle: u64,
+    gate: u64, // maxInt = no gate
+    enums_hash: u64,
+    kind: u8,
+    radix: u8,
+    shaded: bool,
+};
+
+var pack_cache: std.AutoHashMap(PackKey, seg.PackedSignal) = undefined;
+var pack_cache_init = false;
+
+fn packCache() *std.AutoHashMap(PackKey, seg.PackedSignal) {
+    if (!pack_cache_init) {
+        pack_cache = std.AutoHashMap(PackKey, seg.PackedSignal).init(page);
+        pack_cache_init = true;
+    }
+    return &pack_cache;
+}
+
+fn clearPackCache() void {
+    if (!pack_cache_init) return;
+    var it = pack_cache.valueIterator();
+    while (it.next()) |ps| ps.deinit(page);
+    pack_cache.clearRetainingCapacity();
+}
+
+// FNV-1a over the enum table so radix/enum changes key distinct cache entries.
+fn hashEnums(enums: []const label.EnumEntry) u64 {
+    var h: u64 = 0xcbf29ce484222325;
+    for (enums) |e| {
+        inline for (.{ @as(u8, @truncate(e.value)), @as(u8, @truncate(e.value >> 8)), @as(u8, @truncate(e.value >> 16)), @as(u8, @truncate(e.value >> 24)) }) |b| {
+            h = (h ^ b) *% 0x100000001b3;
+        }
+        for (e.label) |b| h = (h ^ b) *% 0x100000001b3;
+        h = (h ^ 0xff) *% 0x100000001b3; // separator so {"a","b"} ≠ {"ab"}
+    }
+    return h;
+}
+
 fn getLoaded() *const mock_db.Loaded {
     if (cached == null) @panic("getLoaded: loadVcd must be called before querying");
     return &cached.?;
@@ -174,6 +219,7 @@ fn loadVcd(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.napi_valu
     // Swap only on success so a bad open leaves the prior trace intact.
     if (cached) |*old| old.deinit();
     cached = loaded;
+    clearPackCache(); // new trace → handles/values change; cached packs are stale
     return jsUndefined(env);
 }
 
@@ -267,7 +313,7 @@ fn parseSpec(env: c.napi_env, v: c.napi_value, arena: std.mem.Allocator) ?PackSp
         var rlen: usize = 0;
         if (c.napi_get_value_string_utf8(env, radix_v, &rbuf, rbuf.len, &rlen) == c.napi_ok) {
             const rs = rbuf[0..rlen];
-            radix = if (std.mem.eql(u8, rs, "hex")) .hex else if (std.mem.eql(u8, rs, "dec")) .dec else .bin;
+            radix = if (std.mem.eql(u8, rs, "hex")) .hex else if (std.mem.eql(u8, rs, "dec")) .dec else if (std.mem.eql(u8, rs, "enum")) .@"enum" else .bin;
         }
     }
 
@@ -295,27 +341,45 @@ fn getMockSegments(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.n
     var scene = seg.Scene.init(page);
     defer scene.deinit();
 
+    const cache = packCache();
+
     var i: u32 = 0;
     while (i < arr_len) : (i += 1) {
         var elem: c.napi_value = undefined;
         _ = c.napi_get_element(env, argv[0], i, &elem);
         const s = parseSpec(env, elem, arena.allocator()) orelse @panic("invalid spec");
 
-        const q = db.query(s.handle, 0, end_t) orelse @panic("missing signal");
-        const width: u32 = q.type.width;
+        const key = PackKey{
+            .handle = @intFromEnum(s.handle),
+            .gate = if (s.gate) |g| @intFromEnum(g) else std.math.maxInt(u64),
+            .enums_hash = hashEnums(s.enums),
+            .kind = @intFromEnum(s.kind),
+            .radix = @intFromEnum(s.radix),
+            .shaded = s.shaded,
+        };
+
+        // Pack the signal once per (signal, config); reuse it across repacks. The
+        // tide query + flag compute + gate queries + label format happen only on a
+        // cache miss (the changed signal); everything else is reassembled.
+        if (cache.getPtr(key) == null) {
+            const q = db.query(s.handle, 0, end_t) orelse @panic("missing signal");
+            const ps = pack.packSignal(page, db, q, .{
+                .width = q.type.width,
+                .shaded = s.shaded,
+                .end_t = end_t,
+                .kind = s.kind,
+                .gate_id = s.gate,
+                .radix = s.radix,
+                .enums = s.enums,
+            }) catch @panic("packSignal failed");
+            cache.put(key, ps) catch @panic("pack cache put failed"); // may resize
+        }
+        const ps = cache.getPtr(key).?; // re-get: a put above may have resized
+
         // 1-bit signals render as lines (single pipeline); wider ones as pills
         // (multi pipeline). Mirrors mock_scene's row/target assignment.
-        const target = if (width > 1) &scene.multi else &scene.single;
-        pack.packQuery(&scene, target, db, q, .{
-            .row = s.row,
-            .width = width,
-            .shaded = s.shaded,
-            .end_t = end_t,
-            .kind = s.kind,
-            .gate_id = s.gate,
-            .radix = s.radix,
-            .enums = s.enums,
-        }) catch @panic("packQuery failed");
+        const target = if (ps.is_multi) &scene.multi else &scene.single;
+        scene.pushPackedSignal(target, s.row, ps) catch @panic("pushPackedSignal failed");
     }
 
     var final = seg.finalize(&scene, page) catch @panic("finalize failed");

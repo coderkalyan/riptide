@@ -7,7 +7,6 @@ const label = @import("label.zig");
 pub const PackKind = enum { data, clk };
 
 pub const PackOpts = struct {
-    row: u32,
     width: u32,
     shaded: bool,
     end_t: u32,
@@ -53,18 +52,23 @@ fn gateMutedAt(db: *const tide.Database, gate_id: tide.Signal.Id, t: u64) bool {
     return !is_one;
 }
 
-// Walk a tide query (one entry per value transition) and push each transition
-// into the scene as one PackedSegment + one pooled (lsb,msb) sample. The scene's
-// finalize() later bit-packs the per-row sample lists into x0/x1 pools. Flag
-// logic mirrors mock_scene's buildClockSegments / buildDataSignal so the GPU
-// output is identical to the old hardcoded path.
-pub fn packQuery(
-    scene: *seg.Scene,
-    target: *std.ArrayList(seg.PackedSegment),
+// Walk a tide query (one entry per value transition) and build a row-agnostic
+// PackedSignal: one PackedSegment + one pooled (lsb,msb) sample per transition,
+// plus a native value label for multi-bit rows. The caller caches this and places
+// it at a row via Scene.pushPackedSignal; finalize() bit-packs the per-row sample
+// lists into x0/x1 pools. Flag logic mirrors mock_scene's buildClockSegments /
+// buildDataSignal so the GPU output is identical to the old hardcoded path. Row
+// bits are left 0 here (OR'd in at placement). The returned PackedSignal owns its
+// allocations (free with deinit).
+pub fn packSignal(
+    gpa: Allocator,
     db: *const tide.Database,
     query: tide.Database.Query,
     opts: PackOpts,
-) !void {
+) !seg.PackedSignal {
+    var ps = seg.PackedSignal{ .is_multi = opts.width > 1, .bit_width = opts.width };
+    errdefer ps.deinit(gpa);
+
     const bps = query.type.bytes();
     const len: usize = @intCast(query.len);
     var i: usize = 0;
@@ -118,20 +122,20 @@ pub fn packQuery(
         }
 
         const shaded = opts.shaded and opts.kind == .data;
-        const flags = (opts.row & 0xffff) |
-            (if (shaded) seg.FLAG_SHADE else @as(u32, 0)) |
+        // Row bits intentionally 0 — OR'd in when this signal is placed at a row.
+        const flags = (if (shaded) seg.FLAG_SHADE else @as(u32, 0)) |
             (if (draw_right) seg.FLAG_RIGHT_EDGE else @as(u32, 0)) |
             (if (rising) seg.FLAG_RISING_EDGE else @as(u32, 0)) |
             (if (rising_left) seg.FLAG_RISING_EDGE_LEFT else @as(u32, 0)) |
             (if (muted) seg.FLAG_MUTE else @as(u32, 0));
 
-        try scene.pushSegment(target, opts.row, opts.width, t_start, t_end, x0, x1, flags);
+        try ps.pushSegment(gpa, t_start, t_end, x0, x1, flags);
 
         // Multi-bit rows render a value pill; format its label here (native) in
-        // lockstep with the multi push so labels stay aligned with `scene.multi`.
-        // x0/x1 still borrow valid db storage (no query since they were taken).
-        if (opts.width > 1) {
-            try scene.pushMultiLabel(x0, x1, opts.width, opts.radix, opts.enums, muted);
+        // lockstep with the segment push so labels stay aligned.
+        if (ps.is_multi) {
+            try ps.pushLabel(gpa, x0, x1, opts.radix, opts.enums, muted);
         }
     }
+    return ps;
 }

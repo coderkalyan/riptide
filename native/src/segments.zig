@@ -77,6 +77,65 @@ const RowAccum = struct {
 
 pub const MAX_ROWS: usize = 64;
 
+// One fully packed signal, independent of its row placement — the cacheable unit
+// (main.zig keys these by signal+config and reuses them across repacks, so an
+// add/remove/reorder only queries tide + formats labels for the changed signal).
+// `row_flags` here have the low 16 bits (row index) zeroed; the row is OR'd in at
+// assembly (pushPackedSignal). `lsbs`/`msbs` hold segments.len·words_per_sample
+// words. `label_offsets` holds segments.len+1 prefix offsets when `is_multi` and a
+// segment exists (label i = label_bytes[off[i]..off[i+1]]), else stays empty.
+pub const PackedSignal = struct {
+    is_multi: bool = false,
+    bit_width: u32 = 0,
+    segments: std.ArrayList(PackedSegment) = .empty,
+    lsbs: std.ArrayList(u32) = .empty,
+    msbs: std.ArrayList(u32) = .empty,
+    label_bytes: std.ArrayList(u8) = .empty,
+    label_offsets: std.ArrayList(u32) = .empty,
+
+    pub fn deinit(self: *PackedSignal, gpa: Allocator) void {
+        self.segments.deinit(gpa);
+        self.lsbs.deinit(gpa);
+        self.msbs.deinit(gpa);
+        self.label_bytes.deinit(gpa);
+        self.label_offsets.deinit(gpa);
+    }
+
+    // Append one transition while building the signal (called by pack.packSignal).
+    // `flags` must NOT carry row bits. `x0`/`x1` are tide's per-sample byte runs,
+    // packed into words_per_sample zero-padded u32 words.
+    pub fn pushSegment(
+        self: *PackedSignal,
+        gpa: Allocator,
+        t_start: u32,
+        t_end: u32,
+        x0: []const u8,
+        x1: []const u8,
+        flags: u32,
+    ) !void {
+        const words = wordsPerSample(self.bit_width);
+        try appendWords(&self.lsbs, gpa, x0, words);
+        try appendWords(&self.msbs, gpa, x1, words);
+        try self.segments.append(gpa, .{ .t_start = t_start, .t_end = t_end, .row_flags = flags });
+    }
+
+    // Append this segment's value label (multi-bit rows only). Call once per
+    // pushSegment, in order. Muted segments get an empty label.
+    pub fn pushLabel(
+        self: *PackedSignal,
+        gpa: Allocator,
+        x0: []const u8,
+        x1: []const u8,
+        radix: label.Radix,
+        enums: []const label.EnumEntry,
+        muted: bool,
+    ) !void {
+        if (self.label_offsets.items.len == 0) try self.label_offsets.append(gpa, 0);
+        if (!muted) try label.formatValue(&self.label_bytes, gpa, x0, x1, self.bit_width, radix, enums);
+        try self.label_offsets.append(gpa, @intCast(self.label_bytes.items.len));
+    }
+};
+
 pub const Scene = struct {
     gpa: Allocator,
     multi: std.ArrayList(PackedSegment) = .empty,
@@ -101,58 +160,42 @@ pub const Scene = struct {
         for (&self.rows) |*r| r.deinit(self.gpa);
     }
 
-    // Append one multi-bit segment's value label. Call exactly once per `multi`
-    // push, in the same order, so label i aligns with multi[i]. Muted segments get
-    // an empty label (no glyphs drawn), matching the old JS mute skip.
-    pub fn pushMultiLabel(
-        self: *Scene,
-        x0: []const u8,
-        x1: []const u8,
-        width: u32,
-        radix: label.Radix,
-        enums: []const label.EnumEntry,
-        muted: bool,
-    ) !void {
-        if (self.multi_label_offsets.items.len == 0) try self.multi_label_offsets.append(self.gpa, 0);
-        if (!muted) try label.formatValue(&self.multi_label_bytes, self.gpa, x0, x1, width, radix, enums);
-        try self.multi_label_offsets.append(self.gpa, @intCast(self.multi_label_bytes.items.len));
-    }
-
-    // Push one transition. `x0`/`x1` are tide's per-sample little-endian byte
-    // runs (value bits / unknown bits); they're packed into `words_per_sample`
-    // zero-padded u32 words appended to this row's pools.
-    pub fn pushSegment(
-        self: *Scene,
-        target: *std.ArrayList(PackedSegment),
-        row: u32,
-        bit_width: u32,
-        t_start: u32,
-        t_end: u32,
-        x0: []const u8,
-        x1: []const u8,
-        flags: u32,
-    ) !void {
+    // Place an already-packed signal at `row`: append its segments to `target`
+    // (OR'ing the row into each row_flags), its samples to the row's pools, and its
+    // labels to the multi label buffers. This is the cache-replay path — no tide
+    // query, no flag recompute, no label format. `target` must be `multi` for an
+    // is_multi signal, `single` otherwise.
+    pub fn pushPackedSignal(self: *Scene, target: *std.ArrayList(PackedSegment), row: u32, ps: *const PackedSignal) !void {
         std.debug.assert(row < MAX_ROWS);
+        if (ps.segments.items.len == 0) return; // empty signal contributes no row data
+        const wps = wordsPerSample(ps.bit_width);
         var ra = &self.rows[row];
-        if (!ra.started) {
-            ra.bit_width = bit_width;
-            ra.segment_start = @intCast(target.items.len);
-            ra.started = true;
-        } else {
-            std.debug.assert(ra.bit_width == bit_width);
-            // Row's segments must be contiguous in the pipeline so segment_start
-            // suffices to derive sample_index in the shader.
-            std.debug.assert(ra.segment_start + ra.count == @as(u32, @intCast(target.items.len)));
+        // Each row is filled by exactly one signal, contiguously.
+        std.debug.assert(!ra.started);
+        ra.bit_width = ps.bit_width;
+        ra.segment_start = @intCast(target.items.len);
+        ra.started = true;
+
+        for (ps.segments.items, 0..) |s, i| {
+            try ra.lsbs.appendSlice(self.gpa, ps.lsbs.items[i * wps .. (i + 1) * wps]);
+            try ra.msbs.appendSlice(self.gpa, ps.msbs.items[i * wps .. (i + 1) * wps]);
+            ra.count += 1;
+            try target.append(self.gpa, .{
+                .t_start = s.t_start,
+                .t_end = s.t_end,
+                .row_flags = (s.row_flags & ~@as(u32, 0xffff)) | (row & 0xffff),
+            });
         }
-        const words = wordsPerSample(bit_width);
-        try appendWords(&ra.lsbs, self.gpa, x0, words);
-        try appendWords(&ra.msbs, self.gpa, x1, words);
-        ra.count += 1;
-        try target.append(self.gpa, .{
-            .t_start = t_start,
-            .t_end = t_end,
-            .row_flags = flags,
-        });
+
+        if (ps.is_multi) {
+            if (self.multi_label_offsets.items.len == 0) try self.multi_label_offsets.append(self.gpa, 0);
+            for (0..ps.segments.items.len) |i| {
+                const lo = ps.label_offsets.items[i];
+                const hi = ps.label_offsets.items[i + 1];
+                try self.multi_label_bytes.appendSlice(self.gpa, ps.label_bytes.items[lo..hi]);
+                try self.multi_label_offsets.append(self.gpa, @intCast(self.multi_label_bytes.items.len));
+            }
+        }
     }
 };
 

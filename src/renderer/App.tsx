@@ -82,24 +82,64 @@ function formatSegmentValue(
   enumLabels?: Map<number, string>,
 ): string {
   if (!value) return "-";
-  // Whole-value x/z presence, OR-reduced per word (each word holds distinct
-  // bits, so per-word (msb & ~lsb)/(msb & lsb) never cross-contaminate).
+  // Per-bit 2-state classification: "0" | "1" | "X" | "Z".
+  const bitChar = (bit: number): string => {
+    const l = bitOfWords(value.lsb, bit);
+    const m = bitOfWords(value.msb, bit);
+    if (m === 0) return l === 0 ? "0" : "1";
+    return l === 0 ? "X" : "Z";
+  };
+
+  // Binary: 0b + every bit, MSB-first (1-bit rows keep a bare digit for the
+  // value readout). Mirrors label.zig's .bin path.
+  if (radix === "bin") {
+    if (bitWidth === 1) return bitChar(0);
+    let bin = "";
+    for (let bit = bitWidth - 1; bit >= 0; bit--) bin += bitChar(bit);
+    return `0b${bin}`;
+  }
+
+  // Hex (and enum's fallback): 0x + every nibble, MSB-first, fixed width (no
+  // trim). Any unknown bit makes the nibble X or Z (Z when an unknown bit's x0
+  // is set); otherwise it's the hex digit. Mirrors label.zig's .hex path.
+  if (radix === "hex" || radix === "enum") {
+    // Enum: match the table on fully-defined values; else fall through to hex.
+    if (radix === "enum" && enumLabels) {
+      let defined = true;
+      for (let w = 0; w < value.msb.length; w++) if (value.msb[w] >>> 0) { defined = false; break; }
+      if (defined) {
+        const label = enumLabels.get(value.lsb[0] >>> 0);
+        if (label) return label;
+      }
+    }
+    // 4 bits (LSB-first) at bit `lo`, read across the 32-bit word boundary.
+    const nibbleAt = (words: number[], lo: number, nbits: number): number => {
+      const w = lo >>> 5, sh = lo & 31;
+      let v = words[w] >>> sh;
+      if (sh > 28 && w + 1 < words.length) v |= words[w + 1] << (32 - sh);
+      return (v & ((1 << nbits) - 1)) >>> 0;
+    };
+    const digits: string[] = [];
+    for (let hi = bitWidth - 1; hi >= 0; hi -= 4) {
+      const lo = Math.max(hi - 3, 0);
+      const nbits = hi - lo + 1; // bottom nibble may be < 4 bits wide
+      const x0n = nibbleAt(value.lsb, lo, nbits);
+      const x1n = nibbleAt(value.msb, lo, nbits);
+      if (x1n) digits.push((x0n & x1n) ? "Z" : "X");
+      else digits.push(x0n.toString(16).toUpperCase());
+    }
+    return `0x${digits.join("")}`;
+  }
+
+  // Decimal. Whole-value x/z presence, OR-reduced per word (each word holds
+  // distinct bits, so per-word (msb & ~lsb)/(msb & lsb) never cross-contaminate).
   let hasX = false, hasZ = false;
   for (let w = 0; w < value.msb.length; w++) {
     const m = value.msb[w] >>> 0, l = value.lsb[w] >>> 0;
     if ((m & ~l) >>> 0) hasX = true;
     if ((m & l) >>> 0) hasZ = true;
   }
-  // Any X/Z: render in the signal's own radix (matching its 2-state segments)
-  // rather than always falling back to binary.
   if (hasX || hasZ) {
-    // Per-bit 2-state classification: "0" | "1" | "X" | "Z".
-    const bitChar = (bit: number): string => {
-      const l = bitOfWords(value.lsb, bit);
-      const m = bitOfWords(value.msb, bit);
-      if (m === 0) return l === 0 ? "0" : "1";
-      return l === 0 ? "X" : "Z";
-    };
     if (bitWidth === 1) return bitChar(0);
     // Classify the whole value (any defined bit / any X / any Z).
     let anyX = false, anyZ = false, anyDef = false;
@@ -109,62 +149,18 @@ function formatSegmentValue(
       else if (c === "Z") anyZ = true;
       else anyDef = true;
     }
-    // Uniformly-unknown value reads better as a bare "X"/"Z" than a prefixed
-    // "0xXX" (the 0x's x collides with the digits). Hex/dec only — binary keeps
-    // its per-bit form. The 0x prefix is only kept below when a real digit
-    // anchors it.
-    if ((radix === "hex" || radix === "dec") && !anyDef && !(anyX && anyZ)) {
-      return anyZ ? "Z" : "X";
-    }
-    if (radix === "hex") {
-      // Group into nibbles (MSB first). A nibble of pure X or pure Z prints
-      // "X"/"Z"; a nibble mixing unknown with known bits also prints "X".
-      const digits: string[] = [];
-      for (let hi = bitWidth - 1; hi >= 0; hi -= 4) {
-        let nib = 0, nibX = false, nibZ = false, allDef = true;
-        for (let b = hi; b > hi - 4 && b >= 0; b--) {
-          const c = bitChar(b);
-          nib = (nib << 1) | (c === "1" ? 1 : 0);
-          if (c === "X") { nibX = true; allDef = false; }
-          else if (c === "Z") { nibZ = true; allDef = false; }
-        }
-        if (allDef) digits.push(nib.toString(16).toUpperCase());
-        else if (nibX && nibZ) digits.push("X");
-        else digits.push(nibZ ? "Z" : "X");
-      }
-      return `0x${digits.join("")}`;
-    }
-    // Binary (and the decimal mixed-value fallback): per-bit.
-    const chars: string[] = [];
-    for (let bit = bitWidth - 1; bit >= 0; bit--) chars.push(bitChar(bit));
-    return `0b${chars.join("")}`;
-  }
-  // All bits defined (2-state). Enum keys are ≤32-bit, so the low word suffices.
-  if (enumLabels) {
-    const label = enumLabels.get(value.lsb[0] >>> 0);
-    if (label) return label;
+    // Uniformly-unknown reads better as a bare "X"/"Z" than a digit string.
+    if (!anyDef && !(anyX && anyZ)) return anyZ ? "Z" : "X";
+    // Mixed value: per-bit binary, MSB-first.
+    let bin = "";
+    for (let bit = bitWidth - 1; bit >= 0; bit--) bin += bitChar(bit);
+    return `0b${bin}`;
   }
   if (bitWidth === 1) return String(bitOfWords(value.lsb, 0));
-  if (radix === "hex") {
-    // Nibbles MSB-first, then trim leading zeros (one digit min) to match the
-    // old toString(16) form for ≤32-bit values.
-    let hex = "";
-    for (let hi = bitWidth - 1; hi >= 0; hi -= 4) {
-      let nib = 0;
-      for (let b = hi; b > hi - 4 && b >= 0; b--) nib = (nib << 1) | bitOfWords(value.lsb, b);
-      hex += nib.toString(16).toUpperCase();
-    }
-    return `0x${hex.replace(/^0+/, "") || "0"}`;
-  }
-  if (radix === "dec") {
-    // BigInt so widths > 32 print exactly (low word first, little-endian).
-    let big = 0n;
-    for (let w = value.lsb.length - 1; w >= 0; w--) big = (big << 32n) | BigInt(value.lsb[w] >>> 0);
-    return big.toString();
-  }
-  let bin = "";
-  for (let bit = bitWidth - 1; bit >= 0; bit--) bin += String(bitOfWords(value.lsb, bit));
-  return `0b${bin}`;
+  // BigInt so widths > 32 print exactly (low word first, little-endian).
+  let big = 0n;
+  for (let w = value.lsb.length - 1; w >= 0; w--) big = (big << 32n) | BigInt(value.lsb[w] >>> 0);
+  return big.toString();
 }
 
 // Enum label maps per row (value → label) for any active signal whose
@@ -790,6 +786,10 @@ export function App() {
   const draggingRef = useRef(false);
 
   const [activeSignals, setActiveSignals] = useState<ActiveSignalRef[]>(SCENE.activeSignals);
+  // The active list the label buffer was last built from — used to detect a pure
+  // append (add-from-tree) so the label repack only uploads the new row's glyphs
+  // (labelBatch.setLabels reusePrefix). null forces a full rebuild (e.g. after swap).
+  const lastLabelActiveRef = useRef<ActiveSignalRef[] | null>(null);
   // Enum label maps per row, recomputed when the active set changes — feeds both
   // the active-panel value column and the hover readout. The GPU repack builds
   // its own copy for the canvas value labels (labelBatch.setLabels).
@@ -949,7 +949,8 @@ export function App() {
         gpuCtx, renderer.uniformBuf, textRenderer.atlasLgView, textRenderer.sampler, textRenderer.cellLg,
       );
       const labelBatch = labelRenderer.createBatch();
-      labelBatch.setLabels(NATIVE.multi, NATIVE.multiCount, NATIVE.labelBytes, NATIVE.labelOffsets, scene.rowInfo);
+      labelBatch.setLabels(NATIVE.multi, NATIVE.multiCount, NATIVE.labelBytes, NATIVE.labelOffsets, scene.rowInfo, false);
+      lastLabelActiveRef.current = SCENE.activeSignals;
 
       // Push the current hidden set into the live scene's rowInfo flags. Closes
       // over the `scene` closure var, so it always targets the latest scene after
@@ -976,7 +977,17 @@ export function App() {
         multiBit = nextMulti;
         singleBit = nextSingle;
         perf.addMark("GPU buffer rebuild (scene + rebind)");
-        labelBatch.setLabels(packed.multi, packed.multiCount, packed.labelBytes, packed.labelOffsets, scene.rowInfo);
+        // Pure append (add-from-tree): existing rows unchanged + new rows at the
+        // end → label buffer prefix is identical, so only upload the new glyphs.
+        // Any other change (reorder/remove/radix) → full label rebuild.
+        const prevLabelActive = lastLabelActiveRef.current;
+        const isAppend = prevLabelActive != null && active.length > prevLabelActive.length &&
+          prevLabelActive.every((r, i) => {
+            const n = active[i];
+            return n != null && n.signalId === r.signalId && n.row === r.row && n.radix === r.radix && n.role === r.role;
+          });
+        labelBatch.setLabels(packed.multi, packed.multiCount, packed.labelBytes, packed.labelOffsets, scene.rowInfo, isAppend);
+        lastLabelActiveRef.current = active;
         perf.addMark("rebuild value labels");
         // New scene → new rowInfo buffer (flags all 0); re-apply the dim set.
         applyDimRef.current?.();
@@ -1909,6 +1920,7 @@ export function App() {
   const resetForTrace = (vcdPath: string) => {
     perf.beginSwap();
     swapTrace(vcdPath); // emits swapMark("native loadVcd") + swapMark("buildScene")
+    lastLabelActiveRef.current = null; // new trace → full label rebuild, no prefix reuse
 
     // Marker seeds, recomputed from the new INITIAL (mirrors the module consts).
     const newMarkers: Marker[] = INITIAL.markers.map((m, i) => ({ id: i + 1, name: m.name, tick: m.tick, color: m.color }));
