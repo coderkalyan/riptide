@@ -6,6 +6,8 @@ import { HoverReadout } from "./HoverReadout";
 import { ColorPicker } from "./ColorPicker";
 import { ContextMenu, ACTIVE_SIGNAL_MENU } from "./ContextMenu";
 import { SignalTree } from "./SignalTree";
+import { WavesToolbar } from "./WavesToolbar";
+import { MarkersBar } from "./MarkersBar";
 import { buildEnumLabels } from "./wave/value";
 
 // App shell: static layout chrome (titlebar/menus/tabs, three-column body) plus
@@ -50,8 +52,8 @@ export function App() {
         <ActiveSignals enumLabels={enumLabels} />
 
         <div class="col waves" style={{ "grid-column": 3, "grid-row": "1 / 3" }}>
-          <div class="col-head toolbar"><span class="hint mono">waves</span></div>
-          <div class="col-sub"><span class="sub-label">MARKERS</span></div>
+          <WavesToolbar />
+          <MarkersBar />
           <div class="wv-canvas">
             <WaveCanvas />
           </div>

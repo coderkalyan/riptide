@@ -190,7 +190,8 @@ export function WaveCanvas() {
         const timelinePx = canvasW;
         if (timelinePx <= 0) { raf = requestAnimationFrame(frame); return; }
 
-        view.ensureInit(timelinePx);
+        view.timelinePx = timelinePx;
+        view.ensureInit();
         if (view.advance(now)) st.bumpViewSave(); // zoom/fit animation landed
 
         const ticksPerPixel = view.ticksPerPixel;
@@ -460,15 +461,15 @@ export function WaveCanvas() {
         e.preventDefault();
         view.beginInteract();
         const rect = host.getBoundingClientRect();
-        const timelinePx = rect.width;
+        view.timelinePx = rect.width;
         if (e.ctrlKey) {
           const mouseX = e.clientX - rect.left;
-          view.zoomAtPixel(mouseX, Math.exp(e.deltaY * ZOOM_PER_DELTA_Y), timelinePx);
+          view.zoomAtPixel(mouseX, Math.exp(e.deltaY * ZOOM_PER_DELTA_Y));
         } else {
-          const visibleTicks = timelinePx * view.ticksPerPixel;
+          const visibleTicks = view.timelinePx * view.ticksPerPixel;
           if (visibleTicks >= MOCK_END_TICKS) return;
           const dx = e.deltaX !== 0 ? e.deltaX : e.deltaY;
-          view.panByPixels(dx, timelinePx);
+          view.panByPixels(dx);
         }
         useAppStore.getState().bumpViewSave();
       };
