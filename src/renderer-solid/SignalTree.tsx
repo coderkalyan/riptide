@@ -1,4 +1,4 @@
-import { For, createMemo } from "solid-js";
+import { Index, createMemo } from "solid-js";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { ChevronDown, ChevronRight, Package, Activity, Plus } from "lucide-solid";
 import { SCENE } from "../renderer/hier/scene";
@@ -16,11 +16,10 @@ function signalIconKind(sig: Signal): "enum" | "bus" | "scalar" {
 interface FlatNode { id: NodeId; depth: number; kind: "scope" | "signal"; open: boolean }
 
 // Depth-first walk of the hierarchy, descending into a scope only when it's
-// expanded — the visible, flattened row list. This replaces the React recursive
+// expanded — the visible, flattened row list. Replaces the React recursive
 // TreeNode + everOpened lazy-mount: virtualization only renders the on-screen
-// window, so a huge expanded tree never mounts in full. (Trade-off accepted in
-// the plan: the per-scope 0fr↔1fr height-expand animation is gone — expand /
-// collapse is instant.)
+// window. (Plan trade-off: the per-scope height-expand animation is gone —
+// expand/collapse is instant.)
 function flattenVisible(expanded: Set<NodeId>): FlatNode[] {
   const h = SCENE.hierarchy;
   const out: FlatNode[] = [];
@@ -39,7 +38,12 @@ function flattenVisible(expanded: Set<NodeId>): FlatNode[] {
 
 export function SignalTree() {
   const s = useAppStore();
-  const flat = createMemo(() => flattenVisible(new Set(s.expandedScopes)));
+  // traceNonce dep: re-run on an in-app trace swap even if expandedScopes content
+  // happens to be unchanged (so the tree picks up the new SCENE.hierarchy).
+  const flat = createMemo(() => {
+    s.traceNonce;
+    return flattenVisible(new Set(s.expandedScopes));
+  });
 
   let scrollEl: HTMLDivElement | undefined;
   const virtualizer = createVirtualizer({
@@ -52,14 +56,19 @@ export function SignalTree() {
   return (
     <div class="tree" ref={scrollEl}>
       <div style={{ position: "relative", width: "100%", height: `${virtualizer.getTotalSize()}px` }}>
-        <For each={virtualizer.getVirtualItems()}>{(vi) => {
-          const entry = flat()[vi.index];
-          if (!entry) return null;
-          const node = SCENE.hierarchy.nodes.get(entry.id)!;
-          const indent = entry.depth > 0 ? { "padding-left": `${4 + entry.depth * 14}px` } : undefined;
-          return (
-            <div style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${vi.start}px)` }}>
-              {entry.kind === "scope" ? (
+        {/* <Index> (position-keyed) not <For> (reference-keyed): virtual-core
+            reuses measurement objects per index, so a reference-keyed list keeps
+            stale row content on expand. The item accessor + reactive flat()[idx]
+            lookup re-render the correct node on expand/scroll. */}
+        <Index each={virtualizer.getVirtualItems()}>{(item) => (
+          <div style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${item().start}px)` }}>
+            {(() => {
+              const entry = flat()[item().index];
+              if (!entry) return null;
+              const node = SCENE.hierarchy.nodes.get(entry.id);
+              if (!node) return null;
+              const indent = entry.depth > 0 ? { "padding-left": `${4 + entry.depth * 14}px` } : undefined;
+              return entry.kind === "scope" ? (
                 <div class="t-row" style={indent} onClick={() => s.toggleScope(entry.id)}>
                   <span class="chev">{entry.open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}</span>
                   <span class="icon module"><Package size={12} /></span>
@@ -76,10 +85,10 @@ export function SignalTree() {
                     onClick={(e) => { e.stopPropagation(); s.addSignal(entry.id); }}
                   ><Plus size={12} /></span>
                 </div>
-              )}
-            </div>
-          );
-        }}</For>
+              );
+            })()}
+          </div>
+        )}</Index>
       </div>
     </div>
   );
