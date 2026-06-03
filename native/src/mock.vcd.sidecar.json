@@ -61,6 +61,7 @@
         "path": "top.keysched.waves.out_valid",
         "radix": "bin",
         "color": "#57C88A",
+        "selected": true,
         "role": "valid"
       },
       {

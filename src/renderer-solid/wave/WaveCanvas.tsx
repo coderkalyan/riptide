@@ -9,7 +9,7 @@ import { createLabelRenderer } from "../../renderer/gpu/labels";
 import { createLineRenderer } from "../../renderer/gpu/lines";
 import { createRectRenderer } from "../../renderer/gpu/rect";
 import { createGpuTimer } from "../../renderer/gpu/timing";
-import { SCENE, RESET_HELD_TICKS, buildPackSpecs, packSpecsFor, type ActiveSignalRef } from "../../renderer/hier/scene";
+import { RESET_HELD_TICKS, buildPackSpecs, packSpecsFor, type ActiveSignalRef } from "../../renderer/hier/scene";
 import { getMockSegments } from "../../renderer/native";
 import * as perf from "../../renderer/perf";
 import { useAppStore } from "../store/store";
@@ -447,7 +447,9 @@ export function WaveCanvas() {
         const px = Math.max(0, Math.min(rect.width, clientX - rect.left)) - LINE_HALF_CSS;
         const tick = view.startTicks + px * view.ticksPerPixel;
         let row = rh > 0 ? Math.floor(py / rh) - 1 : -1;
-        if (py < rh || row < 0 || row >= SCENE.activeSignals.length) row = -1;
+        // Live row count (not SCENE's initial set, which goes stale after
+        // add/remove — a latent bug in the React build that used SCENE here).
+        if (py < rh || row < 0 || row >= useAppStore.getState().activeSignals.length) row = -1;
         useAppStore.getState().setHover({ tick, row });
       };
 

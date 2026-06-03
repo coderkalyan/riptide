@@ -1,16 +1,22 @@
-import { For } from "solid-js";
+import { For, Show, createMemo } from "solid-js";
 import { useAppStore } from "./store/store";
 import { WaveCanvas } from "./wave/WaveCanvas";
+import { ActiveSignals } from "./ActiveSignals";
+import { HoverReadout } from "./HoverReadout";
+import { ColorPicker } from "./ColorPicker";
+import { ContextMenu, ACTIVE_SIGNAL_MENU } from "./ContextMenu";
+import { buildEnumLabels } from "./wave/value";
 
-// Phase 0 shell: the static layout chrome only, reusing the existing CSS
-// (index.html). It reads the store reactively to prove hydration + fine-grained
-// reactivity work end-to-end. Real panels (tree, active signals, waves canvas,
-// toolbar, markers, menus) slot into these placeholders in later phases.
+// App shell: static layout chrome (titlebar/menus/tabs, three-column body) plus
+// the real Active Signals panel + hover readout + canvas. Tree, toolbar, markers
+// bar, and the menus/tooltips/panel-collapse chrome slot in in later phases.
 
 const MENU_NAMES = ["File", "Edit", "View", "Signals", "Markers", "Window", "Help"];
 
 export function App() {
   const s = useAppStore();
+  // Shared per-row enum label maps — feeds the value column + hover readout.
+  const enumLabels = createMemo(() => buildEnumLabels(s.activeSignals));
   const treeColW = () => (s.panels.treeCollapsed ? 28 : s.panels.treeWidth);
   const activeColW = () => (s.panels.activeCollapsed ? (s.panels.activeCompactWidth ?? 88) : s.panels.activeWidth);
 
@@ -40,16 +46,7 @@ export function App() {
           </div>
         </div>
 
-        <div class="col">
-          <div class="col-head">
-            <h3>Active Signals</h3>
-            <span class="sp" style={{ flex: 1 }} />
-            <span class="hint">{s.activeSignals.length} active</span>
-          </div>
-          <div class="col-sub"><input class="search" placeholder="filter active signals" /></div>
-          <div class="s-head"><span /><span /><span>Name</span><span>Value</span><span /></div>
-          <div class="signals" />
-        </div>
+        <ActiveSignals enumLabels={enumLabels} />
 
         <div class="col waves" style={{ "grid-column": 3, "grid-row": "1 / 3" }}>
           <div class="col-head toolbar"><span class="hint mono">waves</span></div>
@@ -60,9 +57,27 @@ export function App() {
         </div>
 
         <div class="status" style={{ "grid-column": "1 / 3", "grid-row": 2 }}>
-          <span class="muted st-item st-val">solid shell — phase 0</span>
+          <HoverReadout enumLabels={enumLabels} />
         </div>
       </div>
+
+      <Show when={s.picker}>{(p) => (
+        <ColorPicker
+          color={s.activeSignals.find((r) => r.row === p().row)?.color ?? "#000000"}
+          onChange={(c) => s.setColor(p().row, c)}
+          onClose={() => s.setPicker(null)}
+          anchorRect={p().anchorRect}
+        />
+      )}</Show>
+      <Show when={s.ctxMenu}>{(m) => (
+        <ContextMenu
+          x={m().x}
+          y={m().y}
+          items={ACTIVE_SIGNAL_MENU}
+          onClose={() => s.setCtxMenu(null)}
+          onSelect={(label) => { if (label === "Remove from View" && m().row >= 0) s.removeSignal(m().row); }}
+        />
+      )}</Show>
     </div>
   );
 }
