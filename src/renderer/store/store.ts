@@ -18,15 +18,15 @@ import { subscribeWithSelector } from "zustand/middleware";
 import { shallow } from "zustand/shallow";
 import { create } from "solid-zustand/store";
 
-import { SCENE, INITIAL, makeActiveRef, type ActiveSignalRef, type Radix } from "../../renderer/hier/scene";
-import type { NodeId } from "../../renderer/hier/types";
-import { MAX_ROWS } from "../../renderer/gpu/colors";
+import { SCENE, INITIAL, makeActiveRef, type ActiveSignalRef, type Radix } from "../hier/scene";
+import type { NodeId } from "../hier/types";
+import { MAX_ROWS } from "../gpu/colors";
 import {
   serializeSidecar,
   sidecarToString,
   writeSidecarFile,
   sidecarPath,
-} from "../../renderer/hier/sidecar";
+} from "../hier/sidecar";
 import { MARKER_PALETTE } from "../wave/palette";
 
 // ---- types --------------------------------------------------------------

@@ -2,9 +2,9 @@ import { createSignal, createMemo, onCleanup } from "solid-js";
 import { Key } from "@solid-primitives/keyed";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { ChevronDown, ChevronRight, Package, Activity, Plus } from "lucide-solid";
-import { SCENE } from "../renderer/hier/scene";
-import type { NodeId, Scope, Signal } from "../renderer/hier/types";
-import * as perf from "../renderer/perf";
+import { SCENE } from "./hier/scene";
+import type { NodeId, Scope, Signal } from "./hier/types";
+import * as perf from "./perf";
 import { useAppStore } from "./store/store";
 
 const ROW_PX = 22; // .t-row height

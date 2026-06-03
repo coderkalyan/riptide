@@ -1,6 +1,6 @@
 import { render } from "solid-js/web";
 import { App } from "./App";
-import { stamp } from "../renderer/perf";
+import { stamp } from "./perf";
 import { startAutosave } from "./store/store";
 
 const root = document.getElementById("root");

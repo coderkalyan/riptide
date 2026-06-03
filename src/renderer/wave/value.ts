@@ -1,9 +1,9 @@
 // Per-signal value formatting — the CPU-side value column + hover readout. Ports
 // App.tsx's valueAtTick / formatSegmentValue / buildEnumLabels verbatim. (This is
 // a byte-for-byte sibling of the native label.zig formatter — keep in sync.)
-import { getValueAt } from "../../renderer/native";
-import { getSignal } from "../../renderer/hier/hierarchy";
-import { SCENE, type ActiveSignalRef, type Radix } from "../../renderer/hier/scene";
+import { getValueAt } from "../native";
+import { getSignal } from "../hier/hierarchy";
+import { SCENE, type ActiveSignalRef, type Radix } from "../hier/scene";
 
 // Decoded (lsb, msb) value of a signal at a tick via the native tide query.
 // lsb/msb are little-endian u32 word arrays (one word per 32 bits of width).

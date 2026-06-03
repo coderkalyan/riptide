@@ -2,7 +2,7 @@ import {
   ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight,
   Clock, Grid2x2, Maximize, Minus, Plus,
 } from "lucide-solid";
-import { SCENE } from "../renderer/hier/scene";
+import { SCENE } from "./hier/scene";
 import { useAppStore } from "./store/store";
 import { view } from "./wave/viewport";
 import { formatTime, formatTimescale } from "./wave/format";

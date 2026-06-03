@@ -13,9 +13,9 @@ import { MenuBar } from "./MenuBar";
 import { GlobalTooltip } from "./GlobalTooltip";
 import { PerfOverlay } from "./PerfOverlay";
 import { buildEnumLabels } from "./wave/value";
-import { getSignal } from "../renderer/hier/hierarchy";
-import { SCENE, swapTrace } from "../renderer/hier/scene";
-import * as perf from "../renderer/perf";
+import { getSignal } from "./hier/hierarchy";
+import { SCENE, swapTrace } from "./hier/scene";
+import * as perf from "./perf";
 
 declare const require: (m: string) => unknown;
 

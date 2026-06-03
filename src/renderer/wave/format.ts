@@ -1,9 +1,9 @@
 // Ruler / time / clock formatting — pure helpers ported verbatim from the React
 // App.tsx. Time is ns (integer ticks). Reused by the canvas ruler + (later) the
 // toolbar/markers readouts.
-import { MOCK_CLOCK_TICK_NS } from "../../renderer/gpu/data";
-import { SCENE } from "../../renderer/hier/scene";
-import type { Timescale, TimeUnit } from "../../renderer/hier/types";
+import { MOCK_CLOCK_TICK_NS } from "../gpu/data";
+import { SCENE } from "../hier/scene";
+import type { Timescale, TimeUnit } from "../hier/types";
 
 // "Nice" ruler-tick spacing — multiples of {1,2,5} × 10^n — so the visible range
 // gets ~8 labels.

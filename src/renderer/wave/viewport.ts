@@ -3,8 +3,8 @@
 // it's a module singleton: the rAF loop reads it every frame; pointer handlers
 // and the toolbar mutate it. `timelinePx` (canvas CSS width) is stamped here each
 // frame / on wheel, so toolbar actions (zoom/fit/range) need no canvas ref.
-import { INITIAL } from "../../renderer/hier/scene";
-import { MOCK_END_TICKS } from "../../renderer/gpu/data";
+import { INITIAL } from "../hier/scene";
+import { MOCK_END_TICKS } from "../gpu/data";
 import { ZOOM_ANIM_MS } from "./constants";
 
 const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);

@@ -1,6 +1,6 @@
 import { Show, createMemo } from "solid-js";
-import { getSignal } from "../renderer/hier/hierarchy";
-import { SCENE } from "../renderer/hier/scene";
+import { getSignal } from "./hier/hierarchy";
+import { SCENE } from "./hier/scene";
 import { useAppStore } from "./store/store";
 import { valueAtTick, formatSegmentValue } from "./wave/value";
 import { formatTime } from "./wave/format";

@@ -1,5 +1,5 @@
 import { Show, For, createSignal, onMount, onCleanup, createEffect, type JSX } from "solid-js";
-import * as perf from "../renderer/perf";
+import * as perf from "./perf";
 
 // Live perf HUD. Hidden until perf is enabled (?perf=1, the ` toggle, or
 // window.__perf.enable()). Polls the snapshot a few times a second while visible.

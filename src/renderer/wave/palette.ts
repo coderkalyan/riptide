@@ -1,6 +1,6 @@
 // Packed-rgba color constants + text-color helpers used by the wave canvas and
 // the DOM marker pills. packRgba packs 0xAABBGGRR (LE channels) — see gpu/text.
-import { packRgba } from "../../renderer/gpu/text";
+import { packRgba } from "../gpu/text";
 
 export const TEXT_WHITE = packRgba(0xff, 0xff, 0xff, 0xff);
 export const TEXT_DARK = packRgba(0x14, 0x15, 0x17, 0xff); // matches --bg

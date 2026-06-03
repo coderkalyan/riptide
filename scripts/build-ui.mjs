@@ -16,7 +16,7 @@ const PROD = process.env.NODE_ENV === "production";
 // runs babel-preset-solid over .tsx (lowering JSX to template()/insert() calls)
 // before esbuild bundles; plain .ts (gpu/, hier/, perf.ts) compile natively.
 export const buildOptions = {
-  entryPoints: [resolve(root, "src/renderer-solid/index.tsx")],
+  entryPoints: [resolve(root, "src/renderer/index.tsx")],
   bundle: true,
   outfile: `${DST_DIR}/index.js`,
   format: "iife",

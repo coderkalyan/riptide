@@ -1,7 +1,7 @@
 import { For, Show, createMemo } from "solid-js";
 import { PanelLeftClose, PanelLeftOpen } from "lucide-solid";
-import { getSignal } from "../renderer/hier/hierarchy";
-import { SCENE, type ActiveSignalRef } from "../renderer/hier/scene";
+import { getSignal } from "./hier/hierarchy";
+import { SCENE, type ActiveSignalRef } from "./hier/scene";
 import { useAppStore } from "./store/store";
 import { ActiveSignal, type ActiveSignalKind } from "./ActiveSignal";
 import { valueAtTick, formatSegmentValue } from "./wave/value";

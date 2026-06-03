@@ -6,7 +6,7 @@ import { buildOptions } from "./build-ui.mjs";
 
 const root    = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SRC_HTML = resolve(root, "src/renderer/index.html");
-const ENTRY   = resolve(root, "src/renderer-solid/index.tsx");
+const ENTRY   = resolve(root, "src/renderer/index.tsx");
 const DST_DIR = resolve(root, "dist/renderer");
 
 mkdirSync(DST_DIR, { recursive: true });
