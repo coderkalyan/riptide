@@ -13,5 +13,5 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["@webgpu/types"]
   },
-  "include": ["src/renderer-solid/**/*.ts", "src/renderer-solid/**/*.tsx"]
+  "include": ["src/renderer-solid/**/*.ts", "src/renderer-solid/**/*.tsx", "src/renderer/gpu/wgsl.d.ts"]
 }

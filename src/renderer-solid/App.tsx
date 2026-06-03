@@ -1,5 +1,6 @@
 import { For } from "solid-js";
 import { useAppStore } from "./store/store";
+import { WaveCanvas } from "./wave/WaveCanvas";
 
 // Phase 0 shell: the static layout chrome only, reusing the existing CSS
 // (index.html). It reads the store reactively to prove hydration + fine-grained
@@ -54,7 +55,7 @@ export function App() {
           <div class="col-head toolbar"><span class="hint mono">waves</span></div>
           <div class="col-sub"><span class="sub-label">MARKERS</span></div>
           <div class="wv-canvas">
-            <div class="gpu-host"><canvas id="gpu" /></div>
+            <WaveCanvas />
           </div>
         </div>
 
