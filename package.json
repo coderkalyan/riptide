@@ -7,13 +7,14 @@
   "scripts": {
     "wgsl-check": "node scripts/wgsl-check.mjs",
     "build:native": "cd native && zig build -Doptimize=ReleaseSafe && mkdir -p ../dist/native && cp zig-out/lib/libriptide.so ../dist/native/riptide.node",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.solid.json --noEmit",
     "build": "pnpm wgsl-check && pnpm build:native && tsc -p tsconfig.json && node scripts/build-ui.mjs",
     "build:prod": "NODE_ENV=production pnpm build",
     "dist": "pnpm build:prod && electron-builder",
     "dist:dir": "pnpm build:prod && electron-builder --dir",
     "dev": "pnpm build && electron .",
-    "dev:ui": "pnpm wgsl-check && pnpm build:native && node scripts/dev-ui.mjs"
+    "dev:ui": "pnpm wgsl-check && pnpm build:native && node scripts/dev-ui.mjs",
+    "dev:solid": "pnpm wgsl-check && pnpm build:native && node scripts/dev-solid.mjs"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
@@ -23,9 +24,11 @@
     "@types/react-dom": "^19.2.3",
     "@webgpu/types": "^0.1.50",
     "babel-plugin-react-compiler": "^1.0.0",
+    "babel-preset-solid": "^1.9.12",
     "electron": "^41.0.0",
     "electron-builder": "^25.1.8",
     "esbuild": "^0.28.0",
+    "playwright-core": "^1.60.0",
     "typescript": "^5.6.0"
   },
   "build": {
@@ -59,8 +62,13 @@
     }
   },
   "dependencies": {
+    "@tanstack/solid-virtual": "^3.13.28",
     "lucide-react": "1.8.0",
+    "lucide-solid": "^1.17.0",
     "react": "^19.2.5",
-    "react-dom": "^19.2.5"
+    "react-dom": "^19.2.5",
+    "solid-js": "^1.9.13",
+    "solid-zustand": "^2.0.0",
+    "zustand": "^5.0.14"
   }
 }
