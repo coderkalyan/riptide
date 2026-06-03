@@ -1,8 +1,10 @@
-import { Index, createMemo } from "solid-js";
+import { For, Show, createMemo } from "solid-js";
+import { Dynamic } from "solid-js/web";
 import { createVirtualizer } from "@tanstack/solid-virtual";
 import { ChevronDown, ChevronRight, Package, Activity, Plus } from "lucide-solid";
 import { SCENE } from "../renderer/hier/scene";
 import type { NodeId, Scope, Signal } from "../renderer/hier/types";
+import * as perf from "../renderer/perf";
 import { useAppStore } from "./store/store";
 
 const ROW_PX = 22; // .t-row height
@@ -18,8 +20,7 @@ interface FlatNode { id: NodeId; depth: number; kind: "scope" | "signal"; open: 
 // Depth-first walk of the hierarchy, descending into a scope only when it's
 // expanded — the visible, flattened row list. Replaces the React recursive
 // TreeNode + everOpened lazy-mount: virtualization only renders the on-screen
-// window. (Plan trade-off: the per-scope height-expand animation is gone —
-// expand/collapse is instant.)
+// window. (Plan trade-off: the per-scope height-expand animation is gone.)
 function flattenVisible(expanded: Set<NodeId>): FlatNode[] {
   const h = SCENE.hierarchy;
   const out: FlatNode[] = [];
@@ -56,39 +57,49 @@ export function SignalTree() {
   return (
     <div class="tree" ref={scrollEl}>
       <div style={{ position: "relative", width: "100%", height: `${virtualizer.getTotalSize()}px` }}>
-        {/* <Index> (position-keyed) not <For> (reference-keyed): virtual-core
-            reuses measurement objects per index, so a reference-keyed list keeps
-            stale row content on expand. The item accessor + reactive flat()[idx]
-            lookup re-render the correct node on expand/scroll. */}
-        <Index each={virtualizer.getVirtualItems()}>{(item) => (
-          <div style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${item().start}px)` }}>
-            {(() => {
-              const entry = flat()[item().index];
-              if (!entry) return null;
-              const node = SCENE.hierarchy.nodes.get(entry.id);
-              if (!node) return null;
-              const indent = entry.depth > 0 ? { "padding-left": `${4 + entry.depth * 14}px` } : undefined;
-              return entry.kind === "scope" ? (
-                <div class="t-row" style={indent} onClick={() => s.toggleScope(entry.id)}>
-                  <span class="chev">{entry.open ? <ChevronDown size={10} /> : <ChevronRight size={10} />}</span>
-                  <span class="icon module"><Package size={12} /></span>
-                  <span class="lbl">{node.name}</span>
-                </div>
-              ) : (
-                <div class="t-row" style={indent}>
-                  <span class="chev" />
-                  <span class={`icon ${signalIconKind(node as Signal)}`}><Activity size={12} /></span>
-                  <span class="lbl">{node.name}</span>
-                  <span
-                    class="plus"
-                    data-tip="add to viewer"
-                    onClick={(e) => { e.stopPropagation(); s.addSignal(entry.id); }}
-                  ><Plus size={12} /></span>
+        {/* <For> (reference-keyed) + a reactive flat()[index] lookup. virtual-core
+            returns a STABLE measurement object per index, so on scroll For reuses
+            the rows that stay visible (their entry memo doesn't re-run — flat is
+            unchanged) and only adds/removes the few entering/leaving rows → cheap.
+            On expand, flat() changes → every visible row's entry memo re-runs and
+            its fine-grained bindings update in place (no stale/duplicate rows,
+            which a non-reactive lookup would cause since the row is reused). */}
+        <For each={virtualizer.getVirtualItems()}>{(vi) => {
+          const entry = createMemo<FlatNode | undefined>(() => flat()[vi.index]);
+          return (
+            <Show when={entry()}>{(e) => {
+              const node = createMemo(() => SCENE.hierarchy.nodes.get(e().id));
+              const iconClass = () => {
+                if (e().kind === "scope") return "icon module";
+                const n = node();
+                return `icon ${n && n.kind === "signal" ? signalIconKind(n) : "scalar"}`;
+              };
+              const onAdd = (ev: MouseEvent) => { ev.stopPropagation(); perf.beginAdd(); s.addSignal(e().id); };
+              return (
+                <div
+                  class="t-row"
+                  style={{
+                    position: "absolute", top: 0, left: 0, width: "100%",
+                    transform: `translateY(${vi.start}px)`,
+                    "padding-left": e().depth > 0 ? `${4 + e().depth * 14}px` : undefined,
+                  }}
+                  onClick={() => { if (e().kind === "scope") s.toggleScope(e().id); }}
+                >
+                  <span class="chev">
+                    {e().kind === "scope" ? (e().open ? <ChevronDown size={10} /> : <ChevronRight size={10} />) : null}
+                  </span>
+                  <span class={iconClass()}>
+                    <Dynamic component={e().kind === "scope" ? Package : Activity} size={12} />
+                  </span>
+                  <span class="lbl">{node()?.name}</span>
+                  <Show when={e().kind === "signal"}>
+                    <span class="plus" data-tip="add to viewer" onClick={onAdd}><Plus size={12} /></span>
+                  </Show>
                 </div>
               );
-            })()}
-          </div>
-        )}</Index>
+            }}</Show>
+          );
+        }}</For>
       </div>
     </div>
   );
