@@ -5,6 +5,7 @@ import { ActiveSignals } from "./ActiveSignals";
 import { HoverReadout } from "./HoverReadout";
 import { ColorPicker } from "./ColorPicker";
 import { ContextMenu, ACTIVE_SIGNAL_MENU } from "./ContextMenu";
+import { SignalTree } from "./SignalTree";
 import { buildEnumLabels } from "./wave/value";
 
 // App shell: static layout chrome (titlebar/menus/tabs, three-column body) plus
@@ -42,7 +43,7 @@ export function App() {
           <div class="col-inner">
             <div class="col-head"><h3>Signal Tree</h3><span class="sp" style={{ flex: 1 }} /></div>
             <div class="col-sub"><input class="search" placeholder="filter scope/name" /></div>
-            <div class="tree" />
+            <SignalTree />
           </div>
         </div>
 
