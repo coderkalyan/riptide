@@ -62,6 +62,7 @@
     }
   },
   "dependencies": {
+    "@solid-primitives/keyed": "^1.5.3",
     "@tanstack/solid-virtual": "^3.13.28",
     "lucide-react": "1.8.0",
     "lucide-solid": "^1.17.0",
