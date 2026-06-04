@@ -258,7 +258,14 @@ export function App() {
           y={m().y}
           items={ACTIVE_SIGNAL_MENU}
           onClose={() => s.setCtxMenu(null)}
-          onSelect={(label) => { if (label === "Remove from View" && m().row >= 0) s.removeSignal(m().row); }}
+          onSelect={(label) => {
+            const row = m().row;
+            if (row < 0) return;
+            if (label === "Remove from View") s.removeSignal(row);
+            else if (label === "Move to Top") s.moveSignal(row, "top");
+            else if (label === "Move to Bottom") s.moveSignal(row, "bottom");
+            else if (label === "Change Color…") s.setPicker({ row, anchorRect: new DOMRect(m().x, m().y, 0, 0) });
+          }}
         />
       )}</Show>
       <GlobalTooltip />

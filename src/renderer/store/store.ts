@@ -81,6 +81,7 @@ export interface UiState {
 export interface Actions {
   addSignal: (signalId: NodeId) => void;
   removeSignal: (row: number) => void;
+  moveSignal: (row: number, to: "top" | "bottom") => void;
   setColor: (row: number, color: string) => void;
   setRadix: (row: number, radix: Radix) => void;
   toggleHidden: (row: number) => void;
@@ -176,6 +177,12 @@ const vanilla = createVanilla<AppState>()(
     removeSignal: (row) => set((s) => ({
       activeSignals: renumber(s.activeSignals.filter((r) => r.row !== row)),
     })),
+    moveSignal: (row, to) => set((s) => {
+      const r = s.activeSignals.find((x) => x.row === row);
+      if (!r) return s;
+      const rest = s.activeSignals.filter((x) => x.row !== row);
+      return { activeSignals: renumber(to === "top" ? [r, ...rest] : [...rest, r]) };
+    }),
     setColor: (row, color) => set((s) => ({
       activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, color } : r)),
     })),

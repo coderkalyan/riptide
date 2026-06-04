@@ -8,17 +8,16 @@ export type MenuItem =
 // Mock right-click menu for active-signal rows. Only "Remove from View" is wired;
 // the rest just close (visual parity with the React build).
 export const ACTIVE_SIGNAL_MENU: MenuItem[] = [
+  { label: "Set Radix", disabled: true },
   { label: "Change Color…" },
-  { label: "Set Radix" },
-  { label: "Rename…" },
   "sep",
-  { label: "Group with Selected" },
-  { label: "Insert Divider" },
+  { label: "Group with Selected", disabled: true },
+  { label: "Insert Divider", disabled: true },
   "sep",
   { label: "Move to Top" },
   { label: "Move to Bottom" },
   "sep",
-  { label: "Remove from View", kbd: "⌫" },
+  { label: "Remove from View" },
 ];
 
 export function ContextMenu(props: {
@@ -48,7 +47,10 @@ export function ContextMenu(props: {
         <For each={props.items}>{(it) => it === "sep"
           ? <div class="menu-sep" />
           : (
-            <div class="menu-item" onClick={() => { props.onSelect?.(it.label); props.onClose(); }}>
+            <div
+              class={`menu-item${it.disabled ? " disabled" : ""}`}
+              onClick={() => { if (it.disabled) return; props.onSelect?.(it.label); props.onClose(); }}
+            >
               <span>{it.label}</span>
               {it.kbd && <span class="menu-kbd">{it.kbd}</span>}
             </div>
