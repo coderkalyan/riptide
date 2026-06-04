@@ -21,13 +21,22 @@ this repo); `native/build.zig.zon` references them as `../../tide` / `../../tide
 > the *source* of the db + hierarchy changed (hardcoded Zig → parsed VCD file).
 > See §3 for the shims, §3.8 for the open-file flow, §4/§5 for files + verification.
 
+> **Update — packing is viewport-windowed and ephemeral (§2.10).**
+> `getMockSegments(specs, qStart, qEnd)` queries tide over the **visible viewport
+> ± a margin**, not the whole trace, and is repacked on viewport change (pan/zoom)
+> as well as on add/remove/reorder/radix. The old per-signal `pack_cache` is gone
+> (it keyed on signal config, useless once the output depends on the window). Cost
+> is now **O(visible window)** — add/reorder/pan are sub-millisecond when zoomed in.
+> The pack/flag/label logic in §2.3–§2.9 is otherwise unchanged.
+
 ---
 
 ## 1. Data flow overview
 
 ```
  tide.Database (per-signal transition store)
-        │  db.query(id, 0, END) → Query{ timestamps[], x0s[], x1s[], type }
+        │  db.query(id, qStart, qEnd) → Query{ timestamps[], x0s[], x1s[], type }
+        │  (qStart/qEnd = the visible viewport ± margin — see §2.10; O(window))
         ▼
  native/src/pack.zig  packSignal()        ── per transition ──┐
         │  one PackedSegment header per transition (flags/labels)│
@@ -66,6 +75,11 @@ So the port is a *re-pack*, never a reinterpretation of the data.
 - `type.width` — bit width; `len` — transition count.
 - `query(id, t, t)` returns the single sample **active at** `t` (tide sets
   `lo = upperBound(timestamps, t) - 1`). Used for point lookups.
+- The range query is a **binary-search slice** over sorted timestamps, and it
+  prepends the sample active at `start` (same `lo = upperBound(start) - 1`). So
+  `getMockSegments` passes the **viewport window** `[qStart, qEnd]` (§2.10) and gets
+  back exactly the visible transitions plus the left-edge segment — O(window), and
+  the left edge draws from offscreen identically to a full-range pack.
 
 The `(x0, x1)` pair is the standard 4-state encoding: `(0,0)=0`, `(1,0)=1`,
 `(0,1)=x`, `(1,1)=z` **per bit** (lsb stream = value bits, msb stream = unknown
@@ -75,7 +89,7 @@ bits). This matches Riptide's existing LSB/MSB convention exactly — no remap.
 tide stores `bps = type.bytes() = ceil(width / 8)` little-endian bytes per sample and
 lays a signal's samples out contiguously (`x0s`/`x1s`, `len·bps` bytes). The GPU pools
 now use that **same byte stride — there is no transform**: `PackedSignal.setSamples`
-copies tide's whole `query.x0s` / `query.x1s` plane straight into the cache unit in one
+copies tide's whole `query.x0s` / `query.x1s` plane straight into the `PackedSignal` in one
 `appendSlice` (memcpy), and `finalize`/`packRow` concatenate each row's byte run into
 `x0_pool` / `x1_pool`. The pools are bound as `array<u32>` on the GPU (WGSL has no
 byte-storage type), so each pool is padded to a 4-byte multiple and the **shader
@@ -91,6 +105,10 @@ byte→u32-word repack — `appendWords`, `words_per_sample`, the long-gone `rea
 ### 2.3 `packSignal` — transitions → segment headers + samples (`pack.zig`)
 Walks the query once. For transition `i`:
 - `t_start = timestamps[i]`, `t_end = timestamps[i+1]` (or `end_t` for the last).
+  With a windowed query (§2.10) the *last* in-window segment has no in-slice
+  successor, so its `t_end` snaps to `end_t` and its `FLAG_RIGHT_EDGE`/caret are
+  off. The §2.10 over-fetch margin keeps that last segment **offscreen**, so the
+  *visible* right edge always has a real successor and renders byte-identically.
 - `x0 = x0s[i*bps .. (i+1)*bps]`, `x1 = …` — the per-sample byte runs, used only for
   flag computation + the multi-bit label (`pushLabel`). The **sample bytes themselves
   are not copied per-transition** — `setSamples` bulk-copies the whole plane once.
@@ -115,9 +133,11 @@ Walks the query once. For transition `i`:
 
 ### 2.4 `pushSegment` / `setSamples` / `pushPackedSignal` — timing vs. value (`segments.zig`)
 `PackedSignal.pushSegment` appends a lean `PackedSegment{ t_start, t_end, row_flags }`
-(3×u32 = 12 B) to the cache unit's segment list — **header only**. `setSamples` then
+(3×u32 = 12 B) to the `PackedSignal`'s segment list — **header only**. `setSamples` then
 appends tide's whole `x0s`/`x1s` byte planes to the unit's `lsbs`/`msbs` (one
-`appendSlice` each — the single surviving sample copy). At placement,
+`appendSlice` each — the single surviving sample copy). The `PackedSignal` is now a
+short-lived per-call value (built, placed at a row, freed) — there is no longer a
+persistent cache holding it across calls (§2.10). At placement,
 `Scene.pushPackedSignal` copies the unit's segments into the multi/single pipeline list
 (OR'ing in the row) and bulk-copies its byte run into the row's accumulator
 (`appendSlice`, byte stride). It asserts each row is filled by exactly one signal and
@@ -185,7 +205,47 @@ carrying its value (segments are valueless now). Instead:
 1. `unpackSegmentHeaders(NATIVE.multi, count)` → `{tStart, tEnd, rowFlags}` headers.
 2. For each non-muted header: `getValueAt(handle, tStart)` → format. One tide
    point query per pill, recomputed alongside each GPU repack (scene build /
-   add-from-tree / trace swap), not per frame.
+   add-from-tree / trace swap / **viewport pan-zoom**, §2.10), not per frame.
+   Since the pills are now windowed too, only the visible pills are formatted.
+
+> Native pill labels (`label.zig formatValue`, packed in lockstep with the
+> segments and returned as `labelBytes`/`labelOffsets`) are the GPU path and are
+> likewise windowed; the `getValueAt` route above feeds the active-signal value
+> column + hover readout, not the on-canvas pills.
+
+### 2.10 Viewport-windowed packing (`main.zig` + `App.tsx`)
+Packing is **ephemeral and viewport-scoped**. `getMockSegments(specs, qStart, qEnd)`
+queries each signal over the **visible window plus an over-fetch margin** instead of
+`[0, end_t]`, and the result is repacked whenever the viewport or active set changes.
+This makes add/remove/reorder/radix **and** pan/zoom all O(visible window) — sub-ms
+when zoomed in (the win scales with how little is on screen; zoomed-out is slower,
+moving more data to the GPU, by design — no CPU downsampling yet).
+
+- **Single packer in the rAF loop.** `App.tsx`'s frame loop owns the repack
+  decision. The active-set effect just flips `specsDirtyRef`; the loop computes
+  `[qStart, qEnd] = visible ± one screen` and calls `rebuildScene(active, qStart,
+  qEnd)` (the same `createSceneBuffers`→`rebindPipeline`→destroy-old machinery,
+  synchronous, no pipeline recompile). One path for add/reorder/pan/zoom/swap.
+- **Repack triggers (hysteresis).** Only when: the active set changed; the visible
+  range crossed **halfway into** the margin at either packed edge (so a small
+  back-and-forth pan across a boundary doesn't thrash); a **zoom-out** widened the
+  view past `ZOOM_OUT_FACTOR×` the packed density; or a **zoom-in** left the packed
+  window more than `WINDOW_SHRINK_FACTOR×` wider than the visible span (keeps GPU
+  data O(viewport) instead of growing unbounded from a full-range pack). Pan and
+  zoom-in *within* the margin stay pure viewport-uniform updates — the shader
+  transforms the already-packed segments, exactly as before this change.
+- **Correctness.** tide's range query already returns the left-edge sample
+  (§2.1), so the left edge is free; the margin keeps the visible right edge interior
+  so its `t_end`/caret/edge match a full pack (§2.3). Output is **visually identical**
+  to the old whole-trace pack for the on-screen region.
+- **No `pack_cache`.** The old per-signal cache (keyed on signal config, not row or
+  window) is removed — viewport-dependent output never reuses across pans. Each
+  repack queries + packs the active signals fresh over the window; `PackedSignal`s
+  are short-lived (§2.4).
+- **`end_t` surfaced.** `getMockSegments`'s return and `getHierarchy()` now carry the
+  trace's true `end_t` as `endTicks`; the renderer's `TRACE_END` (`scene.ts`,
+  replacing the hardcoded `MOCK_END_TICKS` at the viewport sites) drives the fit
+  window, viewport clamps, and the zoom-out dead-zone (§3.8).
 
 ---
 
@@ -293,12 +353,13 @@ Presentation state lives in a **per-trace sidecar** (`<trace>.sidecar.json`, see
   and the sidecar auto-saves the resulting view.
 
 Still mocked / rough here:
-- **`end_t` vs initial window.** Native `end_t` is the real trace end (max ingested
-  timestamp; the fixture emits a trailing `#90`). But the renderer's *initial* time
-  window for a fresh trace still uses the `MOCK_END_TICKS` constant
-  (`freshInitial(MOCK_END_TICKS)` in `sidecar.ts`) — fine for the mock, wrong for an
-  arbitrary file. *Replace when:* `end_t` is surfaced to the renderer and fed into
-  the fresh initial window.
+- **`end_t` vs initial window — resolved (§2.10).** Native `end_t` (the real trace
+  end; the fixture emits a trailing `#90`) is now surfaced to the renderer via
+  `getHierarchy().endTicks` and exported as `TRACE_END` (`scene.ts`). The fresh
+  initial window uses it (`freshInitial(TRACE_END)`), as do every viewport clamp,
+  the auto-fit, and the zoom-out dead-zone — the hardcoded `MOCK_END_TICKS` is gone
+  from the viewport sites (it survives only as the clock-grid period constant). So a
+  fresh arbitrary VCD now fits to its real length, not 90.
 - **Default trace path** is `app.getAppPath()/native/src/mock.vcd` — correct under
   `electron .`; a packaged build would need the fixture shipped + path adjusted.
 
@@ -331,7 +392,9 @@ Still mocked / rough here:
 
 ## 4. File-by-file change summary
 
-This section reflects the VCD-driven update; the §2 pool/pack machinery is unchanged.
+This section reflects the VCD-driven update plus the **viewport-windowed packing**
+migration (§2.10); the §2 pool/pack *bit layout* is unchanged — only the query range
+(whole-trace → window) and the cache (removed) changed.
 
 **Native (Zig)**
 - `mock.vcd` — fixture: the mock scene (hierarchy + waveforms), generated by
@@ -347,7 +410,11 @@ This section reflects the VCD-driven update; the §2 pool/pack machinery is unch
   No more `@embedFile`.
 - `main.zig` — `loadVcd(path)` napi: (re)builds the cached scene, swap-on-success,
   throws a JS error on a bad file. `getLoaded`/`getDb`/`getHier` read the cache; `end_t`
-  comes from the trace.
+  comes from the trace. **Windowing (§2.10):** `getMockSegments(specs, qStart, qEnd)`
+  takes the viewport window and queries `db.query(handle, qStart, qEnd)` (was `0,
+  end_t`); the per-signal `pack_cache` + `PackKey`/`hashEnums` are **deleted** (packs
+  are viewport-dependent now). `getHierarchy` and `getMockSegments` both return the
+  trace's `endTicks` (= `end_t`) so the renderer can drop its hardcoded end.
 - `pack.zig`, `segments.zig` — the pool format was later **unified with tide's byte
   layout**: pools are byte-stride (`bytes_per_sample = ceil(width/8)`, tide's native
   stride), `packSignal` bulk-`memcpy`s tide's whole byte planes (`setSamples`) with no
@@ -365,19 +432,32 @@ This section reflects the VCD-driven update; the §2 pool/pack machinery is unch
 
 **Renderer (TS)**
 - `runtime.ts` — **new**: reads `?vcd` from the window URL → `VCD_PATH`, derives
-  `SIDECAR_PATH` (`<trace>.sidecar.json`).
+  `SIDECAR_PATH` (`<trace>.sidecar.json`). Also exports `BENCH` (`?bench=1`) for the
+  pack-cost harness.
 - `native.ts` — added `loadVcd` to the addon interface; calls `loadVcd(VCD_PATH)` at
-  module load (before scene build queries the hierarchy).
+  module load (before scene build queries the hierarchy). `getMockSegments(specs,
+  qStart, qEnd)` now takes the window and surfaces `endTicks`; `getHierarchy()`
+  marshals `endTicks` onto the `Hierarchy`.
+- `hier/types.ts`, `hier/hierarchy.ts` — `Hierarchy` gains `endTicks` (native trace
+  end); the `HierarchyBuilder` carries it via `setEndTicks` (defaults 0).
 - `hier/sidecar.ts` — `sidecarPath()` returns the per-trace `SIDECAR_PATH`. (Sidecar
   format/serialize/resolve is the merged sidecar system.)
 - `hier/scene.ts` — `buildScene` takes the loaded sidecar, resolves the active view
   from it (by **path**) or opens **empty** when absent; enum/gate overlay (from `ROWS`)
   is path-tolerant; `derived → package` scope overlay (§3.3). `swapTrace` reassigns the
   `let` exports `SCENE`/`INITIAL`/`SIDECAR` for the in-place trace swap; `makeActiveRef`
-  / `packSpecsFor` back add-from-tree.
+  / `packSpecsFor` back add-from-tree. **Exports `TRACE_END`** (`= SCENE.hierarchy.
+  endTicks`, reassigned in `swapTrace`) — the live source of truth for the fit window /
+  clamps / dead-zone (replaces `MOCK_END_TICKS` at the viewport sites, §2.10/§3.8).
 - `App.tsx` — "Open VCD…" invokes `riptide:open-vcd` via `ipcRenderer`, then swaps the
-  trace in place via `resetForTrace` (§3.8). Add-from-tree (`add` → `makeActiveRef`)
-  repacks the GPU buffers with `rebindPipeline` (no window reload, no pipeline recompile).
+  trace in place via `resetForTrace` (§3.8). **Viewport-windowed packing (§2.10):** the
+  rAF loop is the single packer — it computes `[qStart, qEnd]` from the viewport and
+  calls the (now range-taking) `rebuildScene`; the active-set effect only flips
+  `specsDirtyRef`. Repack triggers use margin hysteresis + `ZOOM_OUT_FACTOR` /
+  `WINDOW_SHRINK_FACTOR`. `MOCK_END_TICKS` at the viewport sites → `TRACE_END`.
+- `bench.ts` — **new**: installs `window.__bench({startTicks?, tppList?, iters?})`
+  (announced by `?bench=1`), sweeps `getMockSegments` pack ms + bytes-to-GPU across
+  zoom levels for the before/after comparison. `perf.ts` exports `percentile` for it.
 
 ---
 
@@ -402,6 +482,24 @@ This section reflects the VCD-driven update; the §2 pool/pack machinery is unch
     `bytes_per_sample == ceil(width/8)`, and that each pool length is a 4-byte multiple
     — i.e. the pools now hold tide's bytes verbatim with no repack. The Stage-2 bulk
     `setSamples` memcpy produces byte-identical pools to the Stage-1 per-sample copy.
+- **Viewport-windowed packing (§2.10):** native windowing validated headlessly
+  (`require("dist/native/riptide.node")` under plain node) — `endTicks` exposed,
+  and segment/byte counts scale linearly with the window (full mock 1860 B/155 segs
+  → 1/10-window 588 B/49 segs → tiny 456 B/38 segs). Before/after on a synthetic
+  300k-tick, 4-signal trace (full-range = the old always-full pack vs windowed):
+
+  | case | window (ticks) | segments | KiB→GPU | pack ms |
+  |---|---|---|---|---|
+  | BEFORE full-range | 299,999 | 487,502 | 7544 | 27.9 |
+  | AFTER 1/100 zoom | 9,000 | 14,629 | 226 | 1.1 |
+  | AFTER 1/1000 zoom | 900 | 1,467 | 22.7 | 0.28 |
+
+  ≈100× faster pack and ≈330× less GPU data when zoomed in; the old 27.9 ms full
+  pack ran on *every* add/reorder, now <0.3 ms. The app boots and renders both the
+  mock and the 300k-tick trace for 12 s with **zero** renderer console errors (the
+  per-frame repack path runs clean). Not exercised headlessly: the interactive
+  pixel-level A/B vs `main` (zoom/pan, right-screen-edge under pan, sparse pills),
+  the margin-boundary no-thrash check (`?perf=1`), and `window.__bench` in DevTools.
 - Open path: launching `electron .` (no args) loads `native/src/mock.vcd` via `?vcd=`,
   resolves `mock.vcd.sidecar.json`, and renders the curated **15-row** view (now incl.
   the wide row). The app boots and builds the full scene (all rows packed, including the

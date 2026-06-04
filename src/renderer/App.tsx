@@ -271,18 +271,25 @@ function rulerSpacing(visibleTicks: number): number {
   return 5 * base;
 }
 
-function dynamicRulerTicks(startTicks: number, visibleTicks: number): { ticks: number[]; labels: string[] } {
+// Persistent ruler-tick scratch, reused every frame (never shrunk — callers read
+// only the returned count, not `.length`). Labels are still freshly allocated
+// strings (toFixed/template); the arrays themselves no longer churn.
+const rulerTicksScratch: number[] = [];
+const rulerLabelsScratch: string[] = [];
+
+// Fills rulerTicksScratch/rulerLabelsScratch, returns the live tick count.
+function dynamicRulerTicks(startTicks: number, visibleTicks: number): number {
   const spacing = rulerSpacing(visibleTicks);
   const first = Math.ceil(startTicks / spacing) * spacing;
-  const ticks: number[] = [];
-  const labels: string[] = [];
+  let n = 0;
   // Tolerance avoids dropping ticks at the right edge due to fp accumulation.
   const end = startTicks + visibleTicks + spacing * 1e-6;
   for (let t = first; t <= end; t += spacing) {
-    ticks.push(t);
-    labels.push(formatRulerLabel(t, spacing));
+    rulerTicksScratch[n] = t;
+    rulerLabelsScratch[n] = formatRulerLabel(t, spacing);
+    n++;
   }
-  return { ticks, labels };
+  return n;
 }
 
 function formatRulerLabel(t: number, spacing: number): string {
@@ -325,22 +332,22 @@ function formatClockWhole(tick: number): string {
 
 // Clock-anchored ruler: ticks land on clock rising edges, labels count cycles
 // ("1", "2", …) instead of ns. Spacing snaps to a "nice" whole number of cycles.
-function clockRulerTicks(startTicks: number, visibleTicks: number): { ticks: number[]; labels: string[] } {
+function clockRulerTicks(startTicks: number, visibleTicks: number): number {
   const edge0 = MOCK_CLOCK_TICK_NS;
   const visibleCycles = visibleTicks / CLOCK_PERIOD_NS;
   const cycleStep = Math.max(1, Math.round(rulerSpacing(visibleCycles)));
   const startCycle = (startTicks - edge0) / CLOCK_PERIOD_NS + 1;
   let c = Math.max(cycleStep, Math.ceil(startCycle / cycleStep) * cycleStep);
-  const ticks: number[] = [];
-  const labels: string[] = [];
+  let n = 0;
   const end = startTicks + visibleTicks + CLOCK_PERIOD_NS * 1e-6;
   for (; ; c += cycleStep) {
     const t = edge0 + (c - 1) * CLOCK_PERIOD_NS;
     if (t > end) break;
-    ticks.push(t);
-    labels.push(`#${c}`);
+    rulerTicksScratch[n] = t;
+    rulerLabelsScratch[n] = `#${c}`;
+    n++;
   }
-  return { ticks, labels };
+  return n;
 }
 
 // Verilog-style timescale label: `<time unit> / <time precision>`. Precision is
@@ -1066,6 +1073,21 @@ export function App() {
         l.fullHeight = undefined;
         return l;
       };
+      // Ruler span-arrow / RESET label scratch (collected during rect build,
+      // drained into textBody after the tick labels so they keep painting on
+      // top). Pooled like the rect/line scratch — text strings are interned by
+      // the caller's templates, so only the slot objects are reused.
+      type LabelMut = { x: number; y: number; text: string; color: number };
+      const rulerArrowScratch: LabelMut[] = [];
+      const getArrowLabel = (i: number): LabelMut => {
+        let l = rulerArrowScratch[i];
+        if (!l) { l = { x: 0, y: 0, text: "", color: 0 }; rulerArrowScratch[i] = l; }
+        return l;
+      };
+      // Marker draw-order scratch: markers copied in, then the selected one
+      // sorted last so its pill wins overlaps. Reused each frame instead of
+      // spreading [...markers].
+      const orderedScratch: Marker[] = [];
 
       // Hoisted viewport object — mutated in place each frame.
       const vp = {
@@ -1243,19 +1265,22 @@ export function App() {
         // only — no flags). Its notches hang down from its top border.
         const bottomRulerH = BOTTOM_RULER_HEIGHT;
         const bottomRulerTop = canvasH - bottomRulerH;
-        const { ticks: rulerTicks, labels: rulerLabels } = clockAnchorRef.current
+        const rulerTickN = clockAnchorRef.current
           ? clockRulerTicks(startTicks, visibleTicks)
           : dynamicRulerTicks(startTicks, visibleTicks);
+        const rulerTicks = rulerTicksScratch;
+        const rulerLabels = rulerLabelsScratch;
         // Labels for the bottom-ruler span arrows (marker↔cursor, reset),
         // collected while building the arrow rects and emitted in the text pass.
-        const rulerArrowLabels: { x: number; y: number; text: string; color: number }[] = [];
+        let arrowLabelN = 0;
         let bgRectN = 0;
         {
           const r0 = getRect(rectsBgScratch, bgRectN++);
           r0.x = 0; r0.y = 0; r0.w = canvasW; r0.h = rulerHeightCSS; r0.color = PANEL_2;
           const r1 = getRect(rectsBgScratch, bgRectN++);
           r1.x = 0; r1.y = rulerHeightCSS - 1; r1.w = canvasW; r1.h = 1; r1.color = BORDER;
-          for (const t of rulerTicks) {
+          for (let i = 0; i < rulerTickN; i++) {
+            const t = rulerTicks[i];
             const r = getRect(rectsBgScratch, bgRectN++);
             // Left-align the notch to the tick's logical time, extending
             // THICKNESS px right — the shared time-aligned-line convention, so
@@ -1272,7 +1297,8 @@ export function App() {
           br0.x = 0; br0.y = bottomRulerTop; br0.w = canvasW; br0.h = bottomRulerH; br0.color = PANEL_2;
           const br1 = getRect(rectsBgScratch, bgRectN++);
           br1.x = 0; br1.y = bottomRulerTop; br1.w = canvasW; br1.h = 1; br1.color = BORDER;
-          for (const t of rulerTicks) {
+          for (let i = 0; i < rulerTickN; i++) {
+            const t = rulerTicks[i];
             const r = getRect(rectsBgScratch, bgRectN++);
             // Tick marks sit in the bottom half, anchored to the canvas edge;
             // left-aligned to the tick like the top notches.
@@ -1301,7 +1327,8 @@ export function App() {
               h.w = headW; h.h = headH; h.color = color; h.caret = true; h.caretRight = pointsRight;
             };
             const pushLabel = (x: number) => {
-              rulerArrowLabels.push({ x: Math.round(x), y: labelY, text: label, color });
+              const al = getArrowLabel(arrowLabelN++);
+              al.x = Math.round(x); al.y = labelY; al.text = label; al.color = color;
             };
             // Offset the label beside the arrow: right of xR by default, flipped
             // to the left of xL when it would overflow the canvas edge.
@@ -1361,12 +1388,11 @@ export function App() {
             const label = "RESET";
             const textW = label.length * cellSm.widthPx;
             if (rx1 - rx0 > textW + 4) {
-              rulerArrowLabels.push({
-                x: Math.round((rx0 + rx1) * 0.5 - textW * 0.5),
-                y: Math.round(arrowY - cellSm.midlinePx),
-                text: label,
-                color: RESET_TEXT,
-              });
+              const al = getArrowLabel(arrowLabelN++);
+              al.x = Math.round((rx0 + rx1) * 0.5 - textW * 0.5);
+              al.y = Math.round(arrowY - cellSm.midlinePx);
+              al.text = label;
+              al.color = RESET_TEXT;
             }
           }
 
@@ -1442,13 +1468,14 @@ export function App() {
         let gi = 0;
         const rulerLabelY = Math.round(rulerHeightCSS * 0.5 + 2);
         const bottomLabelY = Math.round(bottomRulerTop + bottomRulerH * 0.5 + 2);
-        for (let i = 0; i < rulerTicks.length; i++) {
+        for (let i = 0; i < rulerTickN; i++) {
           const lx = Math.round(xForTick(rulerTicks[i]) + 5);
           const label = rulerLabels[i];
           gi = writeText(textBody, gi, lx, rulerLabelY, label, TEXT_SECONDARY, true);
           gi = writeText(textBody, gi, lx, bottomLabelY, label, TEXT_SECONDARY, true);
         }
-        for (const al of rulerArrowLabels) {
+        for (let i = 0; i < arrowLabelN; i++) {
+          const al = rulerArrowScratch[i];
           gi = writeText(textBody, gi, al.x, al.y, al.text, al.color, true);
         }
         textBody.setGlyphs(gi);
@@ -1494,7 +1521,11 @@ export function App() {
         // any overlap with the others.
         const hits = markerHitsRef.current;
         hits.length = 0;
-        const ordered = selId == null ? markers : [...markers].sort((a, b) => Number(a.id === selId) - Number(b.id === selId));
+        let on = 0;
+        for (const m of markers) orderedScratch[on++] = m;
+        orderedScratch.length = on;
+        if (selId != null) orderedScratch.sort((a, b) => Number(a.id === selId) - Number(b.id === selId));
+        const ordered = orderedScratch;
         let mi = 0;
         for (const m of ordered) {
           if (mi >= markerPills.length) break;

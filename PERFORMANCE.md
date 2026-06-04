@@ -1,118 +1,60 @@
 # Performance notes
 
-Running log of performance-relevant design decisions, the optimizations that are
-in place, and the ones deliberately deferred (with the reason + the trigger to
-revisit). Pair with the perf overlay (backtick `` ` `` / `?perf=1`): it splits
-**CPU encode ms** vs **GPU pass ms**, which tells you whether a given large-case
-slowdown is CPU-bound (per-frame JS) or GPU-bound (overdraw / vertex throughput).
+TODO list of **remaining** performance problems and deliberately-deferred
+optimizations (each with the reason deferred + the trigger to revisit). Implemented
+optimizations are intentionally **not** recorded here. Pair with the perf overlay
+(backtick `` ` `` / `?perf=1`): it splits **CPU encode ms** vs **GPU pass ms**, which
+tells you whether a given large-case slowdown is CPU-bound (per-frame JS) or
+GPU-bound (overdraw / vertex throughput).
+
+Principle: per-frame work should scale with **what's on screen**, not the size of the
+trace. A frame that pans/zooms over a 10M-transition trace should cost the same as
+one over a 100-transition trace at the same zoom. Anything that walks the whole
+dataset every frame violates this and shows up as CPU encode ms growing with trace
+length.
+
+Context: packing is viewport-windowed (TIDE_INTEGRATION.md §2.10), so the resident
+segment + value + glyph buffers are already bounded to **O(visible window ± one
+screen of over-fetch margin)**. The items below are what remains on top of that.
 
 ---
 
-## Viewport-related culling
+## In-frame draw culling (trim the over-fetch margin)
 
-Principle: per-frame work should scale with **what's on screen**, not with the
-size of the trace. A frame that pans/zooms over a 10M-transition trace should cost
-the same as one over a 100-transition trace at the same zoom. Anything that walks
-the whole dataset every frame violates this and shows up as CPU encode ms growing
-with trace length.
+The packed buffers are O(visible ± margin); these would trim the ±1-screen margin in
+the draw itself. Both should share one per-row visible-range index.
 
-### Digital segment draw (planned, owned separately)
+### Digital segment draw cull
 
-`frame.ts` currently issues `pass.draw(4, segmentCount)` with the **full** packed
-count per pipeline — every segment of every signal, every frame, regardless of
-zoom. The intended fix is a per-row binary search over the (sorted, contiguous)
-segment list to find the visible `[firstInstance, lastInstance)` window and draw
-only that range (`pass.draw(4, visibleCount, 0, firstInstance)`). This index is
-the shared primitive the items below should also consume.
+`frame.ts` issues `pass.draw(4, segmentCount)` with the **full packed count** per
+pipeline every frame — now bounded to the visible window ± margin, but still drawing
+the margin. A per-row binary search over the (sorted, contiguous) segment list finds
+the visible `[firstInstance, lastInstance)` and draws only that range (`pass.draw(4,
+visibleCount, 0, firstInstance)`). This index is the shared primitive the label cull
+below should also consume. **Lower priority** now that the resident count is
+O(visible); revisit if a larger over-fetch margin is wanted, or if margin draw shows
+up in GPU pass ms.
 
-### Clock grid lines (loop 1.2) — DONE: closed-form + decimated CPU emit
+### Multi-bit label margin cull
 
-Was: a per-frame scan over a `CLOCK_EDGE_TICKS` array holding *every* rising edge
-in the trace, filtering to the visible window — O(total clock edges) / frame.
-
-Now: generated closed-form from **phase** (`gridEdge0 = MOCK_CLOCK_TICK_NS`) +
-**period** (`CLOCK_PERIOD_NS`), and **decimated** with the same `rulerSpacing`
-1/2/5× decade snap the ruler uses, so lines never pack tighter than ~8 across the
-view. Edge `k` sits at `gridEdge0 + k·(cycleStep·period)`; the CPU loop emits only
-`k` in the visible window. Because decimation caps line density, the emitted count
-is bounded by `viewportWidth / minSpacing` (~hundreds) **regardless of trace
-length**. The lines are instanced already (`lines.ts`). `cycleStep` mirrors
-`clockRulerTicks`, so in clock-anchor mode the grid aligns with the ruler notches.
-
-**Phase/period source (current vs future):** today `gridEdge0`/`CLOCK_PERIOD_NS`
-are mock constants (the same ones the ruler uses). The real-trace path is to detect
-them from the designated clock row — loop its transitions only until the first two
-rising edges are found (phase = first, period = second − first), then stop; this
-assumes a uniform clock (gated/variable clocks would mis-grid — accepted).
-
-**Future optimization — fully GPU-side line generation.** The CPU still emits one
-instance per visible line. Since the positions are a pure arithmetic sequence, this
-can move entirely to the GPU: the CPU sets `phase`, `period`, `cycleStep`, `firstK`
-and `count` as uniforms, draws `count` instances, and the line vertex shader
-computes each instance's tick as `phase + (firstK + instance_index)·cycleStep·
-period` → x. Zero per-line CPU work; needs a periodic-grid shader variant/pipeline.
-Deferred because the decimated count is already bounded (~hundreds), so the CPU
-emit is not a measured bottleneck — revisit if line emit ever shows up in CPU
-encode ms.
-
-### Multi-bit value labels (loop 1.1) — pure-GPU instanced culling
-
-Was: a per-frame scan over `multiLabels` (one entry per multi-bit segment — the
-label *text* is precomputed at repack, but the loop still positioned every label
-via `xForTick`, applied the narrow-pill LOD skip, and emitted glyphs) — O(total
-multi-bit segments) / frame, and it did **not** cull off-screen labels (wide pills
-off to the side still emitted glyphs the rasterizer then clipped).
-
-Now: the label glyph instances are built **once** (at repack) into a static
-instance buffer, and the **vertex shader** positions each glyph from tick-space +
-the viewport uniform and **self-culls** — a guard at the top of the VS collapses
-the quad to degenerate when its pill is too narrow to fit the text (the old width
-check) or fully off-screen. Per-frame CPU cost for labels drops to zero; the GPU
-does the positioning and culling. Row dimming reuses `RowInfo.flags` bit 0
-(`ROW_FLAG_DIM`), the same flag the waveform shader reads.
-
-**Known non-optimality — no binary search.** This is pure GPU culling by design
-(to stress the GPU path), so the vertex shader runs for **every** label glyph
-instance every frame — O(total label glyphs) vertex invocations — even though most
-degenerate immediately. It is **not** binary-searched to the visible range. Two
-costs grow with trace size: (1) the resident glyph instance buffer (≈ Σ label
-lengths × instance stride — tens of MB on a huge trace), and (2) the wasted vertex
-invocations for off-screen glyphs.
-
-**Hard ceiling — `maxStorageBufferBindingSize` (confirmed in the field).** The
-resident instance buffer is a *storage buffer*, so it can never exceed
-`maxStorageBufferBindingSize`. A wide + long trace blows past it: a 64-bit value
-renders as ~16 glyphs, so `demo_wide_n64_500kcyc.vcd` (1.1 GB, 500k cycles) yields
-millions of labels → hundreds of MB of glyph instances, over the **default 128 MiB**
-binding limit → the bind group was rejected as invalid and every frame failed to
-submit. Mitigations now in place:
-- `device.ts` requests the **adapter's actual** `maxStorageBufferBindingSize` /
-  `maxBufferSize` instead of the conservative defaults (128 MiB / 256 MiB), so big
-  traces that fit the hardware limit just work.
-- `labels.ts` **caps** the glyph count at `maxStorageBufferBindingSize / stride`
-  and `console.warn`s the dropped count (no silent truncation). The cap drops by
-  buffer order (whole later rows lose labels) when it bites — a stopgap, not a real
-  answer for production.
-
-The cap exposes the deeper point: **pure-resident doesn't scale past the GPU's
-binding limit**, full stop. Windowing (below) is the actual fix — it bounds the
-buffer to O(visible) so the ceiling is never approached.
-
-*Future optimization (now the real fix, not just an optimization):* binary-search
-the visible label range — labels are row-grouped and sorted by `tStart`, and the
-multi-pipeline `RowInfo.segment_start` gives each row's sub-range, so the **same
-visible-window index built for the segment draw cull** can pick `[firstInstance,
-instanceCount)` per row and build/draw only on-screen labels. That turns the VS work
-from O(total glyphs) into O(visible glyphs) and bounds the buffer regardless of trace
-size.
+The label glyph vertex shader runs for **every instance in the packed window** and
+self-culls (collapses the quad to degenerate when its pill is off-screen or too
+narrow for the text). With windowing the instance buffer is O(visible), but the VS
+still runs over the ±1-screen margin glyphs. Binary-search the visible label range —
+labels are row-grouped and sorted by `tStart`, and the multi-pipeline
+`RowInfo.segment_start` gives each row's sub-range, so the **same index as the
+segment-draw cull** picks `[firstInstance, instanceCount)` per row and skips the
+margin glyphs. Do it **alongside** the segment cull, not on its own — small win
+post-windowing. (`labels.ts` still caps the glyph count at
+`maxStorageBufferBindingSize / stride` with a `console.warn` — a backstop that
+windowing keeps from ever biting; leave it.)
 
 ---
 
 ## Deferred deficiencies (non-critical)
 
-Recorded for tracking. **None are critical** and none scale with trace size onto
-the hot path — the viewport-culling items above dominate large-case cost. Not
-under active discussion; listed so they aren't lost.
+Recorded for tracking. **None are critical** and none scale with trace size onto the
+hot path. Not under active discussion; listed so they aren't lost.
 
 ### Tier 3 — draw-call / writeBuffer overhead (bounded)
 
@@ -154,13 +96,14 @@ bottleneck at any realistic scale. Do not invest here until the perf overlay sho
 
 ### Tier 5 — per-frame allocations (minor GC)
 
-Real per-frame allocations in the rAF body, each bounded by visible-tick / marker
-count (small) — so low GC pressure, but the "allocation-free rAF" claim is
-approximate:
+The array/object churn here is now pooled: span-arrow/RESET labels
+(`rulerArrowScratch` + `getArrowLabel`), the ruler tick/label arrays
+(`rulerTicksScratch`/`rulerLabelsScratch`, callers read the returned count not
+`.length`), and the marker draw-order list (`orderedScratch`, copied + sorted in
+place instead of `[...markers].sort`).
 
-- `rulerArrowLabels = []` rebuilt each frame.
-- `dynamicRulerTicks` / `clockRulerTicks` return fresh `{ ticks, labels }` arrays
-  each frame.
-- `[...markers].sort(...)` allocates when a marker is selected.
-
-Reuse pooled scratch arrays here only if the perf overlay shows GC spikes.
+Residual: the ruler **label strings** are still freshly allocated each frame
+(`toFixed` / `` `#${c}` `` / `"… ns"` templates) — bounded by visible-tick count
+(~10–30), so low GC pressure. Interning them would need a per-(tick,spacing)
+cache keyed on the formatted value; not worth it unless the perf overlay shows GC
+spikes from string churn.
