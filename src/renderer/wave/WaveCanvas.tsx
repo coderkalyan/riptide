@@ -1,7 +1,7 @@
 import { onMount, onCleanup } from "solid-js";
 import { initGPU, resizeCanvas, GPUInitError } from "../gpu/device";
 import { createDigitalRenderer } from "../gpu/digital";
-import { renderFrame } from "../gpu/frame";
+import { renderFrame, PillRange } from "../gpu/frame";
 import { createColorBuffer, writeRowColors } from "../gpu/colors";
 import { MOCK_CLOCK_TICK_NS } from "../gpu/data";
 import { createTextRenderer, MAX_GLYPHS, ATLAS_MIDDLE_DOT } from "../gpu/text";
@@ -136,17 +136,20 @@ export function WaveCanvas() {
       const linesFg = lineRenderer.createBatch();
       const rectsBg = rectRenderer.createBatch();
       const textBody = textRenderer.createBatch();
-      const markerPills = Array.from({ length: MAX_MARKERS }, () => ({
-        rects: rectRenderer.createBatch(),
-        text: textRenderer.createBatch(),
-      }));
-      const pillCursor = { rects: rectRenderer.createBatch(), text: textRenderer.createBatch() };
-      const allPills = [...markerPills, pillCursor];
+      // All pills (≤ MAX_MARKERS markers + cursor) share one rect buffer + one
+      // text buffer, filled in a single writeBuffer each per frame; pillRanges
+      // record each pill's slice, drawn individually (firstInstance) to keep the
+      // per-pill occlusion order. See frame.ts.
+      const pillRects = rectRenderer.createBatch();
+      const pillText = textRenderer.createBatch();
+      const pillRanges: PillRange[] = [];
 
       // Pooled scratch — reused across frames, never shrunk.
       const rectsBgScratch: RectMut[] = [];
       const linesBgScratch: LineMut[] = [];
       const linesFgScratch: LineMut[] = [];
+      // Accumulator for all pills' rects this frame (one rect per pill); written
+      // to the shared pillRects buffer in a single setRects after all pills.
       const pillRectScratch: RectMut[] = [];
       const getRect = (arr: RectMut[], i: number): RectMut => {
         let r = arr[i];
@@ -447,46 +450,54 @@ export function WaveCanvas() {
         const cellSm = textRenderer.cellSm;
         const padX = 5;
         const pillH = 14;
-        const addFlag = (x: number, text: string, color: number, pill: { rects: typeof rectsBg; text: typeof textBody }) => {
+        // Append one pill (rect + glyphs) into the shared accumulators and record
+        // its slice as a PillRange; flushed once after all pills.
+        let pillRectN = 0;
+        let pillGlyphN = 0;
+        let pillRangeN = 0;
+        const addFlag = (x: number, text: string, color: number) => {
           const pillW = text.length * cellSm.widthPx + padX * 2;
           const flipStart = canvasW - pillW;
           const t = Math.max(0, Math.min(1, (x - flipStart) / pillW));
           const anchor = x + t * LINE_THICKNESS_CSS;
           const pillX = Math.max(0, Math.min(canvasW - pillW, anchor - t * pillW));
           const pillY = 0;
-          const r = getRect(pillRectScratch, 0);
+          const rectStart = pillRectN;
+          const r = getRect(pillRectScratch, pillRectN++);
           const lineOnRight = t >= 0.5;
           r.x = pillX; r.y = pillY; r.w = pillW; r.h = pillH; r.color = color; r.rounded = true;
           r.squareBottomLeft = !lineOnRight;
           r.squareBottomRight = lineOnRight;
-          pill.rects.setRects(pillRectScratch, 1);
-          const glyphs = writeText(
-            pill.text, 0, Math.round(pillX + padX),
+          const textStart = pillGlyphN;
+          pillGlyphN = writeText(
+            pillText, pillGlyphN, Math.round(pillX + padX),
             Math.round(pillY + pillH * 0.5 - cellSm.midlinePx), text, P.ON_ACCENT, true,
           );
-          pill.text.setGlyphs(glyphs);
+          let range = pillRanges[pillRangeN];
+          if (!range) { range = { rectStart: 0, rectCount: 0, textStart: 0, textCount: 0 }; pillRanges[pillRangeN] = range; }
+          range.rectStart = rectStart; range.rectCount = 1;
+          range.textStart = textStart; range.textCount = pillGlyphN - textStart;
+          pillRangeN++;
           return { x0: pillX, x1: pillX + pillW };
         };
         markerHits = [];
         const ordered = selId == null ? markers : [...markers].sort((a, b) => Number(a.id === selId) - Number(b.id === selId));
         let mi = 0;
         for (const m of ordered) {
-          if (mi >= markerPills.length) break;
+          if (mi >= MAX_MARKERS) break;
           const lineX = xForTick(m.tick);
           const mLabel = clockAnchor ? formatClockWhole(m.tick) : `${formatTime(m.tick)} ns`;
-          const box = addFlag(lineX, `${m.name} · ${mLabel}`, m.color, markerPills[mi]);
+          const box = addFlag(lineX, `${m.name} · ${mLabel}`, m.color);
           markerHits.push({ id: m.id, x0: box.x0, x1: box.x1, lineX: lineX + LINE_HALF_CSS });
           mi++;
         }
-        for (; mi < markerPills.length; mi++) {
-          markerPills[mi].rects.setRects(pillRectScratch, 0);
-          markerPills[mi].text.setGlyphs(0);
-        }
         const cursorLabel = clockAnchor ? formatClockWhole(cursor) : `${formatTime(cursor)} ns`;
-        addFlag(xForTick(cursor), cursorLabel, P.HOT, pillCursor);
+        addFlag(xForTick(cursor), cursorLabel, P.HOT);
+        pillRects.setRects(pillRectScratch, pillRectN);
+        pillText.setGlyphs(pillGlyphN);
 
         const encodeStart = performance.now();
-        renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, labels: labelBatch, linesFg, textBody, pills: allPills }, vp, gpuTimer);
+        renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, labels: labelBatch, linesFg, textBody, pillRects, pillText, pillRanges, pillRangeCount: pillRangeN }, vp, gpuTimer);
         drainCaptures(canvasEl); // snapshot requests, while the front buffer holds this frame
         const frameDone = performance.now();
         perf.frameEnd(frameDone - encodeStart, frameDone - cpuStart);

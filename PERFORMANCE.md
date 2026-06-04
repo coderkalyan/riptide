@@ -56,31 +56,6 @@ windowing keeps from ever biting; leave it.)
 Recorded for tracking. **None are critical** and none scale with trace size onto the
 hot path. Not under active discussion; listed so they aren't lost.
 
-### Tier 3 — draw-call / writeBuffer overhead (bounded)
-
-Per-frame draw calls ≈ `6 + 2×(active pills)` ≈ ~40 worst case (16 markers +
-cursor); per-frame `writeBuffer`s ≈ ~39. **Bounded by `MAX_MARKERS = 16`**, so it
-does not grow with trace size. webgpufundamentals' optimization wins (mapped
-buffers, fewer draws) target 8k–18k objects; we're at ~40, so this is not a
-bottleneck at any realistic scale. Do not invest here until the perf overlay shows
-`queue.writeBuffer`/submit dominating CPU-encode ms.
-
-- **3.1 Per-pill draw+writeBuffer storm** — `frame.ts` loops `allPills` (17 = 16
-  marker pills + cursor); each `PillLayer` is its own rect+text batch → its own
-  `writeBuffer`×2 + draw×2 per frame (count-0 pills skip). Consolidatable to one
-  rect + one text batch, *but* the per-pill split exists for painter's-order
-  occlusion (each pill's rect must cover earlier pills' text); batching breaks that
-  on overlap (would need a depth/z or accepting label z-fight on rare marker
-  overlap). Not worth it at 16.
-- **3.2 Pill batch buffers oversized** — each pill's rect batch is `MAX_RECTS=1024`
-  (24 KB) and text batch `MAX_GLYPHS=4096` (64 KB), but a pill uses 1 rect +
-  ~10–30 glyphs. 17 pills ≈ ~1.5 MB GPU memory mostly unused. Memory smell, not a
-  perf issue; give pill batches a small cap if this code is touched.
-- **3.3 writeBuffer → mapped-buffer ring** (webgpufundamentals §1/§6) — ~40 % JS
-  reduction *in their 18k-object benchmark*; here the per-frame writeBuffers are
-  few and small, so this only matters if CPU-encode ms is ever dominated by
-  `queue.writeBuffer`.
-
 ### Tier 4 — shader ALU (only bites when fragment-bound)
 
 - **4.1 Unconditional SDF / hatch** — `fs_single` computes `caret_sdf` + `hatch`

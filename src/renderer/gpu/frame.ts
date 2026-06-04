@@ -7,9 +7,12 @@ import { LabelBatch } from "./labels";
 import { Viewport } from "./data";
 import { GpuTimer } from "./timing";
 
-export interface PillLayer {
-  rects: RectBatch;
-  text: TextBatch;
+// One pill's slice of the shared pill rect/text buffers. Per-pill *draws* (not
+// buffers) preserve the painter's-order occlusion — each pill's rect draws
+// before, and so under, the next pill's rect, covering earlier pills' text.
+export interface PillRange {
+  rectStart: number; rectCount: number;
+  textStart: number; textCount: number;
 }
 
 export interface FrameLayers {
@@ -20,9 +23,13 @@ export interface FrameLayers {
   labels: LabelBatch;
   linesFg: LineBatch;
   textBody: TextBatch;
-  // Each pill (marker, cursor, ...) gets its own rect+text pair so its rect
-  // covers any earlier pill's text — opaque painter's algorithm, no z buffer.
-  pills: PillLayer[];
+  // All pills (markers + cursor) share one rect buffer + one text buffer (filled
+  // in one writeBuffer each per frame); pillRanges[i] addresses pill i's slice,
+  // drawn individually via firstInstance to keep the per-pill occlusion order.
+  pillRects: RectBatch;
+  pillText: TextBatch;
+  pillRanges: PillRange[];
+  pillRangeCount: number;
 }
 
 function drawLines(pass: GPURenderPassEncoder, b: LineBatch): void {
@@ -88,11 +95,22 @@ export function renderFrame(
   drawText(pass, layers.textBody);
   drawLines(pass, layers.linesFg);
 
-  // Pill overlays draw last — opaque, on top of everything else. Per-pill
-  // rect+text pairs so each pill fully occludes earlier ones on overlap.
-  for (const pill of layers.pills) {
-    drawRects(pass, pill.rects);
-    drawText(pass, pill.text);
+  // Pill overlays draw last — opaque, on top of everything else. One draw per
+  // pill (rect then text) into the shared buffers via firstInstance, so each
+  // pill's rect fully occludes earlier pills on overlap.
+  const { pillRects, pillText, pillRanges } = layers;
+  for (let i = 0; i < layers.pillRangeCount; i++) {
+    const pr = pillRanges[i];
+    if (pr.rectCount > 0) {
+      pass.setPipeline(pillRects.pipeline);
+      pass.setBindGroup(0, pillRects.bindGroup);
+      pass.draw(4, pr.rectCount, 0, pr.rectStart);
+    }
+    if (pr.textCount > 0) {
+      pass.setPipeline(pillText.pipeline);
+      pass.setBindGroup(0, pillText.bindGroup);
+      pass.draw(4, pr.textCount, 0, pr.textStart);
+    }
   }
 
   pass.end();
