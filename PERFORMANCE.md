@@ -56,19 +56,6 @@ windowing keeps from ever biting; leave it.)
 Recorded for tracking. **None are critical** and none scale with trace size onto the
 hot path. Not under active discussion; listed so they aren't lost.
 
-### Tier 4 — shader ALU (only bites when fragment-bound)
-
-- **4.1 Unconditional SDF / hatch** — `fs_single` computes `caret_sdf` + `hatch`
-  for *every* fragment and then `select`s the result, even on segments with no
-  caret/crosshatch; `fs_multi` always computes `hatch`. Wasted ALU on every
-  covered pixel. The deciding flags are `@interpolate(flat)` (per-instance), so a
-  real `if` guard branches warp-coherently with no divergence. The win scales with
-  covered pixels (big pills / zoomed in) — secondary to the culling work.
-- **4.2 `decodeSample` OR-fold** — fine (1 iteration for ≤32-bit rows, 2 for
-  64-bit). No action.
-- **Overdraw** — low: per-row segments are non-overlapping and rows don't overlap.
-  No action.
-
 ### Tier 5 — per-frame allocations (minor GC)
 
 The array/object churn here is now pooled: span-arrow/RESET labels
