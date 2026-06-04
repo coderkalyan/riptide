@@ -9,9 +9,9 @@ pub const FLAG_FALLING_EDGE: u32 = 1 << 19;
 pub const FLAG_MUTE: u32 = 1 << 20;
 pub const FLAG_RISING_EDGE_LEFT: u32 = 1 << 21;
 
-// Segment is now lean: timing + sample_index into per-row value pools + flags.
-// 4 × u32 = 16 bytes. The actual bit values live in shared x0/x1 pools indexed
-// via RowInfo.
+// Segment is now lean: timing (t_start, t_end) + row_flags (row index + edge/shade
+// bits). 3 × u32 = 12 bytes. The actual bit values live in shared x0/x1 pools,
+// indexed via RowInfo (sample index = instance_index - RowInfo.segment_start).
 pub const PackedSegment = extern struct {
     t_start: u32,
     t_end: u32,

@@ -138,12 +138,10 @@ fn caret_sdf(point: vec2f, apex: vec2f) -> f32 {
     let arm_length_px = 8.0;
     let half_angle_rad = radians(40.0);
     let half_thickness_px = 1.0;
-    let rotation = radians(0.0);
 
+    // Vertical caret (apex up): mirror across x, no rotation. The horizontal
+    // span-arrows in rect.wgsl take a rotation arg; this one never does.
     var q = point - apex;
-    let c = cos(rotation);
-    let s = sin(rotation);
-    q = mat2x2f(c, -s, s, c) * q;
     q.x = abs(q.x);
 
     let e = arm_length_px * vec2f(sin(half_angle_rad), cos(half_angle_rad));

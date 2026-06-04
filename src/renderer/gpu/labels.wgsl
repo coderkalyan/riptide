@@ -80,7 +80,12 @@ fn vs_label(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     // for tick values > 2^24).
     let start_px = (f32(i32(g.t_start) - viewport.start_ticks_int) - viewport.start_ticks_frac) / viewport.ticks_per_pixel;
     let end_px = (f32(i32(g.t_end) - viewport.start_ticks_int) - viewport.start_ticks_frac) / viewport.ticks_per_pixel;
-    let pill_w = end_px - start_px;
+    // The drawn pill body is inset 2 CSS px on the right (digital.wgsl's xgap_px),
+    // so its visible span is [start_px, end_px - right_inset_px]. Cull and center
+    // against that drawn width, not the full tick span.
+    let right_inset_px = 2.0;
+    let body_end_px = end_px - right_inset_px;
+    let pill_w = body_end_px - start_px;
     let text_w = f32(text_len) * cell_w;
 
     // Narrow-pill cull (was the CPU `widthPx < textWidthPx + 6` skip).
@@ -88,7 +93,7 @@ fn vs_label(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
         return VertexData(CULLED, vec2f(0.0), vec3f(0.0));
     }
 
-    let label_x0 = snap((start_px + end_px) * 0.5 - text_w * 0.5);
+    let label_x0 = snap((start_px + body_end_px) * 0.5 - text_w * 0.5);
     let glyph_x = label_x0 + f32(glyph_index) * cell_w;
 
     // Off-screen cull (the CPU loop never did this — wide off-screen pills used to
