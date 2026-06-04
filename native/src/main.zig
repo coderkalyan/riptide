@@ -136,51 +136,6 @@ fn jsHandle(env: c.napi_env, id: tide.Signal.Id) c.napi_value {
 // startup with the trace path from the window URL).
 var cached: ?mock_db.Loaded = null;
 
-// Per-signal pack cache, keyed by everything that determines a signal's packed
-// output (handle + render kind/shade/gate + label radix/enums) but NOT its row.
-// An add/remove/reorder/radix change repacks only the changed signal; the rest are
-// reassembled from cache (Scene.pushPackedSignal) without a tide query. Cleared on
-// loadVcd (a new trace re-parses handles/values, invalidating every entry).
-const PackKey = struct {
-    handle: u64,
-    gate: u64, // maxInt = no gate
-    enums_hash: u64,
-    kind: u8,
-    radix: u8,
-    shaded: bool,
-};
-
-var pack_cache: std.AutoHashMap(PackKey, seg.PackedSignal) = undefined;
-var pack_cache_init = false;
-
-fn packCache() *std.AutoHashMap(PackKey, seg.PackedSignal) {
-    if (!pack_cache_init) {
-        pack_cache = std.AutoHashMap(PackKey, seg.PackedSignal).init(page);
-        pack_cache_init = true;
-    }
-    return &pack_cache;
-}
-
-fn clearPackCache() void {
-    if (!pack_cache_init) return;
-    var it = pack_cache.valueIterator();
-    while (it.next()) |ps| ps.deinit(page);
-    pack_cache.clearRetainingCapacity();
-}
-
-// FNV-1a over the enum table so radix/enum changes key distinct cache entries.
-fn hashEnums(enums: []const label.EnumEntry) u64 {
-    var h: u64 = 0xcbf29ce484222325;
-    for (enums) |e| {
-        inline for (.{ @as(u8, @truncate(e.value)), @as(u8, @truncate(e.value >> 8)), @as(u8, @truncate(e.value >> 16)), @as(u8, @truncate(e.value >> 24)) }) |b| {
-            h = (h ^ b) *% 0x100000001b3;
-        }
-        for (e.label) |b| h = (h ^ b) *% 0x100000001b3;
-        h = (h ^ 0xff) *% 0x100000001b3; // separator so {"a","b"} ≠ {"ab"}
-    }
-    return h;
-}
-
 fn getLoaded() *const mock_db.Loaded {
     if (cached == null) @panic("getLoaded: loadVcd must be called before querying");
     return &cached.?;
@@ -220,7 +175,6 @@ fn loadVcd(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.napi_valu
     // Swap only on success so a bad open leaves the prior trace intact.
     if (cached) |*old| old.deinit();
     cached = loaded;
-    clearPackCache(); // new trace → handles/values change; cached packs are stale
     return jsUndefined(env);
 }
 
@@ -321,11 +275,19 @@ fn parseSpec(env: c.napi_env, v: c.napi_value, arena: std.mem.Allocator) ?PackSp
     return .{ .row = row, .handle = handle, .kind = kind, .shaded = shaded, .gate = gate, .radix = radix, .enums = parseEnums(env, v, arena) };
 }
 
+// getMockSegments(specs, qStart, qEnd): pack each active signal over the tick
+// window [qStart, qEnd]. The window is the visible viewport plus an over-fetch
+// margin (renderer side); packing is ephemeral — repacked on every viewport
+// change that exits the packed range. Cost is O(window): tide's db.query is a
+// binary-search slice that also returns the sample active at qStart (so the
+// left-edge segment is drawn from offscreen, identical to a full-range pack).
+// The half-open right edge means the last in-window segment's t_end snaps to
+// end_t; the renderer's margin keeps that segment offscreen so it's never seen.
 fn getMockSegments(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.napi_value {
-    var argc: usize = 1;
-    var argv: [1]c.napi_value = undefined;
+    var argc: usize = 3;
+    var argv: [3]c.napi_value = undefined;
     _ = c.napi_get_cb_info(env, info, &argc, &argv, null, null);
-    if (argc < 1) @panic("getMockSegments: missing specs argument");
+    if (argc < 3) @panic("getMockSegments: expected (specs, qStart, qEnd)");
 
     var arr_len: u32 = 0;
     _ = c.napi_get_array_length(env, argv[0], &arr_len);
@@ -333,6 +295,13 @@ fn getMockSegments(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.n
     const loaded = getLoaded();
     const db = &loaded.db;
     const end_t: u32 = loaded.end_t;
+
+    var q_start: u32 = 0;
+    var q_end: u32 = end_t;
+    _ = c.napi_get_value_uint32(env, argv[1], &q_start);
+    _ = c.napi_get_value_uint32(env, argv[2], &q_end);
+    if (q_end > end_t) q_end = end_t;
+    if (q_start > q_end) q_start = q_end;
 
     // Scratch arena for per-spec enum tables parsed out of the JS specs (the
     // label strings must outlive parseSpec). Freed when this call returns.
@@ -342,45 +311,31 @@ fn getMockSegments(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.n
     var scene = seg.Scene.init(page);
     defer scene.deinit();
 
-    const cache = packCache();
-
     var i: u32 = 0;
     while (i < arr_len) : (i += 1) {
         var elem: c.napi_value = undefined;
         _ = c.napi_get_element(env, argv[0], i, &elem);
         const s = parseSpec(env, elem, arena.allocator()) orelse @panic("invalid spec");
 
-        const key = PackKey{
-            .handle = @intFromEnum(s.handle),
-            .gate = if (s.gate) |g| @intFromEnum(g) else std.math.maxInt(u64),
-            .enums_hash = hashEnums(s.enums),
-            .kind = @intFromEnum(s.kind),
-            .radix = @intFromEnum(s.radix),
+        // Windowed query + pack, fresh each call (no cache — the packed output is
+        // viewport-dependent now, so a per-signal cache keyed on config would never
+        // hit across pans). packSignal owns its allocations; deinit after placement.
+        const q = db.query(s.handle, q_start, q_end) orelse @panic("missing signal");
+        var ps = pack.packSignal(page, db, q, .{
+            .width = q.type.width,
             .shaded = s.shaded,
-        };
-
-        // Pack the signal once per (signal, config); reuse it across repacks. The
-        // tide query + flag compute + gate queries + label format happen only on a
-        // cache miss (the changed signal); everything else is reassembled.
-        if (cache.getPtr(key) == null) {
-            const q = db.query(s.handle, 0, end_t) orelse @panic("missing signal");
-            const ps = pack.packSignal(page, db, q, .{
-                .width = q.type.width,
-                .shaded = s.shaded,
-                .end_t = end_t,
-                .kind = s.kind,
-                .gate_id = s.gate,
-                .radix = s.radix,
-                .enums = s.enums,
-            }) catch @panic("packSignal failed");
-            cache.put(key, ps) catch @panic("pack cache put failed"); // may resize
-        }
-        const ps = cache.getPtr(key).?; // re-get: a put above may have resized
+            .end_t = end_t,
+            .kind = s.kind,
+            .gate_id = s.gate,
+            .radix = s.radix,
+            .enums = s.enums,
+        }) catch @panic("packSignal failed");
+        defer ps.deinit(page);
 
         // 1-bit signals render as lines (single pipeline); wider ones as pills
         // (multi pipeline). Mirrors mock_scene's row/target assignment.
         const target = if (ps.is_multi) &scene.multi else &scene.single;
-        scene.pushPackedSignal(target, s.row, ps) catch @panic("pushPackedSignal failed");
+        scene.pushPackedSignal(target, s.row, &ps) catch @panic("pushPackedSignal failed");
     }
 
     var final = seg.finalize(&scene, page) catch @panic("finalize failed");
@@ -401,6 +356,9 @@ fn getMockSegments(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.n
     // Native value labels, aligned with `multi` (label i = bytes[off[i]..off[i+1]]).
     setProp(env, obj, "labelBytes", makeArrayBufferFromU8s(env, scene.multi_label_bytes.items));
     setProp(env, obj, "labelOffsets", makeArrayBufferFromU32s(env, scene.multi_label_offsets.items));
+    // The trace's true end tick (last ingested timestamp). The renderer needs the
+    // real end for viewport clamps / the zoom-out dead-zone, not a hardcoded mock.
+    setProp(env, obj, "endTicks", jsU32(env, end_t));
     return obj;
 }
 
@@ -511,6 +469,11 @@ fn getHierarchy(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.napi
     setProp(env, ts, "value", jsU32(env, 1));
     setProp(env, ts, "unit", jsStr(env, "ns"));
     setProp(env, root, "timescale", ts);
+
+    // Trace's true end tick (last ingested timestamp) — the renderer's source of
+    // truth for the fit window / clamps / zoom-out dead-zone (replaces the old
+    // hardcoded mock end). Resolved once at scene build, before any frame.
+    setProp(env, root, "endTicks", jsU32(env, getLoaded().end_t));
 
     return root;
 }

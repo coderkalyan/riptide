@@ -136,6 +136,9 @@ export interface Hierarchy {
   byHandle: Map<string, NodeId[]>;
   enumTypes: Map<number, EnumType>;
   timescale: Timescale;
+  // The trace's true end tick (last ingested timestamp, from native). Source of
+  // truth for the fit window / viewport clamps / zoom-out dead-zone.
+  endTicks: number;
 }
 
 export type TimeUnit = "s" | "ms" | "us" | "ns" | "ps" | "fs";

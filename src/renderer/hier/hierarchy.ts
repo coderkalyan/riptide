@@ -23,9 +23,15 @@ export class HierarchyBuilder {
   private stack: NodeId[] = [];
   private nextId = 0;
   private timescale: Timescale = { value: 1, unit: "ns" };
+  private endTicks = 0;
 
   setTimescale(timescale: Timescale): this {
     this.timescale = timescale;
+    return this;
+  }
+
+  setEndTicks(endTicks: number): this {
+    this.endTicks = endTicks;
     return this;
   }
 
@@ -92,6 +98,7 @@ export class HierarchyBuilder {
       byHandle: this.byHandle,
       enumTypes: this.enumTypes,
       timescale: this.timescale,
+      endTicks: this.endTicks,
     };
   }
 }

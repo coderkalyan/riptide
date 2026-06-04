@@ -3,7 +3,6 @@ import { pathOf } from "./types";
 import { getSignal } from "./hierarchy";
 import { getHierarchy, loadVcd, type NativePackSpec } from "../native";
 import { stamp, setHierarchyNodes, swapMark } from "../perf";
-import { MOCK_END_TICKS } from "../gpu/data";
 import { VCD_PATH } from "../runtime";
 import {
   buildPathIndex,
@@ -270,11 +269,17 @@ let SIDECAR = loadSidecar(sidecarPath());
 
 export let SCENE = buildScene(SIDECAR);
 
+// The trace's true end tick (native loaded.end_t, via getHierarchy). Source of
+// truth for the fit window / viewport clamps / zoom-out dead-zone — replaces the
+// hardcoded mock end so real VCDs fit correctly. `let` + reassigned in swapTrace;
+// ES live bindings propagate the new value to importers (App.tsx).
+export let TRACE_END = SCENE.hierarchy.endTicks;
+
 // Cursor / markers / time window / UI chrome initial values — from the sidecar
 // when present, else fresh defaults.
 export let INITIAL: InitialState = SIDECAR
-  ? initialFromSidecar(SIDECAR, MOCK_END_TICKS)
-  : freshInitial(MOCK_END_TICKS);
+  ? initialFromSidecar(SIDECAR, TRACE_END)
+  : freshInitial(TRACE_END);
 
 // Reset is held high from tick 0 until async deassertion at the first clock
 // falling edge (tick 10). Exposed for overlay rendering.
@@ -295,5 +300,6 @@ export function swapTrace(vcdPath: string): void {
   swapMark("load sidecar");                     // read + parse <trace>.sidecar.json
   SCENE = buildScene(SIDECAR);                   // getHierarchy FFI + marshal + resolve
   swapMark("buildScene (hierarchy + resolve)");
-  INITIAL = SIDECAR ? initialFromSidecar(SIDECAR, MOCK_END_TICKS) : freshInitial(MOCK_END_TICKS);
+  TRACE_END = SCENE.hierarchy.endTicks;          // new trace → new end (live binding)
+  INITIAL = SIDECAR ? initialFromSidecar(SIDECAR, TRACE_END) : freshInitial(TRACE_END);
 }

@@ -12,3 +12,5 @@ const params = new URLSearchParams(typeof location !== "undefined" ? location.se
 
 export const VCD_PATH: string = params.get("vcd") ?? "";
 export const SIDECAR_PATH: string = VCD_PATH ? `${VCD_PATH}.sidecar.json` : "";
+// ?bench=1 → announce the window.__bench pack-cost harness in the console.
+export const BENCH: boolean = params.get("bench") === "1";

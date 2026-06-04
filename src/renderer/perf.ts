@@ -55,7 +55,9 @@ function snapshotSorted(r: Ring): Float64Array {
   out.sort();
   return out;
 }
-function percentile(sorted: Float64Array, p: number): number {
+// Exported for the bench harness (window.__bench) so it can report p50/p95 over
+// repeated pack timings with the same percentile convention as the perf overlay.
+export function percentile(sorted: Float64Array, p: number): number {
   if (sorted.length === 0) return 0;
   const i = Math.min(sorted.length - 1, Math.max(0, Math.round((p / 100) * (sorted.length - 1))));
   return sorted[i];

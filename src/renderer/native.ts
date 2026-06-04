@@ -40,6 +40,7 @@ interface RawHierarchy {
   rootIds: number[];
   nodes: RawNode[];
   timescale: Timescale;
+  endTicks: number;
 }
 
 // One row's packing request. The native side queries tide for `handle` over the
@@ -59,7 +60,7 @@ export interface NativePackSpec {
 
 interface NativeModule {
   loadVcd(path: string): void;
-  getMockSegments(specs: NativePackSpec[]): {
+  getMockSegments(specs: NativePackSpec[], qStart: number, qEnd: number): {
     multi: ArrayBuffer;
     multiCount: number;
     single: ArrayBuffer;
@@ -70,6 +71,7 @@ interface NativeModule {
     x1Pool: ArrayBuffer;
     labelBytes: ArrayBuffer;
     labelOffsets: ArrayBuffer;
+    endTicks: number;
   };
   getHierarchy(): RawHierarchy;
   getValueAt(handle: string, tick: number): { lsb: number[]; msb: number[] } | null;
@@ -109,10 +111,20 @@ export interface NativeMockSegments {
   // multiCount+1 prefix offsets aligned with `multi` (label i = bytes[off[i]..off[i+1]]).
   labelBytes: Uint8Array<ArrayBuffer>;
   labelOffsets: Uint32Array<ArrayBuffer>;
+  // The trace's true end tick (native loaded.end_t) — used for viewport clamps
+  // and the zoom-out dead-zone instead of a hardcoded mock end.
+  endTicks: number;
 }
 
-export function getMockSegments(specs: NativePackSpec[]): NativeMockSegments {
-  const r = native.getMockSegments(specs);
+// Pack the active signals over the tick window [qStart, qEnd] (the visible
+// viewport plus the renderer's over-fetch margin). Repacked on every viewport
+// change that exits the packed range; cost is O(window).
+export function getMockSegments(
+  specs: NativePackSpec[],
+  qStart: number,
+  qEnd: number,
+): NativeMockSegments {
+  const r = native.getMockSegments(specs, qStart, qEnd);
   return {
     multi: new Uint32Array(r.multi),
     multiCount: r.multiCount,
@@ -124,6 +136,7 @@ export function getMockSegments(specs: NativePackSpec[]): NativeMockSegments {
     x1Pool: r.x1Pool,
     labelBytes: new Uint8Array(r.labelBytes),
     labelOffsets: new Uint32Array(r.labelOffsets),
+    endTicks: r.endTicks,
   };
 }
 
@@ -175,5 +188,6 @@ export function getHierarchy(): Hierarchy {
     byHandle,
     enumTypes: new Map(),
     timescale: raw.timescale,
+    endTicks: raw.endTicks,
   };
 }

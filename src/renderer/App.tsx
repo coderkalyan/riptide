@@ -8,16 +8,18 @@ import { initGPU, resizeCanvas, GPUInitError } from "./gpu/device";
 import { createDigitalRenderer } from "./gpu/digital";
 import { renderFrame } from "./gpu/frame";
 import { createColorBuffer, writeRowColors, MAX_ROWS } from "./gpu/colors";
-import { MOCK_CLOCK_TICK_NS, MOCK_END_TICKS } from "./gpu/data";
+import { MOCK_CLOCK_TICK_NS } from "./gpu/data";
 import { createTextRenderer, packRgba, MAX_GLYPHS, ATLAS_MIDDLE_DOT } from "./gpu/text";
 import { createLabelRenderer } from "./gpu/labels";
 import { createLineRenderer } from "./gpu/lines";
 import { createRectRenderer } from "./gpu/rect";
-import { INITIAL, SCENE, RESET_HELD_TICKS, buildPackSpecs, packSpecsFor, makeActiveRef, swapTrace, type ActiveSignalRef, type Radix } from "./hier/scene";
+import { INITIAL, SCENE, TRACE_END, RESET_HELD_TICKS, buildPackSpecs, packSpecsFor, makeActiveRef, swapTrace, type ActiveSignalRef, type Radix } from "./hier/scene";
 import { getSignal } from "./hier/hierarchy";
 import type { NodeId, Timescale, TimeUnit } from "./hier/types";
 import { serializeSidecar, sidecarPath, sidecarToString, writeSidecarFile } from "./hier/sidecar";
 import { getMockSegments, getValueAt } from "./native";
+import { installBench } from "./bench";
+import { BENCH } from "./runtime";
 import { createGpuTimer } from "./gpu/timing";
 import * as perf from "./perf";
 import { PerfOverlay } from "./PerfOverlay";
@@ -38,6 +40,18 @@ function activeSignalKind(ref: ActiveSignalRef): ActiveSignalKind {
 const ROW_HEIGHT_CSS = 28;
 const ZOOM_PER_DELTA_Y = 0.001; // Math.exp() factor per wheel deltaY unit
 const ZOOM_ANIM_MS = 120; // duration of button-driven zoom in/out/fit easing
+// Viewport-windowed packing: the native pack covers the visible range plus one
+// screen width of over-fetch margin on each side (M = visibleTicks). The rAF loop
+// repacks only when the visible range crosses halfway into that margin (hysteresis,
+// so a small pan back-and-forth across a boundary doesn't thrash) or when a
+// zoom-OUT widens the visible tick span past ZOOM_OUT_FACTOR× the packed density,
+// or a zoom-IN leaves the packed window more than WINDOW_SHRINK_FACTOR× wider than
+// the visible span (so on-GPU data stays O(viewport) instead of growing unbounded
+// from an initial full-range pack). A fresh pack is ~3× the visible span wide, so
+// the shrink clause only fires after ~2× of further zoom-in — a few cheap repacks
+// across a deep zoom, not one per frame. In-margin pans never repack.
+const ZOOM_OUT_FACTOR = 1.5; // repack once the view is this much more zoomed out
+const WINDOW_SHRINK_FACTOR = 6; // re-window when packed span exceeds this × visible
 const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
 const MAX_MARKERS = 16; // size of the pre-allocated pill/line render pool
 const MARKER_GRAB_PX = 5; // pointer slop for grabbing a marker line
@@ -185,8 +199,11 @@ function buildEnumLabels(active: ActiveSignalRef[]): Map<number, Map<number, str
 // labels come straight out of the pack (labelBytes/labelOffsets), so there's no
 // per-segment getValueAt + JS formatting on the repack path. Built once at module
 // load for the initial active set; the GPU effect repacks in place on add/remove.
+// Initial pack covers the full trace [0, TRACE_END] to seed the GPU buffers; the
+// rAF loop re-windows to the visible viewport (± margin) on its first frame
+// (packedRangeRef starts null), so a zoomed sidecar window immediately tightens.
 perf.stamp("pack:start");
-const NATIVE = getMockSegments(buildPackSpecs());
+const NATIVE = getMockSegments(buildPackSpecs(), 0, TRACE_END);
 perf.stamp("pack:end");
 
 const TEXT_WHITE = packRgba(0xff, 0xff, 0xff, 0xff);
@@ -755,9 +772,16 @@ export function App() {
   const hostRef = useRef<HTMLDivElement>(null);
   const gpuRef = useRef<{ device: GPUDevice; colorBuf: GPUBuffer } | null>(null);
   // Set once the GPU scene is built — repacks the segment/scene buffers and pill
-  // labels for a new active set (add-from-tree) without recompiling pipelines.
-  // null until init; the activeSignals effect skips the repack until then.
-  const rebuildSceneRef = useRef<((active: ActiveSignalRef[]) => void) | null>(null);
+  // labels for a new active set over a tick window [qStart, qEnd] without
+  // recompiling pipelines. null until init; the rAF loop is the sole caller (it
+  // owns the repack trigger), so it skips the repack until this lands.
+  const rebuildSceneRef = useRef<((active: ActiveSignalRef[], qStart: number, qEnd: number) => void) | null>(null);
+  // The active list + last-packed tick window + a dirty flag, all read by the rAF
+  // loop (the single packer). The active-set effect flips specsDirty instead of
+  // repacking directly, so add/reorder/radix and pan/zoom share one repack path.
+  const activeSignalsRef = useRef<ActiveSignalRef[]>(SCENE.activeSignals);
+  const specsDirtyRef = useRef(false);
+  const packedRangeRef = useRef<{ start: number; end: number; tpp: number } | null>(null);
   const textColorByRowRef = useRef<Map<number, number>>(new Map());
   // Bumped by resetForTrace so a layout effect can split the swap's "present"
   // phase: this effect runs after React commits the swap's DOM (post-reconcile,
@@ -962,8 +986,8 @@ export function App() {
       // Repack the GPU buffers + pill labels for a new active list. Reuses the
       // compiled pipelines (rebindPipeline), destroying the buffers they no
       // longer reference to avoid leaking on repeated adds.
-      rebuildSceneRef.current = (active: ActiveSignalRef[]) => {
-        const packed = getMockSegments(packSpecsFor(active));
+      rebuildSceneRef.current = (active: ActiveSignalRef[], qStart: number, qEnd: number) => {
+        const packed = getMockSegments(packSpecsFor(active), qStart, qEnd);
         perf.addMark("native repack (getMockSegments)");
         const nextScene = renderer.createSceneBuffers(packed.rowInfo, packed.x0Pool, packed.x1Pool);
         const nextMulti = renderer.rebindPipeline(multiBit, packed.multi, packed.multiCount, colorBuf, nextScene);
@@ -992,6 +1016,14 @@ export function App() {
         // New scene → new rowInfo buffer (flags all 0); re-apply the dim set.
         applyDimRef.current?.();
       };
+      // Pack-cost benchmark harness (window.__bench) — reads the live active set,
+      // canvas width, and trace end so a DevTools call sweeps pack cost vs zoom.
+      installBench({
+        getActive: () => activeSignalsRef.current,
+        getCanvasW: () => canvas.clientWidth,
+        getTraceEnd: () => TRACE_END,
+        announce: BENCH,
+      });
       const linesBg = lineRenderer.createBatch();
       const linesFg = lineRenderer.createBatch();
       const rectsBg = rectRenderer.createBatch();
@@ -1109,7 +1141,7 @@ export function App() {
           viewportSeededRef.current = true;
           const span = INITIAL.time.end - INITIAL.time.start;
           const isFullRange =
-            Math.abs(INITIAL.time.start) < 1e-6 && Math.abs(INITIAL.time.end - MOCK_END_TICKS) < 1e-6;
+            Math.abs(INITIAL.time.start) < 1e-6 && Math.abs(INITIAL.time.end - TRACE_END) < 1e-6;
           if (span > 0 && !isFullRange) {
             ticksPerPixelRef.current = span / timelinePx;
             startTicksRef.current = INITIAL.time.start;
@@ -1119,7 +1151,7 @@ export function App() {
 
         // Auto-fit until the user interacts, then freeze.
         if (!userInteractedRef.current || ticksPerPixelRef.current <= 0) {
-          ticksPerPixelRef.current = MOCK_END_TICKS / timelinePx;
+          ticksPerPixelRef.current = TRACE_END / timelinePx;
           startTicksRef.current = 0;
         }
         // Advance a button-driven zoom animation. tpp eases geometrically
@@ -1145,6 +1177,49 @@ export function App() {
           rep.start = startTicks; rep.end = viewEnd;
           setViewRange({ start: startTicks, end: viewEnd });
         }
+        // Viewport-windowed repack (the single packer). Pack the active signals
+        // over the visible window plus an over-fetch margin, but only when the
+        // active set changed (specsDirty) OR the visible range entered the
+        // hysteresis guard band at either packed edge OR the user zoomed out far
+        // enough that the packed window is too narrow in ticks. Pan and zoom-IN
+        // within the margin stay pure uniform updates — the shader transforms the
+        // already-packed segments — so they're cheap at any zoom. The margin also
+        // keeps the visible right edge interior to the packed window, so its
+        // t_end / clock-caret / single-bit edge render identically to a full pack.
+        const rebuild = rebuildSceneRef.current;
+        if (rebuild) {
+          const M = visibleTicks; // over-fetch one screen of ticks each side
+          const G = M * 0.5; // guard band: repack at halfway into the margin
+          const pr = packedRangeRef.current;
+          const dirty = specsDirtyRef.current;
+          // Edge clauses are gated on there being room beyond the trace bounds —
+          // at the trace start/end the packed window is clamped to 0 / TRACE_END,
+          // so the visible edge sitting on it must NOT keep retriggering.
+          const needRepack =
+            dirty ||
+            pr == null ||
+            (pr.start > 0 && startTicks < pr.start + G) ||
+            (pr.end < TRACE_END && viewEnd > pr.end - G) ||
+            ticksPerPixel > pr.tpp * ZOOM_OUT_FACTOR ||
+            pr.end - pr.start > visibleTicks * WINDOW_SHRINK_FACTOR;
+          if (needRepack) {
+            const qStart = Math.max(0, Math.floor(startTicks - M));
+            const qEnd = Math.min(TRACE_END, Math.ceil(viewEnd + M));
+            // Skip the GPU work when the clamped window is unchanged (e.g. zooming
+            // further out while already covering the whole trace); still refresh
+            // packedRange.tpp so the zoom-out clause doesn't fire every frame. A
+            // specs-dirty repack never skips — the active set changed.
+            if (dirty || pr == null || qStart !== pr.start || qEnd !== pr.end) {
+              rebuild(activeSignalsRef.current, qStart, qEnd);
+            }
+            packedRangeRef.current = { start: qStart, end: qEnd, tpp: ticksPerPixel };
+            if (dirty) {
+              specsDirtyRef.current = false;
+              perf.markAddRebuilt(activeSignalsRef.current.length);
+            }
+          }
+        }
+
         const cursor = cursorTicksRef.current;
         const xForTick = (tick: number) => (tick - startTicks) / ticksPerPixel;
         vp.ticks_per_pixel = ticksPerPixel;
@@ -1157,9 +1232,9 @@ export function App() {
         vp.wave_y_offset = rulerHeightCSS;
 
         // Right-edge dead zone: extend leftward to the data end when the
-        // user has zoomed out past MOCK_END_TICKS, so the OOB area shows
+        // user has zoomed out past TRACE_END, so the OOB area shows
         // crosshatch.
-        const dataEndPx = xForTick(MOCK_END_TICKS);
+        const dataEndPx = xForTick(TRACE_END);
         const deadStartPx = Math.min(timelinePx, dataEndPx);
 
         // Major notch: bottom-aligned to the ruler's lower border.
@@ -1473,17 +1548,19 @@ export function App() {
   const sceneKey = activeSignals.map((r) => `${r.signalId}:${r.row}:${r.radix}`).join("|");
   const lastSceneKeyRef = useRef(sceneKey);
   useEffect(() => {
+    // Always keep the rAF loop's view of the active list current (eye-toggle and
+    // other non-key changes too — packSpecsFor only reads key-relevant fields, but
+    // the loop reads this ref as the source of truth for the next repack).
+    activeSignalsRef.current = activeSignals;
     if (sceneKey === lastSceneKeyRef.current) return;
-    // GPU not built yet (init still resolving): leave the key unadvanced so the
-    // next active-set change repacks the full current set once the ref lands.
-    if (!rebuildSceneRef.current) return;
     lastSceneKeyRef.current = sceneKey;
     // This passive effect runs after React render+commit+paint, so the mark here
-    // closes the "react" phase since the click. The repack closure emits its own
-    // sub-marks. All no-op unless an add measurement is in flight (perf.beginAdd).
+    // closes the "react" phase since the click. Flag the active set dirty; the rAF
+    // loop is the single packer — it repacks over the current viewport window on
+    // the next frame and emits the remaining add sub-marks + markAddRebuilt. All
+    // no-op unless an add measurement is in flight (perf.beginAdd).
     perf.addMark("react render + commit + paint");
-    rebuildSceneRef.current(activeSignals);
-    perf.markAddRebuilt(activeSignals.length);
+    specsDirtyRef.current = true;
   }, [sceneKey, activeSignals]);
 
   // Mouse interactivity: wheel = pan, ctrl+wheel = zoom (anchored at mouse x),
@@ -1495,8 +1572,8 @@ export function App() {
 
     const clampPan = (timelinePx: number) => {
       const visibleTicks = timelinePx * ticksPerPixelRef.current;
-      if (visibleTicks < MOCK_END_TICKS) {
-        startTicksRef.current = Math.max(0, Math.min(MOCK_END_TICKS - visibleTicks, startTicksRef.current));
+      if (visibleTicks < TRACE_END) {
+        startTicksRef.current = Math.max(0, Math.min(TRACE_END - visibleTicks, startTicksRef.current));
       } else {
         // Fully zoomed out: data fits with room to spare. Force start to 0 so
         // ctrl-zoom-while-fit anchors at the data origin instead of drifting.
@@ -1553,7 +1630,7 @@ export function App() {
         // Pan only when zoomed in past fit; otherwise ignore (clampPan would
         // snap back to 0 anyway, but skipping is cleaner UX).
         const visibleTicks = timelinePx * ticksPerPixelRef.current;
-        if (visibleTicks >= MOCK_END_TICKS) return;
+        if (visibleTicks >= TRACE_END) return;
         const dx = e.deltaX !== 0 ? e.deltaX : e.deltaY;
         startTicksRef.current += dx * ticksPerPixelRef.current;
       }
@@ -1830,26 +1907,26 @@ export function App() {
     if (!host) return;
     const timelinePx = host.getBoundingClientRect().width;
     userInteractedRef.current = true;
-    const tpp0 = ticksPerPixelRef.current > 0 ? ticksPerPixelRef.current : MOCK_END_TICKS / timelinePx;
+    const tpp0 = ticksPerPixelRef.current > 0 ? ticksPerPixelRef.current : TRACE_END / timelinePx;
     const start0 = startTicksRef.current;
     const centerX = timelinePx * 0.5;
     const worldTickAtCenter = start0 + centerX * tpp0;
     const tppT = tpp0 * factor;
     let startT = worldTickAtCenter - centerX * tppT;
     const visible = timelinePx * tppT;
-    startT = visible < MOCK_END_TICKS ? Math.max(0, Math.min(MOCK_END_TICKS - visible, startT)) : 0;
+    startT = visible < TRACE_END ? Math.max(0, Math.min(TRACE_END - visible, startT)) : 0;
     zoomAnimRef.current = { tpp0, start0, tppT, startT, t0: performance.now(), releaseFit: false };
   };
   const fitView = () => {
     const host = hostRef.current;
     if (!host) return;
     const timelinePx = host.getBoundingClientRect().width;
-    const tpp0 = ticksPerPixelRef.current > 0 ? ticksPerPixelRef.current : MOCK_END_TICKS / timelinePx;
+    const tpp0 = ticksPerPixelRef.current > 0 ? ticksPerPixelRef.current : TRACE_END / timelinePx;
     userInteractedRef.current = true; // hold off auto-fit until the animation lands
     zoomAnimRef.current = {
       tpp0,
       start0: startTicksRef.current,
-      tppT: MOCK_END_TICKS / timelinePx,
+      tppT: TRACE_END / timelinePx,
       startT: 0,
       t0: performance.now(),
       releaseFit: true,
@@ -1873,8 +1950,8 @@ export function App() {
     startTicksRef.current = start;
     // clampPan: keep the window within data bounds (mirrors the wheel handler).
     const visible = timelinePx * ticksPerPixelRef.current;
-    if (visible < MOCK_END_TICKS) {
-      startTicksRef.current = Math.max(0, Math.min(MOCK_END_TICKS - visible, startTicksRef.current));
+    if (visible < TRACE_END) {
+      startTicksRef.current = Math.max(0, Math.min(TRACE_END - visible, startTicksRef.current));
     } else {
       startTicksRef.current = 0;
     }
@@ -1979,9 +2056,16 @@ export function App() {
     // empty→empty swap (same key) still repacks via this direct call.
     const newKey = SCENE.activeSignals.map((r) => `${r.signalId}:${r.row}:${r.radix}`).join("|");
     lastSceneKeyRef.current = newKey;
+    activeSignalsRef.current = SCENE.activeSignals;
     const gpu = gpuRef.current;
     if (gpu) writeRowColors(gpu.device, gpu.colorBuf, SCENE.activeSignals);
-    rebuildSceneRef.current?.(SCENE.activeSignals);
+    // Pack the new trace full-range (TRACE_END is the live binding, now the new
+    // trace's end) so the swap shows immediately; clear the dirty flag and the
+    // packed range so the rAF loop re-windows to the (re-seeded) viewport on its
+    // next frame — a zoomed sidecar tightens, a fresh full-range view stays put.
+    rebuildSceneRef.current?.(SCENE.activeSignals, 0, TRACE_END);
+    specsDirtyRef.current = false;
+    packedRangeRef.current = null;
     perf.swapMark("GPU repack");
     perf.markSwapRebuilt(SCENE.activeSignals.length);
     // Drives the layout effect that splits "present" into react-commit vs paint.
