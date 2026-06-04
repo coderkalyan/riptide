@@ -579,6 +579,10 @@ export function WaveCanvas() {
         } else if (e.key === "Delete" || e.key === "Backspace") {
           const sel = useAppStore.getState().selectedMarkerId;
           if (sel != null) useAppStore.getState().deleteMarker(sel);
+        } else if (e.key === "]") {
+          useAppStore.getState().cycleMarker(1);
+        } else if (e.key === "[") {
+          useAppStore.getState().cycleMarker(-1);
         }
       };
 

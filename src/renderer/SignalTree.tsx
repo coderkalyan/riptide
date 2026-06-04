@@ -1,7 +1,7 @@
 import { createSignal, createMemo, onCleanup } from "solid-js";
 import { Key } from "@solid-primitives/keyed";
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { ChevronDown, ChevronRight, Package, Activity, Plus } from "lucide-solid";
+import { ChevronRight, Package, Activity, Plus } from "lucide-solid";
 import { SCENE } from "./hier/scene";
 import type { NodeId, Scope, Signal } from "./hier/types";
 import * as perf from "./perf";
@@ -100,8 +100,14 @@ export function SignalTree() {
               }}
               onClick={() => { if (e().kind === "scope") { pulseExpand(); s.toggleScope(e().id); } }}
             >
-              <span class="chev">
-                {e().kind === "scope" ? (e().open ? <ChevronDown size={10} /> : <ChevronRight size={10} />) : null}
+              <span
+                class="chev"
+                style={e().kind === "scope" ? {
+                  transform: e().open ? "rotate(90deg)" : "rotate(0deg)",
+                  transition: "transform 0.18s ease",
+                } : undefined}
+              >
+                {e().kind === "scope" ? <ChevronRight size={10} /> : null}
               </span>
               <span class={iconClass()}>{e().kind === "scope" ? <Package size={12} /> : <Activity size={12} />}</span>
               <span class="lbl">{node()?.name}</span>

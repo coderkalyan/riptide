@@ -1,7 +1,9 @@
 import { For, createSignal, onMount, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
 
-export type MenuItem = { label: string; kbd?: string } | "sep";
+export type MenuItem =
+  | { label: string; kbd?: string; disabled?: boolean; submenu?: MenuItem[]; action?: string; path?: string; checked?: boolean }
+  | "sep";
 
 // Mock right-click menu for active-signal rows. Only "Remove from View" is wired;
 // the rest just close (visual parity with the React build).

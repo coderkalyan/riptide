@@ -86,9 +86,15 @@
             height: 22px; margin: 2px 0; padding: 0 8px; border-radius: 5px;
             font-size: 12.5px; color: var(--text-2); cursor: default; white-space: nowrap;
         }
-        .menu-item:hover { background: var(--accent); color: var(--on-accent); }
+        .menu-item:hover, .menu-item.active { background: var(--accent); color: var(--on-accent); }
+        /* Not-yet-implemented entries: greyed, no hover, no clicks. */
+        .menu-item.disabled { color: var(--muted); pointer-events: none; }
         .menu-kbd { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); }
-        .menu-item:hover .menu-kbd { color: var(--on-accent); }
+        .menu-item:hover .menu-kbd, .menu-item.active .menu-kbd { color: var(--on-accent); }
+        .menu-check { display:inline-block; min-width: 12px; text-align:right; color: var(--accent); }
+        .menu-item:hover .menu-check, .menu-item.active .menu-check { color: var(--on-accent); }
+        .menu-arrow { font-size: 14px; line-height: 1; color: var(--muted); }
+        .menu-item:hover .menu-arrow, .menu-item.active .menu-arrow { color: var(--on-accent); }
         .menu-sep { height: 1px; margin: 4px 6px; background: var(--border); }
         .menubar .sp { flex:1; }
         .menubar .kbd { font-family: 'JetBrains Mono', monospace; font-size:11px; color: var(--muted); padding: 3px 8px; border: 1px dashed var(--border); border-radius: 5px; }
@@ -167,11 +173,14 @@
             overflow: hidden;
             position: relative;
         }
-        /* Panel collapse/expand: animate the grid column width (and the
-           resize handles that track it). Only active while toggling — live
-           drag-resize leaves it off so dragging stays 1:1 with the pointer. */
-        .body.tree-anim { transition: grid-template-columns 120ms ease; }
-        .body.tree-anim .col-resize { transition: left 120ms ease; }
+        /* Panel collapse/expand: animate the grid column width (and the resize
+           handles that track it). Always-on so a toggle animates even though it
+           remounts the panel content in the same tick (a transition added in
+           that same tick gets folded into one layout pass and skipped). Live
+           drag-resize adds `.dragging` to switch it off so dragging is 1:1. */
+        .body { transition: grid-template-columns 120ms ease; }
+        .body .col-resize { transition: left 120ms ease; }
+        .body.dragging, .body.dragging .col-resize { transition: none; }
         .col-resize {
             position: absolute;
             top: 0; bottom: 0;

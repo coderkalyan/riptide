@@ -39,6 +39,27 @@ let currentVcd = process.env.RIPTIDE_VCD
   ? path.resolve(process.env.RIPTIDE_VCD)
   : path.join(app.getAppPath(), "native/src/mock.vcd");
 
+// Recently-opened traces, most-recent first. Persisted to userData so the list
+// survives restarts. Drives the File > Open Recent submenu.
+const RECENT_MAX = 10;
+const recentPath = () => path.join(app.getPath("userData"), "recent.json");
+function readRecent(): string[] {
+  try {
+    const raw = JSON.parse(fs.readFileSync(recentPath(), "utf8"));
+    return Array.isArray(raw) ? raw.filter((p) => typeof p === "string") : [];
+  } catch {
+    return [];
+  }
+}
+function addRecent(p: string): void {
+  const list = [p, ...readRecent().filter((x) => x !== p)].slice(0, RECENT_MAX);
+  try {
+    fs.writeFileSync(recentPath(), JSON.stringify(list));
+  } catch (err) {
+    console.error("[recent] write failed", err);
+  }
+}
+
 function loadTrace(win: BrowserWindow): void {
   const search = `vcd=${encodeURIComponent(currentVcd)}`;
   if (process.env.RIPTIDE_DEV) {
@@ -88,7 +109,24 @@ ipcMain.handle("riptide:open-vcd", async (e) => {
   // currentVcd is kept for bookkeeping (e.g. window title) but no longer drives
   // a navigation. loadTrace is still used by createWindow for the initial load.
   currentVcd = r.filePaths[0];
+  addRecent(currentVcd);
   return currentVcd;
+});
+
+// Renderer asks for the recent-trace list (File > Open Recent submenu).
+ipcMain.handle("riptide:recent-vcds", () => readRecent());
+
+// Renderer opened a recent trace; bump it to the top of the list and track it as
+// the current trace. The renderer swaps in place (no reload) after this returns.
+ipcMain.handle("riptide:open-recent", (_e, p: string) => {
+  currentVcd = p;
+  addRecent(p);
+  return p;
+});
+
+// Close the window that asked (File > Close Window).
+ipcMain.handle("riptide:close-window", (e) => {
+  BrowserWindow.fromWebContents(e.sender)?.close();
 });
 
 app.whenReady().then(createWindow);

@@ -1,4 +1,4 @@
-import { For, Show, createSignal, createMemo, onMount } from "solid-js";
+import { For, Show, createSignal, createMemo, onMount, onCleanup } from "solid-js";
 import { X, PanelLeftClose, PanelLeftOpen } from "lucide-solid";
 import { useAppStore } from "./store/store";
 import { WaveCanvas } from "./wave/WaveCanvas";
@@ -15,20 +15,25 @@ import { PerfOverlay } from "./PerfOverlay";
 import { buildEnumLabels } from "./wave/value";
 import { getSignal } from "./hier/hierarchy";
 import { SCENE, swapTrace } from "./hier/scene";
+import { view } from "./wave/viewport";
+import { ZOOM_STEP } from "./wave/constants";
 import * as perf from "./perf";
 
 declare const require: (m: string) => unknown;
 
 // Ask the main process to show the Open-VCD dialog. Returns the chosen path (or
 // null if cancelled); the renderer then swaps the trace in place — no reload.
-async function openVcdDialog(): Promise<string | null> {
+function ipc(): { invoke(channel: string, ...args: unknown[]): Promise<unknown> } | null {
   try {
-    const { ipcRenderer } = require("electron") as { ipcRenderer: { invoke(channel: string): Promise<unknown> } };
-    return (await ipcRenderer.invoke("riptide:open-vcd")) as string | null;
+    return (require("electron") as { ipcRenderer: { invoke(channel: string, ...args: unknown[]): Promise<unknown> } }).ipcRenderer;
   } catch (e) {
-    console.error("[open-vcd] failed", e);
+    console.error("[ipc] unavailable", e);
     return null;
   }
+}
+
+async function openVcdDialog(): Promise<string | null> {
+  return ((await ipc()?.invoke("riptide:open-vcd")) as string | null) ?? null;
 }
 
 const TREE_MIN_PX = 160;
@@ -68,29 +73,22 @@ export function App() {
   const treeColW = () => (s.panels.treeCollapsed ? TREE_COLLAPSED_PX : s.panels.treeWidth);
   const activeColW = () => (s.panels.activeCollapsed ? (s.panels.activeCompactWidth ?? compactW()) : s.panels.activeWidth);
 
-  // Width transition + content-slide flags: on only for the duration of a
-  // collapse/expand toggle (or width reset) so live drag-resize stays instant.
-  const [treeAnim, setTreeAnim] = createSignal(false);
-  let treeAnimTimer: number | null = null;
+  // The grid-column width transition is always-on (see `.body` CSS) so a
+  // collapse/expand toggle animates even though it remounts the panel content
+  // in the same tick — `dragging` switches it off so live drag stays 1:1.
+  const [dragging, setDragging] = createSignal(false);
   const [rowSliding, setRowSliding] = createSignal(false);
   let rowSlideTimer: number | null = null;
   const [treeToggling, setTreeToggling] = createSignal(false);
   let treeToggleTimer: number | null = null;
-  const pulseLayoutAnim = () => {
-    setTreeAnim(true);
-    if (treeAnimTimer != null) clearTimeout(treeAnimTimer);
-    treeAnimTimer = window.setTimeout(() => setTreeAnim(false), 140);
-  };
   const toggleTree = (collapsed: boolean) => {
     s.setTreeCollapsed(collapsed);
-    pulseLayoutAnim();
     setTreeToggling(true);
     if (treeToggleTimer != null) clearTimeout(treeToggleTimer);
     treeToggleTimer = window.setTimeout(() => setTreeToggling(false), 140);
   };
   const toggleActive = (collapsed: boolean) => {
     s.setActiveCollapsed(collapsed);
-    pulseLayoutAnim();
     setRowSliding(true);
     if (rowSlideTimer != null) clearTimeout(rowSlideTimer);
     rowSlideTimer = window.setTimeout(() => setRowSliding(false), 240);
@@ -103,7 +101,7 @@ export function App() {
     const startCompact = s.panels.activeCompactWidth ?? compactW();
     const target = e.currentTarget;
     target.setPointerCapture(e.pointerId);
-    target.classList.add("dragging");
+    setDragging(true);
     const onMove = (ev: PointerEvent) => {
       const dx = ev.clientX - startX;
       if (which === "tree") s.setTreeWidth(Math.max(TREE_MIN_PX, startTree + dx));
@@ -112,7 +110,7 @@ export function App() {
     };
     const onUp = (ev: PointerEvent) => {
       target.releasePointerCapture(ev.pointerId);
-      target.classList.remove("dragging");
+      setDragging(false);
       target.removeEventListener("pointermove", onMove);
       target.removeEventListener("pointerup", onUp);
       target.removeEventListener("pointercancel", onUp);
@@ -133,12 +131,56 @@ export function App() {
     s.resetForTrace();
   };
 
+  // Open a recent trace: note it as opened (bumps the recent list main-side),
+  // then swap in place — same path as handleOpenVcd minus the dialog.
+  const handleOpenRecent = async (p: string) => {
+    await ipc()?.invoke("riptide:open-recent", p);
+    perf.beginSwap();
+    swapTrace(p);
+    s.resetForTrace();
+  };
+
+  const getRecent = async () => ((await ipc()?.invoke("riptide:recent-vcds")) as string[] | null) ?? [];
+  const closeWindow = () => { ipc()?.invoke("riptide:close-window"); };
+
+  const zoomIn = () => view.zoomBy(1 / ZOOM_STEP);
+  const zoomOut = () => view.zoomBy(ZOOM_STEP);
+  const zoomFit = () => view.fitView();
+
+  const deleteSelMarker = () => { if (s.selectedMarkerId != null) s.deleteMarker(s.selectedMarkerId); };
+
+  // Global keyboard shortcuts mirroring the File/View menus.
+  onMount(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (!e.shiftKey && k === "o") { e.preventDefault(); handleOpenVcd(); }
+      // Ctrl+= / Ctrl++ zoom in, Ctrl+- zoom out, Ctrl+0 fit. "=" is the unshifted
+      // "+" key, so accept both; the numpad sends "Add"/"Subtract".
+      else if (k === "=" || k === "+") { e.preventDefault(); zoomIn(); }
+      else if (k === "-" || k === "_") { e.preventDefault(); zoomOut(); }
+      else if (k === "0") { e.preventDefault(); zoomFit(); }
+    };
+    document.addEventListener("keydown", onKey);
+    onCleanup(() => document.removeEventListener("keydown", onKey));
+  });
+
   return (
     <div class="app">
       <div class="titlebar">
         <div class="dots"><i class="r" /><i class="y" /><i class="g" /></div>
         <div class="title">Riptide</div>
-        <MenuBar onOpenVcd={handleOpenVcd} />
+        <MenuBar
+          onOpenVcd={handleOpenVcd} onOpenRecent={handleOpenRecent} getRecent={getRecent} onCloseWindow={closeWindow}
+          onZoomIn={zoomIn} onZoomOut={zoomOut} onZoomFit={zoomFit}
+          treeCollapsed={() => s.panels.treeCollapsed} onToggleTree={toggleTree}
+          activeCollapsed={() => s.panels.activeCollapsed} onToggleActive={toggleActive}
+          snapOn={() => s.snapCursor} onToggleSnap={() => s.toggleSnap()}
+          clockOn={() => s.clockAnchor} onToggleClock={() => s.toggleClock()}
+          markerCount={() => s.markers.length} markerSelected={() => s.selectedMarkerId != null}
+          onMarkerAdd={() => s.addMarkerAtCursor()} onMarkerDelete={deleteSelMarker}
+          onMarkerClear={() => s.clearMarkers()} onMarkerNext={() => s.cycleMarker(1)} onMarkerPrev={() => s.cycleMarker(-1)}
+        />
         <div class="divider" />
         <div class="tabs">
           <For each={s.tabs.open}>{(f, i) => (
@@ -152,17 +194,17 @@ export function App() {
       </div>
 
       <div
-        class={`body${treeAnim() ? " tree-anim" : ""}`}
+        class={`body${dragging() ? " dragging" : ""}`}
         style={{ "grid-template-columns": `${treeColW()}px ${activeColW()}px 1fr`, "grid-template-rows": "minmax(0, 1fr) auto" }}
       >
         <Show when={!s.panels.treeCollapsed}>
-          <div class="col-resize" style={{ left: `${treeColW() - 3}px` }} onPointerDown={startResize("tree")} onDblClick={() => { s.setTreeWidth(TREE_DEFAULT_PX); pulseLayoutAnim(); }} />
+          <div class="col-resize" style={{ left: `${treeColW() - 3}px` }} onPointerDown={startResize("tree")} onDblClick={() => s.setTreeWidth(TREE_DEFAULT_PX)} />
         </Show>
         <div
           class="col-resize"
           style={{ left: `${treeColW() + activeColW() - 3}px` }}
           onPointerDown={startResize(s.panels.activeCollapsed ? "activeCompact" : "active")}
-          onDblClick={() => { if (s.panels.activeCollapsed) s.setActiveCompactWidth(null); else s.setActiveWidth(ACTIVE_DEFAULT_PX); pulseLayoutAnim(); }}
+          onDblClick={() => { if (s.panels.activeCollapsed) s.setActiveCompactWidth(null); else s.setActiveWidth(ACTIVE_DEFAULT_PX); }}
         />
 
         <div class="col">

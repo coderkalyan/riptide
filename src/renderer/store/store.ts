@@ -92,6 +92,8 @@ export interface Actions {
   selectMarker: (id: number | null) => void;
   moveMarker: (id: number, tick: number) => void;
   setMarkerTick: (id: number, tick: number) => void;
+  clearMarkers: () => void;
+  cycleMarker: (dir: 1 | -1) => void;
 
   setCursor: (tick: number) => void;
   setViewRange: (start: number, end: number) => void;
@@ -212,6 +214,18 @@ const vanilla = createVanilla<AppState>()(
     setMarkerTick: (id, tick) => set((s) => ({
       markers: s.markers.map((m) => (m.id === id ? { ...m, tick } : m)),
     })),
+    clearMarkers: () => set({ markers: [], selectedMarkerId: null }),
+    // Select the next/prev marker in time order (wrapping) and park the cursor on
+    // it. With nothing selected, dir>0 starts at the earliest, dir<0 at the latest.
+    cycleMarker: (dir) => set((s) => {
+      if (s.markers.length === 0) return s;
+      const sorted = [...s.markers].sort((a, b) => a.tick - b.tick);
+      const i = sorted.findIndex((m) => m.id === s.selectedMarkerId);
+      const next = i < 0
+        ? (dir > 0 ? sorted[0] : sorted[sorted.length - 1])
+        : sorted[(i + dir + sorted.length) % sorted.length];
+      return { selectedMarkerId: next.id, cursorTicks: next.tick };
+    }),
 
     setCursor: (tick) => set({ cursorTicks: tick }),
     setViewRange: (start, end) => set({ viewRange: { start, end } }),
