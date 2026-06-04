@@ -13,7 +13,10 @@
     "dist": "pnpm build:prod && electron-builder",
     "dist:dir": "pnpm build:prod && electron-builder --dir",
     "dev": "pnpm build && electron .",
-    "dev:ui": "pnpm wgsl-check && pnpm build:native && node scripts/dev-ui.mjs"
+    "dev:ui": "pnpm wgsl-check && pnpm build:native && node scripts/dev-ui.mjs",
+    "canvas-test": "node scripts/canvas-test/build.mjs && deno run --allow-all scripts/canvas-test/harness.bundle.mjs",
+    "canvas-test:update": "node scripts/canvas-test/build.mjs && deno run --allow-all scripts/canvas-test/harness.bundle.mjs --update",
+    "canvas-test:equiv": "node scripts/canvas-test/build.mjs && deno run --allow-all scripts/canvas-test/harness.bundle.mjs --equiv"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",

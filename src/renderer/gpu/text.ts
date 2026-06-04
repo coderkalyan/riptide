@@ -52,13 +52,24 @@ async function ensureFontLoaded(fontSpec: string): Promise<void> {
   }
 }
 
-interface AtlasBuild {
-  canvas: OffscreenCanvas;
+export interface AtlasBuild {
+  width: number;
+  height: number;
+  // Browser path: a rasterized OffscreenCanvas uploaded via
+  // copyExternalImageToTexture. Headless path (canvas-test harness): straight
+  // RGBA bytes uploaded via writeTexture. Exactly one is set.
+  canvas?: OffscreenCanvas;
+  rgba?: Uint8Array<ArrayBuffer>;
   cellWCSS: number;
   cellHCSS: number;
   ascentCSS: number;
   midlineCSS: number;
 }
+
+// Override the glyph-atlas source. The default (buildAtlasCanvas) rasterizes a
+// real font via OffscreenCanvas; the canvas-test harness injects a procedural
+// atlas so the text/label pipelines can run under Deno (no Canvas 2D).
+export type AtlasFactory = (displayPx: number, dpr: number, fontWeight: string) => AtlasBuild;
 
 function buildAtlasCanvas(displayPx: number, dpr: number, fontWeight: string): AtlasBuild {
   // 2x device-pixel resolution: bilinear handles the 2:1 downsample cleanly,
@@ -104,6 +115,8 @@ function buildAtlasCanvas(displayPx: number, dpr: number, fontWeight: string): A
 
   return {
     canvas,
+    width: canvas.width,
+    height: canvas.height,
     cellWCSS: cellW / scale,
     cellHCSS: cellH / scale,
     ascentCSS: baselineY / scale,
@@ -113,15 +126,24 @@ function buildAtlasCanvas(displayPx: number, dpr: number, fontWeight: string): A
 
 function uploadAtlas(device: GPUDevice, atlas: AtlasBuild): GPUTexture {
   const tex = device.createTexture({
-    size: [atlas.canvas.width, atlas.canvas.height, 1],
+    size: [atlas.width, atlas.height, 1],
     format: "rgba8unorm",
     usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT,
   });
-  device.queue.copyExternalImageToTexture(
-    { source: atlas.canvas, flipY: false },
-    { texture: tex, premultipliedAlpha: false },
-    [atlas.canvas.width, atlas.canvas.height, 1],
-  );
+  if (atlas.canvas) {
+    device.queue.copyExternalImageToTexture(
+      { source: atlas.canvas, flipY: false },
+      { texture: tex, premultipliedAlpha: false },
+      [atlas.width, atlas.height, 1],
+    );
+  } else if (atlas.rgba) {
+    device.queue.writeTexture(
+      { texture: tex },
+      atlas.rgba,
+      { bytesPerRow: atlas.width * 4, rowsPerImage: atlas.height },
+      [atlas.width, atlas.height, 1],
+    );
+  }
   return tex;
 }
 
@@ -133,6 +155,8 @@ export interface TextOptions {
   large?: { displayPx: number; weight: string };
   small?: { displayPx: number; weight: string };
   dpr?: number;
+  // Headless override for the glyph-atlas source (see AtlasFactory).
+  atlasFactory?: AtlasFactory;
 }
 
 export async function createTextRenderer(
@@ -150,8 +174,9 @@ export async function createTextRenderer(
     ensureFontLoaded(`${sm.weight} ${sm.displayPx * dpr}px ${FONT_FAMILY}`),
   ]);
 
-  const atlasLg = buildAtlasCanvas(lg.displayPx, dpr, lg.weight);
-  const atlasSm = buildAtlasCanvas(sm.displayPx, dpr, sm.weight);
+  const makeAtlas = opts?.atlasFactory ?? buildAtlasCanvas;
+  const atlasLg = makeAtlas(lg.displayPx, dpr, lg.weight);
+  const atlasSm = makeAtlas(sm.displayPx, dpr, sm.weight);
   const texLg = uploadAtlas(device, atlasLg);
   const texSm = uploadAtlas(device, atlasSm);
 
