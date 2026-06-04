@@ -19,38 +19,6 @@ screen of over-fetch margin)**. The items below are what remains on top of that.
 
 ---
 
-## In-frame draw culling (trim the over-fetch margin)
-
-The packed buffers are O(visible ± margin); these would trim the ±1-screen margin in
-the draw itself. Both should share one per-row visible-range index.
-
-### Digital segment draw cull
-
-`frame.ts` issues `pass.draw(4, segmentCount)` with the **full packed count** per
-pipeline every frame — now bounded to the visible window ± margin, but still drawing
-the margin. A per-row binary search over the (sorted, contiguous) segment list finds
-the visible `[firstInstance, lastInstance)` and draws only that range (`pass.draw(4,
-visibleCount, 0, firstInstance)`). This index is the shared primitive the label cull
-below should also consume. **Lower priority** now that the resident count is
-O(visible); revisit if a larger over-fetch margin is wanted, or if margin draw shows
-up in GPU pass ms.
-
-### Multi-bit label margin cull
-
-The label glyph vertex shader runs for **every instance in the packed window** and
-self-culls (collapses the quad to degenerate when its pill is off-screen or too
-narrow for the text). With windowing the instance buffer is O(visible), but the VS
-still runs over the ±1-screen margin glyphs. Binary-search the visible label range —
-labels are row-grouped and sorted by `tStart`, and the multi-pipeline
-`RowInfo.segment_start` gives each row's sub-range, so the **same index as the
-segment-draw cull** picks `[firstInstance, instanceCount)` per row and skips the
-margin glyphs. Do it **alongside** the segment cull, not on its own — small win
-post-windowing. (`labels.ts` still caps the glyph count at
-`maxStorageBufferBindingSize / stride` with a `console.warn` — a backstop that
-windowing keeps from ever biting; leave it.)
-
----
-
 ## Deferred deficiencies (non-critical)
 
 Recorded for tracking. **None are critical** and none scale with trace size onto the
