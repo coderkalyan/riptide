@@ -1,14 +1,14 @@
 ---
-name: Full repack on add-signal + per-render value queries
-description: add-signal repacks ALL active signals from scratch in Zig; cursor drag re-renders whole active list with per-row getValueAt napi calls.
+name: perf-value-queries
+description: Per-row cursor value column = N napi getValueAt per cursor-move frame. Now SolidJS createMemo-per-row (keyed on cursorTicks), not React. Repack-all now windowed (see perf-viewport-windowing).
 metadata:
   type: project
 ---
 
-Two secondary large-case costs beyond [[perf_no_viewport_culling]]:
+App is now **SolidJS** (was React in older memory). The imperative WebGPU loop (WaveCanvas) never subscribes reactively — pulls store state each frame via useAppStore.getState(). Components are fine-grained reactive.
 
-**1. add-signal repacks everything.** `App.tsx rebuildSceneRef` → `getMockSegments(packSpecsFor(active))` re-queries tide + re-packs ALL active signals (not just the new one), destroys+recreates every GPU storage buffer (segment bufs, rowInfo, x0/x1 pools), and rebuilds all pill labels. O(total segments) per add. Buffer destroy+create mid-session can stall. For N adds of a big trace this is O(N × total). Incremental append (only pack the new row, append to pools, grow buffers) would make it O(new row).
+**Per-render value column (still a cost).** `ActiveSignals.tsx:~60` — each active row's value cell is a `createMemo(() => formatSegmentValue(valueAtTick(sig.handle, s.cursorTicks), ...))` inside a `<For>`. `s.cursorTicks` is reactive, so a cursor drag (setCursor per pointermove) recomputes ALL N row memos → N napi `getValueAt` calls/frame, each crossing JS/native + allocating JS word arrays (jsWordArray). Scales O(visible rows) per cursor move. HoverReadout.tsx does one more on hover. Not a regression on the pill branch; a standing cost. Fix: window/throttle, or push cursor value compute native + batch.
 
-**2. Per-render value column.** `App.tsx:2170` — the active-signal list `.map` calls `formatSegmentValue(valueAtTick(sig.handle, cursorTicks), ...)` for EVERY row on every render. `valueAtTick` → `getValueAt` is a napi→Zig→tide point query (crosses the JS/native boundary, allocates a JS object + word arrays each call). Cursor drag calls `setCursorTicks` per pointermove → re-renders the whole (uncompiled) App → N napi queries per drag frame. App is deliberately NOT React-compiled (imperative WebGPU loop bails the compiler), so nothing memoizes this. Hover readout was already split into an external store (hoverStore) for exactly this reason — but the cursor value column was not. Scales O(rows) per cursor move; with many rows + napi overhead this is real jank.
+**Repack-all is now windowed** — see [[perf-viewport-windowing]]. add-signal still repacks all active signals but only over the visible window (not full trace), and destroys+recreates all GPU storage buffers. Label append fast-path (setLabels reusePrefix) covers pure-append adds.
 
-**Note:** the rAF frame loop ITSELF is well-optimized — pooled scratch arrays (getRect/getLine), hoisted vp object, fixed pill pool, no per-frame allocs. The old "per-frame allocation hotspot" memory is now OUTDATED (that refactor landed). The remaining CPU costs are in React render paths (value column) and the native repack, not the rAF body.
+**rAF frame body is alloc-free** — pooled scratch (getRect/getLine reuse RectMut/LineMut objects), hoisted `vp` object, fixed pill accumulators, viewport written via aliased typed arrays. writeRowColors only on init + active-set change (NOT per frame). Don't re-flag per-frame allocs in the rAF body.

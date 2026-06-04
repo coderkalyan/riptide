@@ -1,17 +1,18 @@
 ---
-name: No viewport culling — draws all segments every frame
-description: The dominant large-case perf bottleneck. instanceCount = total segment count, not visible. No binary search anywhere.
+name: perf-viewport-windowing
+description: Viewport-windowed packing now EXISTS (was the old "no culling" issue). Frame loop repacks the visible window + 1-screen over-fetch margin via hysteresis. Pan/zoom-in within margin = uniform-only.
 metadata:
   type: project
 ---
 
-**Highest-leverage large-case perf issue.** `frame.ts:72` does `pass.draw(4, pipeline.segmentCount)` where segmentCount = the FULL packed segment count for that pipeline (set in digital.ts bindSegments). There is **zero viewport culling** anywhere in the renderer (verified: grep for binary/bisect/cull/upperBound/firstVisible finds nothing in the draw path). Every segment of every active signal is rasterized every frame regardless of zoom — when zoomed out, thousands of sub-pixel pills/lines each spawn a 4-vertex strip + run the full fragment shader (SDF, hatch fwidth, decodeSample word-fold loop). Cost scales with TOTAL segments × overdraw, not visible width.
+**RESOLVED / SUPERSEDED.** The old "draws ALL segments, no culling" issue is fixed. As of `perf/pill-buffer-consolidation` there is viewport-windowed packing.
 
-**Why it's not biting yet:** mock.vcd is tiny (end_t ~90, ~tens of segments). Will explode the moment a real large VCD loads (signals × transitions can be 10^5–10^7).
+**How it works** (WaveCanvas.tsx frame loop, ~lines 231-270 + main.zig getMockSegments(specs, qStart, qEnd)):
+- `getMockSegments` now takes a tick window `[qStart, qEnd]`. Native `db.query(handle, q_start, q_end)` is a binary-search slice (tide queries sorted by timestamp) — returns only in-window samples + the sample active at qStart (so left-edge pill draws from offscreen, identical to full pack). Cost is O(window), not O(total).
+- Renderer over-fetches: `M = visibleTicks` (one screen each side); guard band `G = M*0.5`. `needRepack` when: specsDirty (active-set change) OR packedRange null OR view enters guard band at either packed edge (gated on room beyond trace bounds 0/TRACE_END so edge doesn't retrigger) OR `tpp > pr.tpp*ZOOM_OUT_FACTOR` (1.5) OR `pr.end-pr.start > visibleTicks*WINDOW_SHRINK_FACTOR` (6).
+- Pan + zoom-IN within the margin = pure viewport-uniform updates (shader transforms already-packed segments) → cheap at any zoom. Only re-windowing triggers a repack.
+- Right-edge correctness: half-open query means last in-window segment's t_end snaps to end_t; the margin keeps it offscreen so its t_end/caret/single-bit-edge are never seen.
 
-**Fix direction (in order of leverage):**
-1. CPU-side per-row binary search over the sorted segment array for [startTick, endTick]; draw only `[firstVisible, lastVisible)` via `pass.draw(4, count, 0, firstInstance)` (firstInstance base-instance). tide queries are already sorted by timestamp so the data supports bisection.
-2. Coalesce sub-pixel segments at pack time per zoom (LOD) — when many transitions fall in one pixel column, emit one crosshatch "busy" segment. Needs repack on zoom, so secondary.
-3. Move packing/culling fully native (Zig) and only ship the visible window to the GPU.
+**No per-signal pack cache anymore** — getMockSegments comment says cache was dropped because packed output is now viewport-dependent (a config-keyed cache would never hit across pans). So every repack re-queries tide + reformats labels for ALL active signals over the window. Add-signal still repacks all (not incremental) but only over the window, not full trace.
 
-Per-row contiguity (segment_start) + sorted timestamps make (1) straightforward. This is THE thing to recommend first for large traces.
+**Remaining large-trace cost:** every re-window repacks all active signals (tide query + flag compute + native label format) and destroys+recreates all GPU storage buffers (segment bufs, rowInfo, x0/x1 pools) — see rebuildScene in WaveCanvas. Mid-drag re-windowing (zoom) can stall on buffer destroy+create. Label append fast-path exists (setLabels reusePrefix) but only for pure-append adds, not re-windows.
