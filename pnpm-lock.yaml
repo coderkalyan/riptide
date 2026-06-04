@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@melloware/coloris':
+        specifier: ^0.25.0
+        version: 0.25.0
       '@solid-primitives/keyed':
         specifier: ^1.5.3
         version: 1.5.3(solid-js@1.9.13)
@@ -413,6 +416,9 @@ packages:
   '@malept/flatpak-bundler@0.4.0':
     resolution: {integrity: sha512-9QOtNffcOF/c1seMCDnjckb3R9WHcG34tky+FHpNKKCW0wc/scYLwMtO+ptyGUfMW0/b/n4qRiALlaFHc9Oj7Q==}
     engines: {node: '>= 10.0.0'}
+
+  '@melloware/coloris@0.25.0':
+    resolution: {integrity: sha512-RBWVFLjWbup7GRkOXb9g3+ZtR9AevFtJinrRz2cYPLjZ3TCkNRGMWuNbmQWbZ5cF3VU7aQDZwUsYgIY/bGrh2g==}
 
   '@npmcli/fs@2.1.2':
     resolution: {integrity: sha512-yOJKRvohFOaLqipNtwYB9WugyZKhC/DZC4VYPmpaCzDBrA8YpK3qHZ8/HGscMnE4GqbkLNuVcCnxkeQEdGt6LQ==}
@@ -2233,6 +2239,8 @@ snapshots:
       tmp-promise: 3.0.3
     transitivePeerDependencies:
       - supports-color
+
+  '@melloware/coloris@0.25.0': {}
 
   '@npmcli/fs@2.1.2':
     dependencies:

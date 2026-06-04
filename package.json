@@ -58,6 +58,7 @@
     }
   },
   "dependencies": {
+    "@melloware/coloris": "^0.25.0",
     "@solid-primitives/keyed": "^1.5.3",
     "@tanstack/solid-virtual": "^3.13.28",
     "lucide-solid": "^1.17.0",
