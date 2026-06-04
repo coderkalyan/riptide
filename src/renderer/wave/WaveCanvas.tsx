@@ -3,20 +3,20 @@ import { initGPU, resizeCanvas, GPUInitError } from "../gpu/device";
 import { createDigitalRenderer } from "../gpu/digital";
 import { renderFrame } from "../gpu/frame";
 import { createColorBuffer, writeRowColors } from "../gpu/colors";
-import { MOCK_END_TICKS, MOCK_CLOCK_TICK_NS } from "../gpu/data";
+import { MOCK_CLOCK_TICK_NS } from "../gpu/data";
 import { createTextRenderer, MAX_GLYPHS, ATLAS_MIDDLE_DOT } from "../gpu/text";
 import { createLabelRenderer } from "../gpu/labels";
 import { createLineRenderer } from "../gpu/lines";
 import { createRectRenderer } from "../gpu/rect";
 import { createGpuTimer } from "../gpu/timing";
-import { RESET_HELD_TICKS, buildPackSpecs, packSpecsFor, type ActiveSignalRef } from "../hier/scene";
+import { RESET_HELD_TICKS, TRACE_END, buildPackSpecs, packSpecsFor, type ActiveSignalRef } from "../hier/scene";
 import { getMockSegments } from "../native";
 import * as perf from "../perf";
 import { useAppStore } from "../store/store";
 import { view } from "./viewport";
 import {
   ROW_HEIGHT_CSS, LINE_THICKNESS_CSS, LINE_HALF_CSS, NOTCH_HEIGHT, BOTTOM_RULER_HEIGHT,
-  MAX_MARKERS, MARKER_GRAB_PX, ZOOM_PER_DELTA_Y,
+  MAX_MARKERS, MARKER_GRAB_PX, ZOOM_PER_DELTA_Y, ZOOM_OUT_FACTOR, WINDOW_SHRINK_FACTOR,
 } from "./constants";
 import * as P from "./palette";
 import { dynamicRulerTicks, clockRulerTicks, rulerSpacing, formatTime, formatClockWhole, clockEdgesBetween, snapToClockEdge, CLOCK_PERIOD_NS } from "./format";
@@ -50,7 +50,9 @@ export function WaveCanvas() {
       const renderer = createDigitalRenderer(gpuCtx);
 
       perf.stamp("pack:start");
-      const NATIVE = getMockSegments(buildPackSpecs());
+      // Initial pack covers the full trace [0, TRACE_END] to seed the GPU buffers;
+      // the rAF loop re-windows to the viewport (+ over-fetch) on the first frame.
+      const NATIVE = getMockSegments(buildPackSpecs(), 0, TRACE_END);
       perf.stamp("pack:end");
 
       let scene = renderer.createSceneBuffers(NATIVE.rowInfo, NATIVE.x0Pool, NATIVE.x1Pool);
@@ -70,7 +72,10 @@ export function WaveCanvas() {
       );
       if (disposed) return;
       const labelBatch = labelRenderer.createBatch();
-      labelBatch.setLabels(NATIVE.multi, NATIVE.multiCount, NATIVE.labelBytes, NATIVE.labelOffsets, scene.rowInfo);
+      labelBatch.setLabels(NATIVE.multi, NATIVE.multiCount, NATIVE.labelBytes, NATIVE.labelOffsets, scene.rowInfo, false);
+      // The active list the label buffer currently reflects — lets a pure-append
+      // add (new rows at the end) upload only the new glyphs (setLabels reusePrefix).
+      let lastLabelActive: ActiveSignalRef[] = useAppStore.getState().activeSignals;
 
       // Row dim/select state, derived from the store's active rows. Read by the
       // frame loop (selectedRow → vp.selected_row) and applyDim (hiddenRows).
@@ -86,9 +91,10 @@ export function WaveCanvas() {
       const applyDim = () => renderer.setDimFlags(scene, (row) => hiddenRows.has(row));
       applyDim();
 
-      // Repack GPU buffers + pill labels for a new active list (add/remove/radix).
-      const rebuildScene = (active: ActiveSignalRef[]) => {
-        const packed = getMockSegments(packSpecsFor(active));
+      // Repack GPU buffers + pill labels for a new active list (add/remove/radix)
+      // over a tick window [qStart, qEnd] (the visible viewport plus over-fetch).
+      const rebuildScene = (active: ActiveSignalRef[], qStart: number, qEnd: number) => {
+        const packed = getMockSegments(packSpecsFor(active), qStart, qEnd);
         perf.addMark("native repack (getMockSegments)");
         const nextScene = renderer.createSceneBuffers(packed.rowInfo, packed.x0Pool, packed.x1Pool);
         const nextMulti = renderer.rebindPipeline(multiBit, packed.multi, packed.multiCount, colorBuf, nextScene);
@@ -102,7 +108,17 @@ export function WaveCanvas() {
         multiBit = nextMulti;
         singleBit = nextSingle;
         perf.addMark("GPU buffer rebuild (scene + rebind)");
-        labelBatch.setLabels(packed.multi, packed.multiCount, packed.labelBytes, packed.labelOffsets, scene.rowInfo);
+        // Pure append (add-from-tree): existing rows unchanged + new rows at the
+        // end → label buffer prefix is identical, so only upload the new glyphs.
+        // Any other change (reorder/remove/radix) → full label rebuild.
+        const prev = lastLabelActive;
+        const isAppend = active.length > prev.length &&
+          prev.every((r, i) => {
+            const n = active[i];
+            return n != null && n.signalId === r.signalId && n.row === r.row && n.radix === r.radix && n.role === r.role;
+          });
+        labelBatch.setLabels(packed.multi, packed.multiCount, packed.labelBytes, packed.labelOffsets, scene.rowInfo, isAppend);
+        lastLabelActive = active;
         perf.addMark("rebuild value labels");
         applyDim(); // fresh rowInfo starts with flags=0 — re-apply the dim set
       };
@@ -174,6 +190,12 @@ export function WaveCanvas() {
       dprMql.addEventListener("change", onDprChange);
 
       let viewReported = { start: -1, end: -1 };
+      // Viewport-windowed packing state. `packedRange` is the tick window the GPU
+      // buffers currently hold (null forces a full repack — initial frame + swap);
+      // `specsDirty` flags an active-set change so the next frame repacks at the
+      // current window regardless of viewport movement.
+      let packedRange: { start: number; end: number; tpp: number } | null = null;
+      let specsDirty = false;
       perf.stamp("gpu:ready");
 
       const frame = (now: number) => {
@@ -202,6 +224,48 @@ export function WaveCanvas() {
           viewReported = { start: startTicks, end: viewEnd };
           st.setViewRange(startTicks, viewEnd);
         }
+
+        // Viewport-windowed repack (the single packer). Pack the active signals
+        // over the visible window plus an over-fetch margin, but only when the
+        // active set changed (specsDirty) OR the visible range entered the
+        // hysteresis guard band at either packed edge OR the user zoomed out far
+        // enough that the packed window is too narrow in ticks. Pan and zoom-IN
+        // within the margin stay pure uniform updates — the shader transforms the
+        // already-packed segments — so they're cheap at any zoom. The margin also
+        // keeps the visible right edge interior to the packed window, so its
+        // t_end / clock-caret / single-bit edge render identically to a full pack.
+        {
+          const M = visibleTicks; // over-fetch one screen of ticks each side
+          const G = M * 0.5; // guard band: repack at halfway into the margin
+          const pr = packedRange;
+          // Edge clauses are gated on there being room beyond the trace bounds —
+          // at the trace start/end the packed window is clamped to 0 / TRACE_END,
+          // so the visible edge sitting on it must NOT keep retriggering.
+          const needRepack =
+            specsDirty ||
+            pr == null ||
+            (pr.start > 0 && startTicks < pr.start + G) ||
+            (pr.end < TRACE_END && viewEnd > pr.end - G) ||
+            ticksPerPixel > pr.tpp * ZOOM_OUT_FACTOR ||
+            pr.end - pr.start > visibleTicks * WINDOW_SHRINK_FACTOR;
+          if (needRepack) {
+            const qStart = Math.max(0, Math.floor(startTicks - M));
+            const qEnd = Math.min(TRACE_END, Math.ceil(viewEnd + M));
+            // Skip the GPU work when the clamped window is unchanged (e.g. zooming
+            // further out while already covering the whole trace); still refresh
+            // packedRange.tpp so the zoom-out clause doesn't fire every frame. A
+            // specs-dirty repack never skips — the active set changed.
+            if (specsDirty || pr == null || qStart !== pr.start || qEnd !== pr.end) {
+              rebuildScene(useAppStore.getState().activeSignals, qStart, qEnd);
+            }
+            packedRange = { start: qStart, end: qEnd, tpp: ticksPerPixel };
+            if (specsDirty) {
+              specsDirty = false;
+              perf.markAddRebuilt(useAppStore.getState().activeSignals.length);
+            }
+          }
+        }
+
         const cursor = st.cursorTicks;
         const clockAnchor = st.clockAnchor;
         const xForTick = (tick: number) => (tick - startTicks) / ticksPerPixel;
@@ -214,7 +278,7 @@ export function WaveCanvas() {
         vp.selected_row = selectedRow;
         vp.wave_y_offset = rulerHeightCSS;
 
-        const dataEndPx = xForTick(MOCK_END_TICKS);
+        const dataEndPx = xForTick(TRACE_END);
         const deadStartPx = Math.min(timelinePx, dataEndPx);
         const notchY = rulerHeightCSS - NOTCH_HEIGHT;
         const bottomRulerH = BOTTOM_RULER_HEIGHT;
@@ -467,7 +531,7 @@ export function WaveCanvas() {
           view.zoomAtPixel(mouseX, Math.exp(e.deltaY * ZOOM_PER_DELTA_Y));
         } else {
           const visibleTicks = view.timelinePx * view.ticksPerPixel;
-          if (visibleTicks >= MOCK_END_TICKS) return;
+          if (visibleTicks >= TRACE_END) return;
           const dx = e.deltaX !== 0 ? e.deltaX : e.deltaY;
           view.panByPixels(dx);
         }
@@ -534,25 +598,32 @@ export function WaveCanvas() {
         (s) => s.activeSignals,
         (rows) => { writeRowColors(device, colorBuf, rows); syncRowState(rows); applyDim(); },
       );
-      // B (structural): repack only when signal/row/radix membership changes.
+      // B (structural): membership change (signal/row/radix) → flag a repack. The
+      // frame loop is the single packer, so it repacks at the live viewport window
+      // (markAddRebuilt fires there once the new buffers present).
       const unsubStructural = useAppStore.subscribe(
         (s) => s.activeSignals.map((r) => `${r.signalId}:${r.row}:${r.radix}`).join("|"),
         () => {
-          const rows = useAppStore.getState().activeSignals;
           perf.addMark("solid render + commit + paint");
-          rebuildScene(rows);
-          perf.markAddRebuilt(rows.length);
+          specsDirty = true;
         },
       );
-      // C (trace swap): the repack/colors flow through A+B (activeSignals
-      // changed), so here we only reset the viewport + close out the swap perf
-      // marks. Registered last → runs after B's repack on the swap's atomic set.
+      // C (trace swap): reset the viewport and repack the new trace synchronously
+      // (full range, so the swap perf marks measure the real GPU cost instead of
+      // it bleeding into the next frame's add path). The frame loop then re-windows
+      // to the viewport: tpp 0 trips its zoom-out clause on the next frame. B also
+      // set specsDirty for this atomic set — clear it, this repack already covers
+      // it. Registered last → runs after A/B on the swap's set.
       const unsubTrace = useAppStore.subscribe(
         (s) => s.traceNonce,
         () => {
           view.resetForTrace();
+          const rows = useAppStore.getState().activeSignals;
+          rebuildScene(rows, 0, TRACE_END);
+          packedRange = { start: 0, end: TRACE_END, tpp: 0 };
+          specsDirty = false;
           perf.swapMark("GPU repack");
-          perf.markSwapRebuilt(useAppStore.getState().activeSignals.length);
+          perf.markSwapRebuilt(rows.length);
         },
       );
 

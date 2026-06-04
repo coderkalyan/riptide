@@ -147,8 +147,8 @@ export function setHierarchyNodes(n: number): void { hierarchyNodes = n; }
 // as a CONTIGUOUS segmentation from navigation start (t=0 on the performance.now
 // clock = timeOrigin) through each stamp to the first frame. Segments telescope,
 // so they sum to the total — time that used to hide between bracketed spans
-// (bundle download/parse/eval, the native .node require/dlopen, React mounting
-// the whole UI before the GPU effect, the rAF wait) is now its own visible row.
+// (bundle download/parse/eval, the native .node require/dlopen, Solid rendering
+// the whole UI before the GPU init, the rAF wait) is now its own visible row.
 // Each label describes the work done in the interval ending at that stamp.
 export function markFirstFrame(): void {
   if (lastLoad) return; // first frame only

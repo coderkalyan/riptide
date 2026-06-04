@@ -22,3 +22,10 @@ export const MARKER_GRAB_PX = 5;
 export const ZOOM_PER_DELTA_Y = 0.001;
 export const ZOOM_STEP = 1.25;
 export const ZOOM_ANIM_MS = 120;
+
+// Viewport-windowed repack hysteresis (see WaveCanvas frame loop): repack once a
+// zoom-OUT widens the visible tick span past ZOOM_OUT_FACTOR× the packed density,
+// or a zoom-IN leaves the packed window more than WINDOW_SHRINK_FACTOR× wider than
+// the visible span.
+export const ZOOM_OUT_FACTOR = 1.5; // repack once the view is this much more zoomed out
+export const WINDOW_SHRINK_FACTOR = 6; // re-window when packed span exceeds this × visible

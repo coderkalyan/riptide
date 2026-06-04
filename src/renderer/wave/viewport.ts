@@ -3,8 +3,7 @@
 // it's a module singleton: the rAF loop reads it every frame; pointer handlers
 // and the toolbar mutate it. `timelinePx` (canvas CSS width) is stamped here each
 // frame / on wheel, so toolbar actions (zoom/fit/range) need no canvas ref.
-import { INITIAL } from "../hier/scene";
-import { MOCK_END_TICKS } from "../gpu/data";
+import { INITIAL, TRACE_END } from "../hier/scene";
 import { ZOOM_ANIM_MS } from "./constants";
 
 const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
@@ -29,7 +28,7 @@ export const view = {
       this.seeded = true;
       const span = INITIAL.time.end - INITIAL.time.start;
       const isFullRange =
-        Math.abs(INITIAL.time.start) < 1e-6 && Math.abs(INITIAL.time.end - MOCK_END_TICKS) < 1e-6;
+        Math.abs(INITIAL.time.start) < 1e-6 && Math.abs(INITIAL.time.end - TRACE_END) < 1e-6;
       if (span > 0 && !isFullRange) {
         this.ticksPerPixel = span / this.timelinePx;
         this.startTicks = INITIAL.time.start;
@@ -37,7 +36,7 @@ export const view = {
       }
     }
     if (!this.userInteracted || this.ticksPerPixel <= 0) {
-      this.ticksPerPixel = MOCK_END_TICKS / this.timelinePx;
+      this.ticksPerPixel = TRACE_END / this.timelinePx;
       this.startTicks = 0;
     }
   },
@@ -60,8 +59,8 @@ export const view = {
 
   clampPan(): void {
     const visibleTicks = this.timelinePx * this.ticksPerPixel;
-    if (visibleTicks < MOCK_END_TICKS) {
-      this.startTicks = Math.max(0, Math.min(MOCK_END_TICKS - visibleTicks, this.startTicks));
+    if (visibleTicks < TRACE_END) {
+      this.startTicks = Math.max(0, Math.min(TRACE_END - visibleTicks, this.startTicks));
     } else {
       this.startTicks = 0;
     }
@@ -90,21 +89,21 @@ export const view = {
   // --- button-driven (toolbar) --------------------------------------------
   zoomBy(factor: number): void {
     this.userInteracted = true;
-    const tpp0 = this.ticksPerPixel > 0 ? this.ticksPerPixel : MOCK_END_TICKS / this.timelinePx;
+    const tpp0 = this.ticksPerPixel > 0 ? this.ticksPerPixel : TRACE_END / this.timelinePx;
     const start0 = this.startTicks;
     const centerX = this.timelinePx * 0.5;
     const worldTickAtCenter = start0 + centerX * tpp0;
     const tppT = tpp0 * factor;
     let startT = worldTickAtCenter - centerX * tppT;
     const visible = this.timelinePx * tppT;
-    startT = visible < MOCK_END_TICKS ? Math.max(0, Math.min(MOCK_END_TICKS - visible, startT)) : 0;
+    startT = visible < TRACE_END ? Math.max(0, Math.min(TRACE_END - visible, startT)) : 0;
     this.zoomAnim = { tpp0, start0, tppT, startT, t0: performance.now(), releaseFit: false };
   },
 
   fitView(): void {
-    const tpp0 = this.ticksPerPixel > 0 ? this.ticksPerPixel : MOCK_END_TICKS / this.timelinePx;
+    const tpp0 = this.ticksPerPixel > 0 ? this.ticksPerPixel : TRACE_END / this.timelinePx;
     this.userInteracted = true; // hold off auto-fit until the animation lands
-    this.zoomAnim = { tpp0, start0: this.startTicks, tppT: MOCK_END_TICKS / this.timelinePx, startT: 0, t0: performance.now(), releaseFit: true };
+    this.zoomAnim = { tpp0, start0: this.startTicks, tppT: TRACE_END / this.timelinePx, startT: 0, t0: performance.now(), releaseFit: true };
   },
 
   // Pan so the cursor sits at the left edge, keeping zoom (tppT == tpp0).
