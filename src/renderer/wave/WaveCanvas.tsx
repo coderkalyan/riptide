@@ -90,6 +90,13 @@ export function WaveCanvas() {
       syncRowState(useAppStore.getState().activeSignals);
       const applyDim = () => renderer.setDimFlags(scene, (row) => hiddenRows.has(row));
       applyDim();
+      // Per-row vertical layout (resize): write each row's y/height into rowInfo.
+      // Rows stack from the ruler band (ROW_HEIGHT_CSS); a row without an explicit
+      // height falls back to the default. No repack — same fast path as applyDim.
+      const rowHeightOf = (row: number) =>
+        useAppStore.getState().activeSignals.find((r) => r.row === row)?.height ?? ROW_HEIGHT_CSS;
+      const applyRowLayout = () => renderer.setRowLayout(scene, rowHeightOf, ROW_HEIGHT_CSS);
+      applyRowLayout();
 
       // Repack GPU buffers + pill labels for a new active list (add/remove/radix)
       // over a tick window [qStart, qEnd] (the visible viewport plus over-fetch).
@@ -121,6 +128,7 @@ export function WaveCanvas() {
         lastLabelActive = active;
         perf.addMark("rebuild value labels");
         applyDim(); // fresh rowInfo starts with flags=0 — re-apply the dim set
+        applyRowLayout(); // fresh rowInfo starts with y/height=0 — re-apply layout
       };
 
       const linesBg = lineRenderer.createBatch();
@@ -507,14 +515,20 @@ export function WaveCanvas() {
       };
       const updateHover = (clientX: number, clientY: number) => {
         const rect = host.getBoundingClientRect();
-        const rh = ROW_HEIGHT_CSS;
+        const rulerH = ROW_HEIGHT_CSS;
         const py = clientY - rect.top;
         const px = Math.max(0, Math.min(rect.width, clientX - rect.left)) - LINE_HALF_CSS;
         const tick = view.startTicks + px * view.ticksPerPixel;
-        let row = rh > 0 ? Math.floor(py / rh) - 1 : -1;
-        // Live row count (not SCENE's initial set, which goes stale after
-        // add/remove — a latent bug in the React build that used SCENE here).
-        if (py < rh || row < 0 || row >= useAppStore.getState().activeSignals.length) row = -1;
+        // Walk the per-row stacked heights (rows can be individually resized) to
+        // find which row contains py. Live rows, not SCENE's stale initial set.
+        const rows = useAppStore.getState().activeSignals;
+        let row = -1;
+        let y = rulerH;
+        for (let i = 0; i < rows.length; i++) {
+          const h = rows[i].height ?? ROW_HEIGHT_CSS;
+          if (py >= y && py < y + h) { row = i; break; }
+          y += h;
+        }
         useAppStore.getState().setHover({ tick, row });
       };
 
@@ -600,7 +614,7 @@ export function WaveCanvas() {
       // re-applies dim.
       const unsubCosmetic = useAppStore.subscribe(
         (s) => s.activeSignals,
-        (rows) => { writeRowColors(device, colorBuf, rows); syncRowState(rows); applyDim(); },
+        (rows) => { writeRowColors(device, colorBuf, rows); syncRowState(rows); applyDim(); applyRowLayout(); },
       );
       // B (structural): membership or format change → flag a repack. The key must
       // cover everything that changes the native pack: signal/row, radix (single vs

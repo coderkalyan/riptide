@@ -5,6 +5,7 @@ import { SCENE, type ActiveSignalRef } from "./hier/scene";
 import { useAppStore } from "./store/store";
 import { ActiveSignal, type ActiveSignalKind } from "./ActiveSignal";
 import { valueAtTick, formatSegmentValue } from "./wave/value";
+import { ROW_HEIGHT_CSS, ROW_MIN_HEIGHT_CSS, ROW_MAX_HEIGHT_CSS } from "./wave/constants";
 
 // Icon reflects the chosen format: clock and reset get their own glyph, every
 // other format (binary/decimal/hex/enum) shows the generic data icon.
@@ -24,6 +25,27 @@ export function ActiveSignals(props: {
   onToggleCollapse: (collapsed: boolean) => void;
 }) {
   const s = useAppStore();
+  // Drag the row's bottom handle to resize its height; pointer capture keeps the
+  // drag alive past the thin handle. Persists via setRowHeight (sidecar autosave);
+  // the canvas re-applies the GPU row layout through its cosmetic subscription.
+  const startRowResize = (row: number, current: number | undefined) => (e: PointerEvent) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = current ?? ROW_HEIGHT_CSS;
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+    const onMove = (ev: PointerEvent) => {
+      const h = Math.max(ROW_MIN_HEIGHT_CSS, Math.min(ROW_MAX_HEIGHT_CSS, startH + (ev.clientY - startY)));
+      s.setRowHeight(row, h);
+    };
+    const onUp = (ev: PointerEvent) => {
+      target.releasePointerCapture(ev.pointerId);
+      target.removeEventListener("pointermove", onMove);
+      target.removeEventListener("pointerup", onUp);
+    };
+    target.addEventListener("pointermove", onMove);
+    target.addEventListener("pointerup", onUp);
+  };
   return (
     <div class="col">
       <div class="col-head" style={{ "padding-right": "3px" }}>
@@ -69,10 +91,13 @@ export function ActiveSignals(props: {
               collapsed={props.collapsed}
               sliding={props.sliding}
               value={value()}
+              height={row.height}
               onPinClick={(e) => s.setPicker({ row: row.row, anchorRect: (e.currentTarget as HTMLElement).getBoundingClientRect() })}
               onToggleVisible={() => s.toggleHidden(row.row)}
               onClick={() => s.selectRow(row.row)}
               onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); s.setCtxMenu({ x: e.clientX, y: e.clientY, row: row.row }); }}
+              onResizeStart={startRowResize(row.row, row.height)}
+              onResizeReset={() => s.setRowHeight(row.row, undefined)}
             />
           );
         }}</For>

@@ -4,11 +4,16 @@ import WGSL from "./digital.wgsl";
 
 type ShaderVariant = "multi" | "single";
 
-// RowInfo is 5×u32 (see segments.zig / digital.wgsl): x0_offset, x1_offset,
-// bytes_per_sample, segment_start, flags. Word 4 is the per-row flags; bit 0 =
-// dim. ROW_FLAG_DIM must match digital.wgsl's ROW_FLAG_DIM.
-const ROW_INFO_WORDS = 5;
+// RowInfo is 7×u32 (see segments.zig / digital.wgsl): x0_offset, x1_offset,
+// bytes_per_sample, segment_start, flags, y_offset, height. Word 4 is the per-row
+// flags (bit 0 = dim); words 5/6 are the vertical layout (CSS px as f32 bits),
+// both patched directly by the renderer (no repack). ROW_FLAG_DIM must match
+// digital.wgsl's ROW_FLAG_DIM.
+const ROW_INFO_WORDS = 7;
 const ROW_FLAG_DIM = 1 << 0;
+const ROW_WORD_FLAGS = 4;
+const ROW_WORD_Y = 5;
+const ROW_WORD_H = 6;
 
 export interface SignalPipeline {
   pipeline: GPURenderPipeline;
@@ -60,6 +65,10 @@ export interface DigitalRenderer {
   // column and re-uploading it. One small writeBuffer, no repack — call after a
   // scene (re)build and whenever the hidden set changes.
   setDimFlags(scene: SceneBuffers, isHidden: (row: number) => boolean): void;
+  // Write the per-row vertical layout (y_offset/height as f32 bits) into the
+  // rowInfo buffer. `top` is the first row's y (below the ruler); heights stack.
+  // One writeBuffer, no repack — call after a scene (re)build and on row resize.
+  setRowLayout(scene: SceneBuffers, heightOf: (row: number) => number, top: number): void;
 }
 
 export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
@@ -184,10 +193,25 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
     const cpu = scene.rowInfoCpu;
     const rows = cpu.length / ROW_INFO_WORDS;
     for (let r = 0; r < rows; r++) {
-      cpu[r * ROW_INFO_WORDS + 4] = isHidden(r) ? ROW_FLAG_DIM : 0;
+      cpu[r * ROW_INFO_WORDS + ROW_WORD_FLAGS] = isHidden(r) ? ROW_FLAG_DIM : 0;
     }
     if (cpu.byteLength > 0) device.queue.writeBuffer(scene.rowInfo, 0, cpu);
   }
 
-  return { ctx, module, bgl, layout, uniformBuf, viewportScratch, writeViewport, createSceneBuffers, buildPipelineFromPacked, rebindPipeline, setDimFlags };
+  function setRowLayout(scene: SceneBuffers, heightOf: (row: number) => number, top: number): void {
+    const cpu = scene.rowInfoCpu;
+    const rows = cpu.length / ROW_INFO_WORDS;
+    // Same backing buffer, viewed as f32 to write the y_offset/height words.
+    const f = new Float32Array(cpu.buffer, cpu.byteOffset, cpu.length);
+    let y = top;
+    for (let r = 0; r < rows; r++) {
+      const h = heightOf(r);
+      f[r * ROW_INFO_WORDS + ROW_WORD_Y] = y;
+      f[r * ROW_INFO_WORDS + ROW_WORD_H] = h;
+      y += h;
+    }
+    if (cpu.byteLength > 0) device.queue.writeBuffer(scene.rowInfo, 0, cpu);
+  }
+
+  return { ctx, module, bgl, layout, uniformBuf, viewportScratch, writeViewport, createSceneBuffers, buildPipelineFromPacked, rebindPipeline, setDimFlags, setRowLayout };
 }

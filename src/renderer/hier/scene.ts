@@ -50,6 +50,7 @@ export interface ActiveSignalRef {
   role?: ActiveRole;
   clock?: ClockConfig;
   enumTable?: EnumEntry[];
+  height?: number;           // per-row vertical size (CSS px); default ROW_HEIGHT_CSS
   derivedExpr?: string;
 }
 

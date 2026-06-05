@@ -91,6 +91,8 @@ export interface Actions {
   setFormat: (row: number, radix: Radix, role: ActiveRole | undefined) => void;
   setClockConfig: (row: number, clock: ClockConfig) => void;
   setEnumTable: (row: number, enumTable: EnumEntry[]) => void;
+  // Per-row vertical size (CSS px). undefined resets to the default ROW_HEIGHT_CSS.
+  setRowHeight: (row: number, height: number | undefined) => void;
   toggleHidden: (row: number) => void;
   selectRow: (row: number) => void;
   clearSelection: () => void;
@@ -208,6 +210,9 @@ const vanilla = createVanilla<AppState>()(
     })),
     setEnumTable: (row, enumTable) => set((s) => ({
       activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, enumTable } : r)),
+    })),
+    setRowHeight: (row, height) => set((s) => ({
+      activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, height } : r)),
     })),
     toggleHidden: (row) => set((s) => ({
       activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, hidden: !r.hidden } : r)),

@@ -20,14 +20,16 @@ struct Viewport {
     _pad2: f32,
 }
 
-// Mirrors segments.zig / digital.wgsl RowInfo (5×u32). Only `flags` is read here
-// (bit 0 = dim — the same flag the waveform shader reads).
+// Mirrors segments.zig / digital.wgsl RowInfo (7×u32). `flags` (bit 0 = dim) and
+// the per-row vertical placement (y_offset / height, f32 bits) are read here.
 struct RowInfo {
     x0_offset: u32,
     x1_offset: u32,
     bytes_per_sample: u32,
     segment_start: u32,
     flags: u32,
+    y_offset: u32,
+    height: u32,
 }
 const ROW_FLAG_DIM: u32 = 1u << 0u;
 
@@ -95,7 +97,10 @@ fn vs_label(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
         return VertexData(CULLED, vec2f(0.0), vec3f(0.0));
     }
 
-    let y0 = snap(viewport.wave_y_offset + viewport.row_height * (f32(g.row) + 0.5) - midline);
+    // Vertical center from the per-row layout (RowInfo.y_offset / .height).
+    let row_y = bitcast<f32>(rows[g.row].y_offset);
+    let row_h = bitcast<f32>(rows[g.row].height);
+    let y0 = snap(row_y + row_h * 0.5 - midline);
 
     let corner_x = f32(vi & 1u);
     let corner_y = f32((vi >> 1u) & 1u);

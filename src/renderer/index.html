@@ -440,6 +440,7 @@
         .s-head span:nth-child(4) { text-align: right; font-weight: 700; }
         .s-head span:nth-child(3) { font-weight: 700; }
         .s-row {
+            position: relative;
             display:flex; align-items:center;
             gap: 6px; padding: 0 8px;
             height: var(--row-h);
@@ -447,6 +448,14 @@
             font-family: 'JetBrains Mono', monospace; font-size: 12px;
         }
         .s-row .pin, .s-row .s-icon, .s-row .eye { flex: none; }
+        /* Bottom-edge vertical resize handle (drag to size a row, dbl-click reset).
+           Straddles the row border; an accent line fades in on hover/drag. */
+        .s-resize { position: absolute; left: 0; right: 0; bottom: -2px; height: 6px; cursor: ns-resize; z-index: 2; }
+        .s-resize::after {
+            content: ''; position: absolute; left: 0; right: 0; bottom: 2px; height: 2px;
+            background: var(--accent); opacity: 0; transition: opacity 90ms ease;
+        }
+        .s-resize:hover::after { opacity: 0.7; }
         .s-row:hover { background: var(--panel-2); }
         .s-row.sel { background: var(--accent-soft); }
         .pin {

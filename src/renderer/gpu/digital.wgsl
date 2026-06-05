@@ -47,6 +47,11 @@ struct RowInfo {
     // Per-row render flags (bit 0 = dim). Written directly into the rowInfo
     // buffer by the renderer on eye toggle (no repack). See ROW_FLAG_DIM.
     flags: u32,
+    // Per-row vertical placement in CSS px, stored as f32 bits (bitcast below).
+    // y_offset = row top in canvas space, height = drawn height. Written by the
+    // renderer (row resize) directly into the buffer — no repack.
+    y_offset: u32,
+    height: u32,
 }
 
 // RowInfo.flags bits (distinct from the VertexData F_* flags below). Must match
@@ -187,9 +192,13 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
     // single, xgap_px is 0).
     pixel_bounds += vec2f(0.0, -xgap_px);
 
-    // Compute the pill's center and half-size in pixels.
-    let center_px = vec2f((pixel_bounds[0] + pixel_bounds[1]) * 0.5, viewport.wave_y_offset + viewport.row_height * (f32(row) + 0.5));
-    let half_size_px = vec2f((pixel_bounds[1] - pixel_bounds[0]) * 0.5, (viewport.row_height - ygap_px) * 0.5);
+    // Compute the pill's center and half-size in pixels. Vertical placement comes
+    // from the per-row layout (RowInfo.y_offset / .height, f32 bits), so rows of
+    // any height position + size correctly.
+    let row_y = bitcast<f32>(rows[row].y_offset);
+    let row_h = bitcast<f32>(rows[row].height);
+    let center_px = vec2f((pixel_bounds[0] + pixel_bounds[1]) * 0.5, row_y + row_h * 0.5);
+    let half_size_px = vec2f((pixel_bounds[1] - pixel_bounds[0]) * 0.5, (row_h - ygap_px) * 0.5);
 
     // Compute the vertex position in pixel space.
     let corner = vec2f(corner_x, corner_y);

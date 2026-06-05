@@ -46,6 +46,7 @@ export interface SidecarSignal {
   role?: ActiveRole;
   clock?: ClockConfig;
   enumTable?: EnumEntry[];
+  height?: number;          // per-row vertical size (CSS px)
   derived?: { expr: string };
   // Reserved for forward-compat / scripting; not emitted by this build (enums
   // and muting are trace-side here). Documented in docs/sidecar.md.
@@ -226,6 +227,7 @@ export function resolveView(
       ...(s.role ? { role: s.role } : {}),
       ...(s.clock ? { clock: s.clock } : {}),
       ...(s.enumTable ? { enumTable: s.enumTable } : {}),
+      ...(s.height ? { height: s.height } : {}),
       ...(s.derived ? { derivedExpr: s.derived.expr } : {}),
     });
   }
@@ -269,6 +271,7 @@ export function serializeSidecar(snap: SidecarSnapshot): Sidecar {
     ...(r.role ? { role: r.role } : {}),
     ...(r.clock ? { clock: r.clock } : {}),
     ...(r.enumTable ? { enumTable: r.enumTable } : {}),
+    ...(r.height ? { height: r.height } : {}),
     ...(r.derivedExpr ? { derived: { expr: r.derivedExpr } } : {}),
   }));
 

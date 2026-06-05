@@ -3,8 +3,13 @@
 // these are NOT multiplied by dpr.
 
 // Active-signal / ruler row height. Mirrors the --row-h CSS var so canvas rows
-// line up with the DOM .s-row / .s-head rows.
+// line up with the DOM .s-row / .s-head rows. This is the per-row DEFAULT; rows
+// can be individually resized (ActiveSignalRef.height) — double-click the row
+// resize handle to return to this.
 export const ROW_HEIGHT_CSS = 28;
+// Clamp for per-row vertical resizing (drag handle on each .s-row).
+export const ROW_MIN_HEIGHT_CSS = 18;
+export const ROW_MAX_HEIGHT_CSS = 200;
 
 // Vertical-line thickness — MUST match the `thickness` literal in lines.wgsl.
 export const LINE_THICKNESS_CSS = 2.5;

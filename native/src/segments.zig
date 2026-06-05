@@ -35,6 +35,12 @@ pub const RowInfo = extern struct {
     // digital.ts). Native always emits 0 — the renderer sets this directly in
     // the GPU rowInfo buffer (eye toggle) without a repack.
     flags: u32,
+    // Per-row vertical placement, CSS px stored as f32 bits (the shader bitcasts
+    // them). y_offset = the row's top in canvas space, height = its drawn height.
+    // Native always emits 0 — the renderer writes the live layout into the GPU
+    // rowInfo buffer (row resize) without a repack, same as `flags`.
+    y_offset: u32,
+    height: u32,
 };
 
 pub const ROW_FLAG_DIM: u32 = 1 << 0;
@@ -237,13 +243,13 @@ pub fn finalize(scene: *Scene, gpa: Allocator) !Finalized {
     while (i < row_count) : (i += 1) {
         const r = scene.rows[i];
         if (r.bit_width == 0) {
-            row_infos.appendAssumeCapacity(.{ .x0_offset = 0, .x1_offset = 0, .bytes_per_sample = 0, .segment_start = 0, .flags = 0 });
+            row_infos.appendAssumeCapacity(.{ .x0_offset = 0, .x1_offset = 0, .bytes_per_sample = 0, .segment_start = 0, .flags = 0, .y_offset = 0, .height = 0 });
             continue;
         }
         const bps = bytesPerSample(r.bit_width);
         const off0 = try packRow(&x0, gpa, r.lsbs.items);
         const off1 = try packRow(&x1, gpa, r.msbs.items);
-        row_infos.appendAssumeCapacity(.{ .x0_offset = off0, .x1_offset = off1, .bytes_per_sample = bps, .segment_start = r.segment_start, .flags = 0 });
+        row_infos.appendAssumeCapacity(.{ .x0_offset = off0, .x1_offset = off1, .bytes_per_sample = bps, .segment_start = r.segment_start, .flags = 0, .y_offset = 0, .height = 0 });
     }
 
     // WebGPU writeBuffer needs a 4-byte-multiple size, and the shader reads the

@@ -26,10 +26,13 @@ export interface ActiveSignalProps {
   hidden?: boolean;        // eye toggled off (cosmetic dim)
   collapsed?: boolean;     // narrow strip: name only
   sliding?: boolean;       // during the collapse anim: slide the name into place
+  height?: number;         // per-row height (CSS px); undefined → default --row-h
   onPinClick?: (e: MouseEvent) => void;
   onToggleVisible?: (e: MouseEvent) => void;
   onClick?: (e: MouseEvent) => void;
   onContextMenu?: (e: MouseEvent) => void;
+  onResizeStart?: (e: PointerEvent) => void; // drag the bottom handle to resize
+  onResizeReset?: () => void;                // double-click handle → default height
 }
 
 const KIND_ICON: Record<ActiveSignalKind, (p: { size: number }) => JSX.Element> = {
@@ -47,6 +50,7 @@ export function ActiveSignal(props: ActiveSignalProps) {
   return (
     <div
       class={cls()}
+      style={props.height ? { height: `${props.height}px` } : undefined}
       onClick={(e) => props.onClick?.(e)}
       onContextMenu={(e) => props.onContextMenu?.(e)}
       data-tip={props.collapsed ? `${props.name} · ${props.value}` : props.tip}
@@ -75,6 +79,14 @@ export function ActiveSignal(props: ActiveSignalProps) {
           </span>
         </>
       )}
+      {/* Bottom edge resize handle: drag to set this row's height, double-click
+          to reset to the default. stopPropagation so it doesn't select the row. */}
+      <span
+        class="s-resize"
+        onPointerDown={(e) => { e.stopPropagation(); props.onResizeStart?.(e); }}
+        onDblClick={(e) => { e.stopPropagation(); props.onResizeReset?.(); }}
+        onClick={(e) => e.stopPropagation()}
+      />
     </div>
   );
 }
