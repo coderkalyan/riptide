@@ -94,6 +94,8 @@ export interface Actions {
   // Per-row vertical size (CSS px). undefined resets to the default ROW_HEIGHT_CSS.
   setRowHeight: (row: number, height: number | undefined) => void;
   toggleHidden: (row: number) => void;
+  // Hide every active row except `row` (which is forced visible).
+  hideOthers: (row: number) => void;
   selectRow: (row: number) => void;
   clearSelection: () => void;
 
@@ -216,6 +218,9 @@ const vanilla = createVanilla<AppState>()(
     })),
     toggleHidden: (row) => set((s) => ({
       activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, hidden: !r.hidden } : r)),
+    })),
+    hideOthers: (row) => set((s) => ({
+      activeSignals: s.activeSignals.map((r) => ({ ...r, hidden: r.row !== row })),
     })),
     selectRow: (row) => set((s) => {
       const wasSelected = s.activeSignals.find((r) => r.row === row)?.selected ?? false;

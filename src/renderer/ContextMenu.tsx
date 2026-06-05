@@ -62,6 +62,7 @@ export function activeSignalMenu(opts: { multiBit: boolean; clockRow: number; co
     { label: "Move to Top" },
     { label: "Move to Bottom" },
     "sep",
+    { label: "Hide Other Signals" },
     { label: "Remove from View" },
   ];
 }

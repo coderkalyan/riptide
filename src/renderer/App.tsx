@@ -295,6 +295,7 @@ export function App() {
             else if (it.action === "radix-enum") s.setFormat(row, "enum", undefined);
             else if (it.action === "format-clock") s.setFormat(row, "bin", "clock");
             else if (it.action === "format-reset") s.setFormat(row, "bin", "reset");
+            else if (it.label === "Hide Other Signals") s.hideOthers(row);
             else if (it.label === "Remove from View") s.removeSignal(row);
             else if (it.label === "Move to Top") s.moveSignal(row, "top");
             else if (it.label === "Move to Bottom") s.moveSignal(row, "bottom");
