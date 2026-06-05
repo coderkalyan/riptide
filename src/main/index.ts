@@ -35,9 +35,15 @@ if (renderdoc) {
 // "Open VCD…" menu swaps it and reloads. The path is carried to the renderer in
 // the window URL (?vcd=...) so a reload re-initializes the native db, hierarchy,
 // and sidecar-derived view from scratch — no in-place reactive plumbing needed.
+// The bundled mock + its curated sidecar are copied to dist/native (build:native)
+// and asar-UNPACKED (package.json asarUnpack "dist/native/**"): the native tide-vcd
+// addon reads via raw libc IO and CANNOT see inside app.asar, so the trace path must
+// resolve to the unpacked tree. In dev (`electron .`) getAppPath() is the repo root
+// and the replace is a no-op (dist/native/mock.vcd exists after `pnpm build`).
+const appUnpacked = app.getAppPath().replace(/app\.asar$/, "app.asar.unpacked");
 let currentVcd = process.env.RIPTIDE_VCD
   ? path.resolve(process.env.RIPTIDE_VCD)
-  : path.join(app.getAppPath(), "native/src/mock.vcd");
+  : path.join(appUnpacked, "dist/native/mock.vcd");
 
 // Recently-opened traces, most-recent first. Persisted to userData so the list
 // survives restarts. Drives the File > Open Recent submenu.

@@ -222,7 +222,15 @@ export function WaveCanvas() {
         const waveHeightCSS = Math.max(0, canvasH - rulerHeightCSS);
 
         const timelinePx = canvasW;
-        if (timelinePx <= 0) { raf = requestAnimationFrame(frame); return; }
+        // Skip the frame when there's nothing to draw into. timelinePx<=0 covers a
+        // collapsed CSS width; the canvas.width/height check covers the startup/
+        // resize race where clientWidth just became >0 but the ResizeObserver hasn't
+        // re-run resizeCanvas yet, so the backing store (and thus the swapchain
+        // texture from getCurrentTexture) is still 0 — Dawn rejects a 0-size texture.
+        if (timelinePx <= 0 || canvasEl.width === 0 || canvasEl.height === 0) {
+          raf = requestAnimationFrame(frame);
+          return;
+        }
 
         view.timelinePx = timelinePx;
         view.ensureInit();

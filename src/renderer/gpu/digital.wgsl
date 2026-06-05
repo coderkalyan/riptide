@@ -264,19 +264,18 @@ fn fs_single(in: VertexData) -> @location(0) vec4f {
     // [T - line_thickness, T]; bias the tip left by half a line width so it
     // centers on the line rather than on the boundary tick T.
     let caret = rising || rising_left;
-    // Guard the caret SDF + its derivative behind the flat per-instance flag:
-    // every fragment of an instance branches the same way (warp-coherent), so
-    // fwidth stays in uniform control flow. Skips the work on non-edge segments.
-    var caret_mask = 0.0;
-    if (caret) {
-        let apex_x = select(-in.half_size_px.x, in.half_size_px.x, rising) - line_thickness_px * 0.5;
-        let caret_apex = vec2f(apex_x, -in.half_size_px.y);
-        let caret_d = caret_sdf(in.pill_local_px, caret_apex);
-        // 1px-wide coverage: feather over a single pixel centered on the zero
-        // crossing (smoothstep(-aa, aa, …) spreads over 2px and reads as blur).
-        let caret_aa = fwidth(caret_d);
-        caret_mask = clamp(0.5 - caret_d / caret_aa, 0.0, 1.0);
-    }
+    // The caret SDF's derivative (fwidth) must be evaluated in UNIFORM control
+    // flow. `caret` is per-instance-coherent at runtime, but it derives from
+    // in.flags (a varying), so WGSL's static uniformity analysis treats a branch
+    // on it as non-uniform and Tint rejects fwidth inside it. Compute the chevron
+    // for every fragment and gate the result with select instead of an `if`.
+    let apex_x = select(-in.half_size_px.x, in.half_size_px.x, rising) - line_thickness_px * 0.5;
+    let caret_apex = vec2f(apex_x, -in.half_size_px.y);
+    let caret_d = caret_sdf(in.pill_local_px, caret_apex);
+    // 1px-wide coverage: feather over a single pixel centered on the zero
+    // crossing (smoothstep(-aa, aa, …) spreads over 2px and reads as blur).
+    let caret_aa = fwidth(caret_d);
+    let caret_mask = select(0.0, clamp(0.5 - caret_d / caret_aa, 0.0, 1.0), caret);
 
     let stroke_mask = max(max(line_mask * f32(draw_line), edge_mask), caret_mask);
 
@@ -287,14 +286,13 @@ fn fs_single(in: VertexData) -> @location(0) vec4f {
     var shade_color = select(primary_color, mute_color, mute);
     shade_color = vec4f(shade_color.rgb, shade_color.a * shade_alpha);
 
-    // Only crosshatched segments need the hatch pattern (+ its fwidth).
-    // enable_crosshatch is a flat per-instance flag, so the branch is
-    // warp-coherent and the derivative stays in uniform control flow.
-    var fill_color = shade_color;
-    if (enable_crosshatch) {
-        let stripe_mask = hatch(in.pill_local_px, 1.0, 8.0);
-        fill_color = vec4f(hatch_primary.rgb, hatch_primary.a * stripe_mask);
-    }
+    // hatch() calls fwidth, which must run in UNIFORM control flow. Guarding it
+    // behind enable_crosshatch (a branch on the in.flags varying) is a uniformity
+    // violation Tint rejects, so compute the hatch unconditionally and select it
+    // in. The extra fract+smoothstep per non-hatched fragment is negligible.
+    let stripe_mask = hatch(in.pill_local_px, 1.0, 8.0);
+    let hatched = vec4f(hatch_primary.rgb, hatch_primary.a * stripe_mask);
+    let fill_color = select(shade_color, hatched, enable_crosshatch);
     let fill_alpha = select(0.0, fill_color.a, enable_fill);
     let fill = vec4f(fill_color.rgb, fill_alpha);
 
@@ -336,14 +334,12 @@ fn fs_multi(in: VertexData) -> @location(0) vec4f {
     let shade_alpha = select(0.7, 1.0, highlight);
     let shade_color = vec4f(line_color.rgb, line_color.a * shade_alpha);
 
-    // Only crosshatched segments need the hatch pattern (+ its fwidth).
-    // enable_crosshatch is a flat per-instance flag → warp-coherent branch,
-    // derivative stays in uniform control flow.
-    var fill_color = shade_color;
-    if (enable_crosshatch) {
-        let stripe_mask = hatch(in.pill_local_px, 1.0, 8.0);
-        fill_color = vec4f(hatch_primary.rgb, hatch_primary.a * stripe_mask);
-    }
+    // hatch() calls fwidth → must run in UNIFORM control flow. Branching on the
+    // in.flags-derived enable_crosshatch is a uniformity violation (Tint), so
+    // compute the hatch unconditionally and select it in.
+    let stripe_mask = hatch(in.pill_local_px, 1.0, 8.0);
+    let hatched = vec4f(hatch_primary.rgb, hatch_primary.a * stripe_mask);
+    let fill_color = select(shade_color, hatched, enable_crosshatch);
     let fill_alpha = select(0.0, fill_color.a, enable_fill);
     let fill = vec4f(fill_color.rgb, fill_alpha);
 

@@ -6,7 +6,7 @@
   "packageManager": "pnpm@9.0.0",
   "scripts": {
     "wgsl-check": "node scripts/wgsl-check.mjs",
-    "build:native": "cd native && zig build -Doptimize=ReleaseSafe && mkdir -p ../dist/native && cp zig-out/lib/libriptide.so ../dist/native/riptide.node && cp zig-out/bin/query-fixture ../dist/native/query-fixture",
+    "build:native": "cd native && zig build -Doptimize=ReleaseSafe && mkdir -p ../dist/native && cp zig-out/lib/libriptide.so ../dist/native/riptide.node && cp zig-out/bin/query-fixture ../dist/native/query-fixture && cp src/mock.vcd src/mock.vcd.sidecar.json ../dist/native/",
     "test": "tests/run.sh",
     "test:differential": "node --test tests/differential.test.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
