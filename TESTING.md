@@ -1,7 +1,96 @@
 # Testing
 
-There is no unit-test or linter setup. Verification is manual (`pnpm dev`) plus
-the deterministic GPU harness below.
+Two independent harnesses (no linter):
+
+1. **Oracle regression/integration** — drives the deterministic **vcd-tests**
+   fixture corpus through tide → the napi addon → the app, asserting values,
+   formatting, and structure against a ground-truth answer key. Headless and
+   CI-ready. **This is the section below.**
+2. **Canvas (GPU) pixel** — proves GPU refactors are visual no-ops against a
+   committed golden. See [Canvas (GPU) testing](#canvas-gpu-testing).
+
+Plus manual verification (`pnpm dev`).
+
+---
+
+## Oracle regression / integration testing
+
+Deterministic testing against the **vcd-tests** corpus — independently-generated
+VCD fixtures plus a ground-truth answer key (`oracle/<fixture>.json`, computed by
+a second parser; all times string-encoded so a JS harness can't lose 64-bit
+precision).
+
+- **`tests/`** — the harness you run. Per-suite detail in
+  [`tests/README.md`](tests/README.md).
+- **`tests/FINDINGS.md`** — the live bug/divergence catalog (what's red and why).
+
+The corpus lives at `$VCD_TESTS_DIR` (default `~/Documents/vcd-tests`); it is not
+vendored — point the env var at a checkout and run `make` there to regenerate.
+
+### The seams
+
+```
+[VCD] → tide core → │napi│ → Electron/JS → │fmt+pack│ → WebGPU
+         seam A      seam B     ...           seam C     seam D
+```
+
+| Seam | Question | Driver | Headless? |
+|---|---|---|---|
+| **A** core | does tide compute the right value/hierarchy? | `zig build test` (`native/src/oracle_test.zig`): `pack.valueAt` vs oracle, in-process | yes (no node) |
+| **B** marshalling | does the napi boundary preserve it? | `native.test.cjs` (vs oracle) + `differential.test.cjs` (zig-direct vs through-addon, byte-equal) | yes |
+| **C** format/pack | are the displayed string + packed pill right? | `format.test.cjs`: `getMockSegments` labels vs oracle | yes |
+| **D** full app | does the real app show it? | `e2e/app.test.cjs`: Electron via playwright-core, value cells vs oracle | needs a display |
+| — malformed | does bad input survive? | `malformed.test.cjs` | yes |
+
+**Two seam-B drivers.** `native.test.cjs` checks values against the oracle.
+`differential.test.cjs` is oracle-free: it runs the *same* `pack.valueAt` on both
+sides of the boundary (a Zig exe, `query-fixture`, dumps the pre-boundary bytes;
+the addon replays each through `getValueAt`) and asserts byte-equality — pinning
+the boundary itself. It byte-verified **3.2M** samples with zero diffs.
+
+**Localization.** Seam A green + differential green ⟹ any value bug is a *crash*
+or a *formatter* bug, never silent core/marshalling corruption.
+
+### Running
+
+```sh
+pnpm build:native        # dist/native/riptide.node + the query-fixture exe
+pnpm test                # == tests/run.sh: all suites (e2e only if $DISPLAY set)
+tests/run.sh seam-a      # one suite: seam-a | native | format | differential | malformed | e2e
+VCD_TESTS_DIR=/path tests/run.sh
+```
+
+- The **node suites** (native/format/differential/malformed) are fully headless
+  and are the CI core. **Seam A** needs `zig`. **e2e** needs an X display (no
+  xvfb bundled — run under a display or `xvfb-run -a node --test
+  tests/e2e/app.test.cjs`; `SKIP_E2E=1` opts out; expect WebGPU on a Vulkan
+  llvmpipe/SwiftShader fallback in CI).
+- **Process isolation is mandatory.** The node suites spawn a worker per fixture
+  because the addon `@panic`s/`abort()`s on some inputs (u32 tick overflow; the
+  truncated malformed file; `getValueAt` on an event). Isolated, a crash is
+  reported for one fixture and the rest continue.
+
+### Asserted vs. tracked
+
+Genuine value/structure errors **fail**. Display-style and known-capability
+divergences (style-only, x/z-hex, leading-zero pad, unsupported radix, u32-skip,
+real-skip) are **counted and printed**, not failed, so they don't drown the
+signal — each suite prints a summary. See `tests/FINDINGS.md` for the
+bug-vs-by-design calls left open.
+
+### Determinism & CI
+
+- **Deterministic by construction** — fixed corpus, fixed oracles, no wall-clock,
+  no RNG. Same inputs → same pass/fail.
+- The node suites + seam A run with **no display**. They are **red** until the
+  `FINDINGS.md` bugs are fixed — intended; gate CI on "no *new* failures" or pin
+  the known-failing set.
+- **Not yet covered** (need viewer hooks that don't exist — METHODOLOGY §2 in the
+  corpus): decimation/draw-budget, perf/jank, `find_next_edge`, real (`f64`)
+  signals, and a structured warning log (which would upgrade the malformed suite
+  from "survived" to "diagnosed").
+
+---
 
 ## Canvas (GPU) testing
 
