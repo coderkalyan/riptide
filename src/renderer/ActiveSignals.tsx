@@ -74,7 +74,7 @@ export function ActiveSignals(props: {
       </Show>
       <div
         class="signals"
-        onContextMenu={(e) => { e.preventDefault(); s.setCtxMenu({ x: e.clientX, y: e.clientY, row: -1 }); }}
+        onContextMenu={(e) => e.preventDefault()}
         onClick={(e) => { if (e.target === e.currentTarget) s.clearSelection(); }}
       >
         <For each={s.activeSignals}>{(row) => {
