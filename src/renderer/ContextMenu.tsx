@@ -1,4 +1,4 @@
-import { For, createSignal, createMemo, onMount, onCleanup } from "solid-js";
+import { For, createSignal, createMemo, createEffect, onMount, onCleanup } from "solid-js";
 import { Portal, Dynamic } from "solid-js/web";
 import type { JSX } from "solid-js";
 import { ArrowUp, ArrowDown, ArrowUpDown } from "lucide-solid";
@@ -76,6 +76,17 @@ export function activeSignalMenu(opts: { anyMultiBit: boolean; anySingleBit: boo
 
 type Leaf = Exclude<MenuItem, "sep">;
 
+// Place a popup of size w×h near (x, y), preferring down-right (top-left at the
+// cursor). If it would overflow the bottom/right, flip above/left of the cursor;
+// if it fits neither way, clamp inside the viewport. Standard context-menu feel.
+function placeMenu(x: number, y: number, w: number, h: number): { left: number; top: number } {
+  const m = 6; // viewport margin
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const left = x + w + m <= vw ? x : (x - w >= m ? x - w : Math.max(m, vw - w - m));
+  const top = y + h + m <= vh ? y : (y - h >= m ? y - h : Math.max(m, vh - h - m));
+  return { left, top };
+}
+
 export function ContextMenu(props: {
   x: number; y: number; items: MenuItem[];
   onClose: () => void; onSelect?: (item: Leaf) => void; onGear?: (item: Leaf) => void;
@@ -84,8 +95,32 @@ export function ContextMenu(props: {
   const [show, setShow] = createSignal(false);
   // Open submenu flyout: anchor rect of the parent row + its child items.
   const [sub, setSub] = createSignal<{ rect: DOMRect; items: MenuItem[] } | null>(null);
+  // Adjusted positions (measured against the viewport so the menu never clips).
+  const [pos, setPos] = createSignal({ left: props.x, top: props.y });
+  const [subPos, setSubPos] = createSignal({ left: 0, top: 0 });
+  let popEl!: HTMLDivElement;
+  let subEl!: HTMLDivElement;
+
+  // Re-place the submenu when it opens: prefer the right of its parent row, flip to
+  // the left when it would overflow, and keep it vertically inside the viewport.
+  createEffect(() => {
+    const sb = sub();
+    if (!sb) return;
+    requestAnimationFrame(() => {
+      if (!subEl) return;
+      const m = 6, vw = window.innerWidth, vh = window.innerHeight;
+      const w = subEl.offsetWidth, h = subEl.offsetHeight;
+      const left = sb.rect.right - 4 + w + m <= vw ? sb.rect.right - 4 : Math.max(m, sb.rect.left - w + 4);
+      const top = Math.max(m, Math.min(sb.rect.top - 6, vh - h - m));
+      setSubPos({ left, top });
+    });
+  });
+
   onMount(() => {
-    const r = requestAnimationFrame(() => setShow(true));
+    const r = requestAnimationFrame(() => {
+      if (popEl) setPos(placeMenu(props.x, props.y, popEl.offsetWidth, popEl.offsetHeight));
+      setShow(true);
+    });
     const onDown = (e: MouseEvent) => { if (!(e.target as HTMLElement).closest(".menu-pop")) props.onClose(); };
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") props.onClose(); };
     document.addEventListener("mousedown", onDown);
@@ -109,7 +144,11 @@ export function ContextMenu(props: {
         onClick={() => select(it)}
         onMouseEnter={(e) => {
           if (isSub) return;
-          if (it.submenu) setSub({ rect: e.currentTarget.getBoundingClientRect(), items: it.submenu });
+          if (it.submenu) {
+            const rect = e.currentTarget.getBoundingClientRect();
+            setSub({ rect, items: it.submenu });
+            setSubPos({ left: rect.right - 4, top: rect.top - 6 }); // initial guess; effect refines
+          }
           else setSub(null);
         }}
       >
@@ -131,12 +170,13 @@ export function ContextMenu(props: {
 
   return (
     <Portal>
-      <div class={`menu-pop${show() ? " show" : ""}`} style={{ left: `${props.x}px`, top: `${props.y}px` }}>
+      <div ref={popEl} class={`menu-pop${show() ? " show" : ""}`} style={{ left: `${pos().left}px`, top: `${pos().top}px` }}>
         <For each={props.items}>{(it) => renderItem(it, false)}</For>
       </div>
       <div
+        ref={subEl}
         class={`menu-pop${show() && sub() ? " show" : ""}`}
-        style={{ left: `${(sub()?.rect.right ?? 0) - 4}px`, top: `${(sub()?.rect.top ?? 0) - 6}px` }}
+        style={{ left: `${subPos().left}px`, top: `${subPos().top}px` }}
       >
         <For each={sub()?.items ?? []}>{(it) => renderItem(it, true)}</For>
       </div>

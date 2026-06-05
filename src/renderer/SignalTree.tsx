@@ -80,6 +80,13 @@ export function SignalTree() {
         <Key each={windowNodes()} by={(w) => w.node.id}>{(item) => {
           const e = () => item().node;
           const node = createMemo(() => { s.traceNonce; return SCENE.hierarchy.nodes.get(e().id); });
+          // Immediate (non-recursive) signal children of a scope — the set the
+          // scope's plus button adds. Empty for signal rows / signal-less scopes.
+          const sigChildren = createMemo<NodeId[]>(() => {
+            const n = node();
+            if (!n || n.kind !== "scope") return [];
+            return n.children.filter((c) => SCENE.hierarchy.nodes.get(c)?.kind === "signal");
+          });
           const iconClass = () => {
             if (e().kind === "scope") return "icon module";
             const n = node();
@@ -116,6 +123,12 @@ export function SignalTree() {
                   class="plus"
                   data-tip="add to viewer"
                   onClick={(ev) => { ev.stopPropagation(); perf.beginAdd(); s.addSignal(e().id); }}
+                ><Plus size={12} /></span>
+              ) : sigChildren().length > 0 ? (
+                <span
+                  class="plus"
+                  data-tip="add all signals in scope"
+                  onClick={(ev) => { ev.stopPropagation(); perf.beginAdd(); s.addSignals(sigChildren()); }}
                 ><Plus size={12} /></span>
               ) : null}
             </div>

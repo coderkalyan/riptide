@@ -8,6 +8,9 @@ import { Portal } from "solid-js/web";
 export function GlobalTooltip() {
   const [tip, setTip] = createSignal<{ text: string; x: number; y: number }>({ text: "", x: 0, y: 0 });
   const [show, setShow] = createSignal(false);
+  // Flip below the anchor when there's no room above (e.g. titlebar elements at the
+  // top of the screen) — otherwise the bubble translates off-screen and is invisible.
+  const [below, setBelow] = createSignal(false);
   const [left, setLeft] = createSignal(0);
   let ref: HTMLDivElement | undefined;
 
@@ -46,7 +49,10 @@ export function GlobalTooltip() {
       const text = el?.getAttribute("data-tip") ?? "";
       if (!el || text === "") { setShow(false); return; }
       const r = el.getBoundingClientRect();
-      setTip({ text, x: r.left + r.width / 2, y: r.top });
+      // ~26px = bubble height + gap; if the anchor's too near the top, drop below it.
+      const flip = r.top < 26;
+      setBelow(flip);
+      setTip({ text, x: r.left + r.width / 2, y: flip ? r.bottom : r.top });
       setShow(true);
     };
     const onOut = (e: MouseEvent) => {
@@ -68,7 +74,7 @@ export function GlobalTooltip() {
 
   return (
     <Portal>
-      <div ref={ref} class={`tip-pop${show() ? " show" : ""}`} style={{ left: `${left()}px`, top: `${tip().y}px` }}>{tip().text}</div>
+      <div ref={ref} class={`tip-pop${show() ? " show" : ""}${below() ? " below" : ""}`} style={{ left: `${left()}px`, top: `${tip().y}px` }}>{tip().text}</div>
     </Portal>
   );
 }

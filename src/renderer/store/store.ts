@@ -83,6 +83,8 @@ export interface UiState {
 
 export interface Actions {
   addSignal: (signalId: NodeId) => void;
+  // Append every signal id (non-signals skipped) in one set — "add all in scope".
+  addSignals: (signalIds: NodeId[]) => void;
   removeSignal: (row: number) => void;
   // Multi-row variants for context-menu actions over a selection. Atomic so the
   // row renumber (see renumber) happens once, not per-row (looping by index would
@@ -199,6 +201,18 @@ const vanilla = createVanilla<AppState>()(
       const row = s.activeSignals.length;
       if (row >= MAX_ROWS) return s;
       return { activeSignals: [...s.activeSignals, withRowId(makeActiveRef(SCENE.hierarchy, signalId, row))] };
+    }),
+    // Append many signals in one set (e.g. "add all in scope") so there's a single
+    // repack/render. Non-signal ids are skipped; appends stop at MAX_ROWS.
+    addSignals: (signalIds) => set((s) => {
+      let rows = s.activeSignals;
+      for (const id of signalIds) {
+        if (rows.length >= MAX_ROWS) break;
+        const node = SCENE.hierarchy.nodes.get(id);
+        if (!node || node.kind !== "signal") continue;
+        rows = [...rows, withRowId(makeActiveRef(SCENE.hierarchy, id, rows.length))];
+      }
+      return rows === s.activeSignals ? s : { activeSignals: rows };
     }),
     removeSignal: (row) => set((s) => ({
       activeSignals: renumber(s.activeSignals.filter((r) => r.row !== row)),

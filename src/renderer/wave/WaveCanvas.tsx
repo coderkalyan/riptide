@@ -362,12 +362,23 @@ export function WaveCanvas() {
             const leftApex = leftX + gap;
             const rightApex = rightX - gap;
             const insideRoom = rightApex - leftApex;
+            const span = rightX - leftX;
+            // Three layouts by gap width:
+            //  1. label inside the arrow (split shaft) — widest spans,
+            //  2. arrow inside, label to the side (full shaft) — medium spans,
+            //  3. chevrons outside pointing in, label to the side — narrowest.
+            // 1↔2 is governed by the on-screen gap from the mock sidecar's manually
+            // placed cursor/marker (Δ≈7.143 ticks over the 0–90 view on a 1076px
+            // canvas ≈ 85 CSS px) plus a geometric check so a long label never spills.
+            // 2↔3 stays a much smaller threshold: just enough that the chevrons + a
+            // sliver of shaft still fit between the apexes.
+            const INSIDE_LABEL_MIN_SPAN_PX = 85;
             const minShaftClear = 2;
             if (insideRoom - headW >= minShaftClear) {
               const midX = (leftApex + rightApex) * 0.5;
               const splitL = midX - textW * 0.5 - labelPad;
               const splitR = midX + textW * 0.5 + labelPad;
-              const labelFits = splitL > leftApex + 2 && splitR < rightApex - 2;
+              const labelFits = span >= INSIDE_LABEL_MIN_SPAN_PX && splitL > leftApex + 2 && splitR < rightApex - 2;
               if (labelFits) {
                 drawShaft(leftApex, splitL);
                 drawShaft(splitR, rightApex);
@@ -433,15 +444,17 @@ export function WaveCanvas() {
         const markers = st.markers;
         const selId = st.selectedMarkerId;
         let fgLineN = 0;
+        // Hover guide first so markers (and the cursor) paint over it — the hover
+        // line is a transient pointer aid, markers/cursor are the meaningful marks.
+        const hov = st.hover;
+        if (hov) {
+          const lh = getLine(linesFgScratch, fgLineN++);
+          lh.x = xForTick(hov.tick); lh.color = P.GRID_GRAY; lh.dashed = true; lh.fullHeight = true;
+        }
         for (const m of markers) {
           if (fgLineN >= MAX_MARKERS) break;
           const l = getLine(linesFgScratch, fgLineN++);
           l.x = xForTick(m.tick); l.color = m.color; l.dashed = m.id !== selId;
-        }
-        const hov = st.hover;
-        if (hov && fgLineN < MAX_MARKERS) {
-          const lh = getLine(linesFgScratch, fgLineN++);
-          lh.x = xForTick(hov.tick); lh.color = P.GRID_GRAY; lh.dashed = true; lh.fullHeight = true;
         }
         const lcur = getLine(linesFgScratch, fgLineN++);
         lcur.x = xForTick(cursor); lcur.color = P.HOT;

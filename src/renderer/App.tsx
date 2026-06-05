@@ -1,5 +1,5 @@
 import { For, Show, createSignal, createMemo, onMount, onCleanup } from "solid-js";
-import { X, PanelLeftClose, PanelLeftOpen } from "lucide-solid";
+import { X, PanelLeftClose, PanelLeftOpen, FileText } from "lucide-solid";
 import { useAppStore } from "./store/store";
 import { WaveCanvas } from "./wave/WaveCanvas";
 import { ActiveSignals } from "./ActiveSignals";
@@ -15,7 +15,7 @@ import { GlobalTooltip } from "./GlobalTooltip";
 import { PerfOverlay } from "./PerfOverlay";
 import { buildEnumLabels } from "./wave/value";
 import { getSignal } from "./hier/hierarchy";
-import { SCENE, swapTrace } from "./hier/scene";
+import { SCENE, swapTrace, currentVcdPath } from "./hier/scene";
 import { view } from "./wave/viewport";
 import { ZOOM_STEP } from "./wave/constants";
 import * as perf from "./perf";
@@ -154,6 +154,10 @@ export function App() {
   // right-click menu). Color anchors to the selected row's pin swatch so Coloris
   // opens in the same spot as clicking the pin directly.
   const selSignal = () => s.activeSignals.find((r) => r.selected);
+  // Currently-open trace, shown in the titlebar pill (where tabs will eventually go).
+  // currentVcdPath() is the real source of truth (set by swapTrace); traceNonce makes
+  // this re-read on an in-app Open. basename only — full path lives in the tooltip.
+  const openFile = createMemo(() => { s.traceNonce; return currentVcdPath().split(/[\\/]/).pop() || "untitled"; });
   const onSignalColor = () => {
     const r = selSignal();
     if (!r) return;
@@ -201,15 +205,25 @@ export function App() {
           onSignalMoveBottom={() => { const r = selSignal(); if (r) s.moveSignal(r.row, "bottom"); }}
           onSignalRemove={() => { const r = selSignal(); if (r) s.removeSignal(r.row); }}
         />
-        <div class="divider" />
-        <div class="tabs">
-          <For each={s.tabs.open}>{(f, i) => (
-            <span class={`tab${i() === s.tabs.active ? " active" : ""}`} onClick={() => s.setActiveTab(i())}>
-              {f}
-              <span class="tab-close" data-tip="close file" onClick={(e) => { e.stopPropagation(); s.closeTab(i()); }}><X size={11} /></span>
-            </span>
-          )}</For>
-        </div>
+        {/* TODO: file tabs aren't wired up yet (no multi-file/tab support), so the
+            tab bar is hidden to cut visual noise. Code kept intact — flip this Show
+            back to `true` (or a real condition) once tabs are implemented. */}
+        <Show when={false}>
+          <div class="divider" />
+          <div class="tabs">
+            <For each={s.tabs.open}>{(f, i) => (
+              <span class={`tab${i() === s.tabs.active ? " active" : ""}`} onClick={() => s.setActiveTab(i())}>
+                {f}
+                <span class="tab-close" data-tip="close file" onClick={(e) => { e.stopPropagation(); s.closeTab(i()); }}><X size={11} /></span>
+              </span>
+            )}</For>
+          </div>
+        </Show>
+        {/* Non-interactive pill noting the open file, in place of the (hidden) tabs. */}
+        <span class="pill file" data-tip={currentVcdPath()}>
+          <FileText size={12} />
+          <span class="mono">{openFile()}</span>
+        </span>
         <div class="sp" />
       </div>
 

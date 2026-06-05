@@ -206,6 +206,10 @@
         }
         /* Clickable (jump-to-cursor) — highlight on hover like the toolbar buttons. */
         .pill:hover { background: var(--panel-2); }
+        /* Open-file pill: read-only, so no hover affordance and muted text/icon. */
+        .pill.file { color: var(--text-2); }
+        .pill.file:hover { background: var(--panel); }
+        .pill.file svg { color: var(--muted); }
         .pill .swatch { width:8px; height:8px; border-radius:50%; background: var(--hot); }
         .pill.marker .swatch { background: var(--marker); }
         /* Tooltips render through a portal at <body> (see GlobalTooltip), so
@@ -216,6 +220,7 @@
            top-center is the anchor; translate lifts the bubble above it. */
         .tip-pop {
             position: fixed; transform: translate(-50%, calc(-100% - 6px)) translateZ(0);
+            /* `below`: anchor near the top → drop the bubble under it instead. */
             will-change: transform, opacity;
             height: 20px; padding: 0 7px;
             /* Match the menu bar: default sans (IBM Plex Sans), 12.5px. */
@@ -230,6 +235,7 @@
             opacity: 0; transition: opacity 90ms ease;
         }
         .tip-pop.show { opacity: 1; }
+        .tip-pop.below { transform: translate(-50%, 6px) translateZ(0); }
         .search {
             height: 26px; padding: 0 10px 0 26px; border: 1px solid var(--border);
             border-radius: 6px; background: var(--panel) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238C8C84' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='7'/><path d='m20 20-3-3'/></svg>") no-repeat 8px center;
