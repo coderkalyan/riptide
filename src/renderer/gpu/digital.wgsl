@@ -56,8 +56,11 @@ struct RowInfo {
 }
 
 // RowInfo.flags bits (distinct from the VertexData F_* flags below). Must match
-// ROW_FLAG_DIM in segments.zig / digital.ts.
+// ROW_FLAG_DIM / ROW_FLAG_HIGHLIGHT in segments.zig / digital.ts. Highlight is a
+// per-row flag (not viewport.selected_row) so multi-select highlights every
+// selected row and scales past 32 rows.
 const ROW_FLAG_DIM: u32 = 1u << 0u;
+const ROW_FLAG_HIGHLIGHT: u32 = 1u << 1u;
 
 // Pipeline-creation constant: 0 = single-bit, 1 = multi-bit. Folded at
 // pipeline-compile time so per-variant branches have no runtime cost.
@@ -176,7 +179,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
     let value = decodeSample(row, ii);
     let lsb_nonzero = value.x != 0u;
     let msb_nonzero = value.y != 0u;
-    let highlight = i32(row) == viewport.selected_row;
+    let highlight = (rows[row].flags & ROW_FLAG_HIGHLIGHT) != 0u;
     let dimmed = (rows[row].flags & ROW_FLAG_DIM) != 0u;
 
     // Synthesize vertices for a triangle strip rect in [0, 1]^2.

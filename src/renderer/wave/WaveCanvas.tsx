@@ -78,18 +78,25 @@ export function WaveCanvas() {
       // add (new rows at the end) upload only the new glyphs (setLabels reusePrefix).
       let lastLabelActive: ActiveSignalRef[] = useAppStore.getState().activeSignals;
 
-      // Row dim/select state, derived from the store's active rows. Read by the
-      // frame loop (selectedRow → vp.selected_row) and applyDim (hiddenRows).
+      // Row dim/select state, derived from the store's active rows. Read by
+      // applyRowFlags (hidden → dim, selected → highlight, both in RowInfo.flags).
       let hiddenRows = new Set<number>();
-      let selectedRow = -1;
+      let selectedRows = new Set<number>();
+      // The open context menu's row, highlighted transiently while the menu is up
+      // (a lone right-click shows the row as active without a persistent selection).
+      let menuRow = -1;
       const syncRowState = (rows: ActiveSignalRef[]) => {
         const h = new Set<number>();
-        for (const r of rows) if (r.hidden) h.add(r.row);
+        const sel = new Set<number>();
+        for (const r of rows) {
+          if (r.hidden) h.add(r.row);
+          if (r.selected) sel.add(r.row);
+        }
         hiddenRows = h;
-        selectedRow = rows.find((r) => r.selected)?.row ?? -1;
+        selectedRows = sel;
       };
       syncRowState(useAppStore.getState().activeSignals);
-      const applyDim = () => renderer.setDimFlags(scene, (row) => hiddenRows.has(row));
+      const applyDim = () => renderer.setRowFlags(scene, (row) => hiddenRows.has(row), (row) => selectedRows.has(row) || row === menuRow);
       applyDim();
       // Per-row vertical layout (resize): write each row's y/height into rowInfo.
       // Rows stack from the ruler band (ROW_HEIGHT_CSS); a row without an explicit
@@ -295,7 +302,6 @@ export function WaveCanvas() {
         vp.height = canvasH;
         vp.row_height = rowHeightCSS;
         vp.dpr = dpr;
-        vp.selected_row = selectedRow;
         vp.wave_y_offset = rulerHeightCSS;
 
         const dataEndPx = xForTick(TRACE_END);
@@ -637,6 +643,11 @@ export function WaveCanvas() {
         (s) => s.activeSignals,
         (rows) => { writeRowColors(device, colorBuf, rows); syncRowState(rows); applyDim(); applyRowLayout(); },
       );
+      // Transient highlight for the open context menu's row (cleared when it closes).
+      const unsubCtxRow = useAppStore.subscribe(
+        (s) => s.ctxMenu?.row ?? -1,
+        (row) => { menuRow = row; applyDim(); },
+      );
       // B (structural): membership or format change → flag a repack. The key must
       // cover everything that changes the native pack: signal/row, radix (single vs
       // multi pipeline + label format), role (clk kind/shade, e.g. bin↔clock keeps
@@ -683,6 +694,7 @@ export function WaveCanvas() {
         () => host.removeEventListener("pointerleave", onPointerLeave),
         () => window.removeEventListener("keydown", onKey),
         unsubCosmetic,
+        unsubCtxRow,
         unsubStructural,
         unsubTrace,
       );

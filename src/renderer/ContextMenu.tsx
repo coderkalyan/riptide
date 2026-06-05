@@ -39,24 +39,28 @@ function ClockAccessory(props: { row: number }) {
   );
 }
 
-// Right-click menu for an active-signal row. Binary collapses a value to a single
-// line, which only makes sense for a 1-bit signal — so it's disabled for multi-bit
-// signals (all other formats stay available); 1-bit signals allow every format.
-export function activeSignalMenu(opts: { multiBit: boolean; clockRow: number; color?: string; currentFormat?: string }): MenuItem[] {
+// Right-click menu for an active-signal row (or the whole selection — the menu
+// applies to every selected row). Binary collapses a value to a single line, which
+// only makes sense for a 1-bit signal; Signed Decimal only for a multi-bit one. With
+// a multi-row target, enablement is ANY across the set: Binary stays enabled if any
+// target is 1-bit, Signed Decimal if any is multi-bit (the action then applies only
+// to the rows it fits). `anySingleBit`/`anyMultiBit` carry that across the selection.
+export function activeSignalMenu(opts: { anyMultiBit: boolean; anySingleBit: boolean; clockRow: number; color?: string; currentFormat?: string }): MenuItem[] {
   // Tick the one format whose action matches the row's current radix/role.
   const fmt = (it: Exclude<MenuItem, "sep">): MenuItem => ({ ...it, checked: it.action === opts.currentFormat });
   return [
     { label: "Format", submenu: [
-      fmt({ label: "Binary", action: "radix-bin", disabled: opts.multiBit }),
+      fmt({ label: "Binary", action: "radix-bin", disabled: !opts.anySingleBit }),
       fmt({ label: "Clock", action: "format-clock", accessory: <ClockAccessory row={opts.clockRow} /> }),
       fmt({ label: "Reset", action: "format-reset" }),
       "sep",
-      fmt({ label: "Signed Decimal", action: "radix-sdec", disabled: !opts.multiBit }),
+      fmt({ label: "Signed Decimal", action: "radix-sdec", disabled: !opts.anyMultiBit }),
       fmt({ label: "Unsigned Decimal", action: "radix-dec" }),
       fmt({ label: "Hex", action: "radix-hex" }),
       fmt({ label: "Enum", action: "radix-enum", gear: true }),
     ] },
-    { label: "Change Color…", accessory: <span class="menu-swatch" style={{ background: opts.color ?? "var(--muted)" }} /> },
+    // No swatch when the target colors are non-uniform (opts.color undefined).
+    { label: "Change Color…", accessory: opts.color ? <span class="menu-swatch" style={{ background: opts.color }} /> : undefined },
     "sep",
     { label: "Group with Selected", disabled: true, unimplemented: true },
     { label: "Insert Divider", disabled: true, unimplemented: true },

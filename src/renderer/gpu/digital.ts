@@ -11,6 +11,7 @@ type ShaderVariant = "multi" | "single";
 // digital.wgsl's ROW_FLAG_DIM.
 const ROW_INFO_WORDS = 7;
 const ROW_FLAG_DIM = 1 << 0;
+const ROW_FLAG_HIGHLIGHT = 1 << 1;
 const ROW_WORD_FLAGS = 4;
 const ROW_WORD_Y = 5;
 const ROW_WORD_H = 6;
@@ -29,7 +30,7 @@ export interface SceneBuffers {
   rowInfo: GPUBuffer;
   x0Pool: GPUBuffer;
   x1Pool: GPUBuffer;
-  // CPU-side copy of the rowInfo records, retained so setDimFlags can patch the
+  // CPU-side copy of the rowInfo records, retained so setRowFlags can patch the
   // per-row flags word and re-upload without a repack.
   rowInfoCpu: Uint32Array<ArrayBuffer>;
 }
@@ -61,10 +62,11 @@ export interface DigitalRenderer {
     colorBuf: GPUBuffer,
     scene: SceneBuffers,
   ): SignalPipeline;
-  // Set the per-row dim flag (eye toggle) by patching the rowInfo buffer's flags
-  // column and re-uploading it. One small writeBuffer, no repack — call after a
-  // scene (re)build and whenever the hidden set changes.
-  setDimFlags(scene: SceneBuffers, isHidden: (row: number) => boolean): void;
+  // Set the per-row dim (eye toggle) + highlight (selection) flags by patching the
+  // rowInfo buffer's flags column and re-uploading it. One small writeBuffer, no
+  // repack — call after a scene (re)build and whenever the hidden/selected sets
+  // change. Both bits share the flags word, so they're written together.
+  setRowFlags(scene: SceneBuffers, isHidden: (row: number) => boolean, isSelected: (row: number) => boolean): void;
   // Write the per-row vertical layout (y_offset/height as f32 bits) into the
   // rowInfo buffer. `top` is the first row's y (below the ruler); heights stack.
   // One writeBuffer, no repack — call after a scene (re)build and on row resize.
@@ -189,11 +191,12 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
     device.queue.writeBuffer(uniformBuf, 0, viewportScratch);
   }
 
-  function setDimFlags(scene: SceneBuffers, isHidden: (row: number) => boolean): void {
+  function setRowFlags(scene: SceneBuffers, isHidden: (row: number) => boolean, isSelected: (row: number) => boolean): void {
     const cpu = scene.rowInfoCpu;
     const rows = cpu.length / ROW_INFO_WORDS;
     for (let r = 0; r < rows; r++) {
-      cpu[r * ROW_INFO_WORDS + ROW_WORD_FLAGS] = isHidden(r) ? ROW_FLAG_DIM : 0;
+      cpu[r * ROW_INFO_WORDS + ROW_WORD_FLAGS] =
+        (isHidden(r) ? ROW_FLAG_DIM : 0) | (isSelected(r) ? ROW_FLAG_HIGHLIGHT : 0);
     }
     if (cpu.byteLength > 0) device.queue.writeBuffer(scene.rowInfo, 0, cpu);
   }
@@ -213,5 +216,5 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
     if (cpu.byteLength > 0) device.queue.writeBuffer(scene.rowInfo, 0, cpu);
   }
 
-  return { ctx, module, bgl, layout, uniformBuf, viewportScratch, writeViewport, createSceneBuffers, buildPipelineFromPacked, rebindPipeline, setDimFlags, setRowLayout };
+  return { ctx, module, bgl, layout, uniformBuf, viewportScratch, writeViewport, createSceneBuffers, buildPipelineFromPacked, rebindPipeline, setRowFlags, setRowLayout };
 }

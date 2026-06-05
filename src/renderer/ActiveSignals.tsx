@@ -102,7 +102,7 @@ export function ActiveSignals(props: {
               name={sig.name}
               kind={activeSignalKind(row)}
               color={row.color}
-              selected={row.selected}
+              selected={row.selected || s.ctxMenu?.row === row.row}
               hidden={row.hidden}
               collapsed={props.collapsed}
               sliding={props.sliding}
@@ -110,8 +110,15 @@ export function ActiveSignals(props: {
               height={row.height}
               onPinClick={(e) => s.setPicker({ row: row.row, anchorRect: (e.currentTarget as HTMLElement).getBoundingClientRect() })}
               onToggleVisible={() => s.toggleHidden(row.row)}
-              onClick={() => s.selectRow(row.row)}
-              onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); s.setCtxMenu({ x: e.clientX, y: e.clientY, row: row.row }); }}
+              onClick={(e) => s.selectRow(row.row, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                // No persistent selection change — the ctxMenu row is highlighted
+                // transiently (see `selected` above + WaveCanvas) only while the menu
+                // is open, so a lone right-click shows the row as active.
+                s.setCtxMenu({ x: e.clientX, y: e.clientY, row: row.row });
+              }}
               onResizeStart={startRowResize(row.row, row.height)}
               onResizeReset={() => s.setRowHeight(row.row, undefined)}
             />

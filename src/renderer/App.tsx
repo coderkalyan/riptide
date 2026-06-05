@@ -267,21 +267,47 @@ export function App() {
       <Show when={s.picker}>{(p) => (
         <ColorPicker
           color={s.activeSignals.find((r) => r.row === p().row)?.color ?? "#000000"}
-          onChange={(c) => s.setColor(p().row, c)}
+          onChange={(c) => (p().rows ?? [p().row]).forEach((r) => s.setColor(r, c))}
           onClose={() => s.setPicker(null)}
           anchorRect={p().anchorRect}
         />
       )}</Show>
-      <Show when={s.ctxMenu}>{(m) => (
+      <Show when={s.ctxMenu}>{(m) => {
+        const bitWidthOf = (row: number) => {
+          const ref = s.activeSignals.find((r) => r.row === row);
+          return ref ? getSignal(SCENE.hierarchy, ref.signalId).bitWidth : 0;
+        };
+        // Menu target = the whole selection if any rows are selected, else the
+        // right-clicked row. `primary` (the clicked row if it's a target, else the
+        // first) drives single-row display bits: format check, color, clock config.
+        const menuTargets = () => {
+          // Live read: this runs from event handlers (onSelect/onGear), where the
+          // reactive `s` proxy can lag the store (see CLAUDE.md handler convention).
+          const active = useAppStore.getState().activeSignals;
+          const clicked = m().row;
+          // Right-click inside the selection → act on the whole selection. Outside it
+          // (or nothing selected) → act on just the clicked row (it's only highlighted
+          // transiently, not added to the selection).
+          const inSel = active.find((r) => r.row === clicked)?.selected ?? false;
+          const rows = inSel ? active.filter((r) => r.selected).map((r) => r.row) : (clicked >= 0 ? [clicked] : []);
+          const primary = rows.includes(clicked) ? clicked : (rows[0] ?? -1);
+          return { rows, primary };
+        };
+        return (
         <ContextMenu
           x={m().x}
           y={m().y}
           items={(() => {
-            const ref = s.activeSignals.find((r) => r.row === m().row);
+            const t = menuTargets();
+            const ref = s.activeSignals.find((r) => r.row === t.primary);
+            const widths = t.rows.map((r) => bitWidthOf(r));
+            // Swatch only when every target shares one color; non-uniform → omit it.
+            const colors = new Set(t.rows.map((r) => s.activeSignals.find((x) => x.row === r)?.color));
             return activeSignalMenu({
-              multiBit: ref ? getSignal(SCENE.hierarchy, ref.signalId).bitWidth > 1 : false,
-              clockRow: m().row,
-              color: ref?.color,
+              anyMultiBit: widths.some((w) => w > 1),
+              anySingleBit: widths.some((w) => w === 1),
+              clockRow: t.primary,
+              color: colors.size === 1 ? [...colors][0] : undefined,
               currentFormat: ref
                 ? ref.role === "clock" ? "format-clock"
                   : ref.role === "reset" ? "format-reset"
@@ -291,29 +317,34 @@ export function App() {
           })()}
           onClose={() => s.setCtxMenu(null)}
           onSelect={(it) => {
-            const row = m().row;
-            if (row < 0) return;
-            if (it.action === "radix-bin") s.setFormat(row, "bin", undefined);
-            else if (it.action === "radix-dec") s.setFormat(row, "dec", undefined);
-            else if (it.action === "radix-sdec") s.setFormat(row, "sdec", undefined);
-            else if (it.action === "radix-hex") s.setFormat(row, "hex", undefined);
-            else if (it.action === "radix-enum") s.setFormat(row, "enum", undefined);
-            else if (it.action === "format-clock") s.setFormat(row, "bin", "clock");
-            else if (it.action === "format-reset") s.setFormat(row, "bin", "reset");
-            else if (it.label === "Dim") s.toggleHidden(row);
-            else if (it.label === "Dim Others") s.hideOthers(row);
-            else if (it.label === "Remove from View") s.removeSignal(row);
-            else if (it.label === "Move to Top") s.moveSignal(row, "top");
-            else if (it.label === "Move to Bottom") s.moveSignal(row, "bottom");
-            else if (it.label === "Change Color…") s.setPicker({ row, anchorRect: new DOMRect(m().x, m().y, 0, 0) });
+            const { rows, primary } = menuTargets();
+            if (rows.length === 0) return;
+            // Binary/Signed Decimal are enabled if ANY target fits; apply only to
+            // the fitting subset (1-bit / multi-bit respectively).
+            const single = rows.filter((r) => bitWidthOf(r) === 1);
+            const multi = rows.filter((r) => bitWidthOf(r) > 1);
+            if (it.action === "radix-bin") single.forEach((r) => s.setFormat(r, "bin", undefined));
+            else if (it.action === "radix-dec") rows.forEach((r) => s.setFormat(r, "dec", undefined));
+            else if (it.action === "radix-sdec") multi.forEach((r) => s.setFormat(r, "sdec", undefined));
+            else if (it.action === "radix-hex") rows.forEach((r) => s.setFormat(r, "hex", undefined));
+            else if (it.action === "radix-enum") rows.forEach((r) => s.setFormat(r, "enum", undefined));
+            else if (it.action === "format-clock") rows.forEach((r) => s.setFormat(r, "bin", "clock"));
+            else if (it.action === "format-reset") rows.forEach((r) => s.setFormat(r, "bin", "reset"));
+            else if (it.label === "Dim") rows.forEach((r) => s.toggleHidden(r));
+            else if (it.label === "Dim Others") s.hideExcept(rows);
+            else if (it.label === "Remove from View") s.removeSignals(rows);
+            else if (it.label === "Move to Top") s.moveSignals(rows, "top");
+            else if (it.label === "Move to Bottom") s.moveSignals(rows, "bottom");
+            else if (it.label === "Change Color…") s.setPicker({ row: primary, rows, anchorRect: new DOMRect(m().x, m().y, 0, 0) });
           }}
           onGear={(it) => {
-            const row = m().row;
-            if (row < 0) return;
-            if (it.action === "radix-enum") s.setEnumDialog({ row });
+            const { primary } = menuTargets();
+            if (primary < 0) return;
+            if (it.action === "radix-enum") s.setEnumDialog({ row: primary });
           }}
         />
-      )}</Show>
+        );
+      }}</Show>
       <Show when={s.enumDialog}>{(d) => (
         <EnumDialog row={d().row} onClose={() => s.setEnumDialog(null)} />
       )}</Show>

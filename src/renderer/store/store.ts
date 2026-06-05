@@ -66,7 +66,9 @@ export interface DocState {
 
 export interface UiState {
   hover: { tick: number; row: number } | null;
-  picker: { row: number; anchorRect: DOMRect } | null;
+  // `row` anchors the swatch/Coloris; `rows` (optional) is the full set the chosen
+  // color is applied to (a selection from the context menu). Defaults to [row].
+  picker: { row: number; rows?: number[]; anchorRect: DOMRect } | null;
   ctxMenu: { x: number; y: number; row: number } | null;
   enumDialog: { row: number } | null;
   // Bumped on viewport-settle (pan end / wheel / zoom-anim end) so the autosave
@@ -82,7 +84,12 @@ export interface UiState {
 export interface Actions {
   addSignal: (signalId: NodeId) => void;
   removeSignal: (row: number) => void;
+  // Multi-row variants for context-menu actions over a selection. Atomic so the
+  // row renumber (see renumber) happens once, not per-row (looping by index would
+  // break as earlier removals/moves reindex the rest).
+  removeSignals: (rows: number[]) => void;
   moveSignal: (row: number, to: "top" | "bottom") => void;
+  moveSignals: (rows: number[], to: "top" | "bottom") => void;
   setColor: (row: number, color: string) => void;
   setRadix: (row: number, radix: Radix) => void;
   setRole: (row: number, role: ActiveRole | undefined) => void;
@@ -96,9 +103,13 @@ export interface Actions {
   toggleHidden: (row: number) => void;
   // Hide every active row except `row` (which is forced visible).
   hideOthers: (row: number) => void;
+  // Hide every active row except those in `rows` (the kept/selected set).
+  hideExcept: (rows: number[]) => void;
   // Global toggle: if any row is dimmed, show all; otherwise dim all.
   toggleAllHidden: () => void;
-  selectRow: (row: number) => void;
+  // Select a row. No modifier → replace (deselect all, select this). ctrl/meta →
+  // toggle this row, keep others. shift → range-select from the anchor to this row.
+  selectRow: (row: number, opts?: { ctrl?: boolean; shift?: boolean }) => void;
   clearSelection: () => void;
 
   addMarkerAtCursor: () => void;
@@ -128,7 +139,7 @@ export interface Actions {
   closeTab: (i: number) => void;
 
   setHover: (h: { tick: number; row: number } | null) => void;
-  setPicker: (p: { row: number; anchorRect: DOMRect } | null) => void;
+  setPicker: (p: { row: number; rows?: number[]; anchorRect: DOMRect } | null) => void;
   setCtxMenu: (m: { x: number; y: number; row: number } | null) => void;
   setEnumDialog: (d: { row: number } | null) => void;
 
@@ -142,6 +153,7 @@ export type AppState = DocState & UiState & Actions;
 // ---- monotonic counters (module-scoped latches, never rendered) ---------
 let rowSeq = 1;   // unique row id; never reused, so <For>/reconcile identity is stable
 let markerSeq = 1; // unique marker id/name; deletes never reuse a name
+let selectionAnchor = -1; // last single/ctrl-selected row; shift-range pivots here
 
 const withRowId = (r: ActiveSignalRef): Row => ({ ...r, id: rowSeq++ });
 
@@ -191,11 +203,23 @@ const vanilla = createVanilla<AppState>()(
     removeSignal: (row) => set((s) => ({
       activeSignals: renumber(s.activeSignals.filter((r) => r.row !== row)),
     })),
+    removeSignals: (rows) => set((s) => {
+      const kill = new Set(rows);
+      return { activeSignals: renumber(s.activeSignals.filter((r) => !kill.has(r.row))) };
+    }),
     moveSignal: (row, to) => set((s) => {
       const r = s.activeSignals.find((x) => x.row === row);
       if (!r) return s;
       const rest = s.activeSignals.filter((x) => x.row !== row);
       return { activeSignals: renumber(to === "top" ? [r, ...rest] : [...rest, r]) };
+    }),
+    moveSignals: (rows, to) => set((s) => {
+      const move = new Set(rows);
+      const picked = s.activeSignals.filter((r) => move.has(r.row));
+      if (picked.length === 0) return s;
+      const rest = s.activeSignals.filter((r) => !move.has(r.row));
+      // Moved rows keep their relative order; whole block goes to top/bottom.
+      return { activeSignals: renumber(to === "top" ? [...picked, ...rest] : [...rest, ...picked]) };
     }),
     setColor: (row, color) => set((s) => ({
       activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, color } : r)),
@@ -224,14 +248,29 @@ const vanilla = createVanilla<AppState>()(
     hideOthers: (row) => set((s) => ({
       activeSignals: s.activeSignals.map((r) => ({ ...r, hidden: r.row !== row })),
     })),
+    hideExcept: (rows) => set((s) => {
+      const keep = new Set(rows);
+      return { activeSignals: s.activeSignals.map((r) => ({ ...r, hidden: !keep.has(r.row) })) };
+    }),
     toggleAllHidden: () => set((s) => {
       // Any row dimmed → show all; none dimmed → dim all.
       const next = !s.activeSignals.some((r) => r.hidden);
       return { activeSignals: s.activeSignals.map((r) => ({ ...r, hidden: next })) };
     }),
-    selectRow: (row) => set((s) => {
-      const wasSelected = s.activeSignals.find((r) => r.row === row)?.selected ?? false;
-      return { activeSignals: s.activeSignals.map((r) => ({ ...r, selected: !wasSelected && r.row === row })) };
+    selectRow: (row, opts) => set((s) => {
+      // shift: contiguous range from the anchor to this row, replacing the rest.
+      if (opts?.shift && selectionAnchor >= 0) {
+        const lo = Math.min(selectionAnchor, row);
+        const hi = Math.max(selectionAnchor, row);
+        return { activeSignals: s.activeSignals.map((r) => ({ ...r, selected: r.row >= lo && r.row <= hi })) };
+      }
+      selectionAnchor = row;
+      // ctrl/meta: toggle just this row, keep the rest of the selection.
+      if (opts?.ctrl) {
+        return { activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, selected: !r.selected } : r)) };
+      }
+      // plain click: deselect all, select this one.
+      return { activeSignals: s.activeSignals.map((r) => ({ ...r, selected: r.row === row })) };
     }),
     clearSelection: () => set((s) => (
       s.activeSignals.some((r) => r.selected)
