@@ -7,7 +7,7 @@ import { useAppStore } from "./store/store";
 import { EditableNum } from "./EditableNum";
 
 export type MenuItem =
-  | { label: string; kbd?: string; disabled?: boolean; submenu?: MenuItem[]; action?: string; path?: string; checked?: boolean; gear?: boolean; accessory?: JSX.Element }
+  | { label: string; kbd?: string; disabled?: boolean; unimplemented?: boolean; submenu?: MenuItem[]; action?: string; path?: string; checked?: boolean; gear?: boolean; accessory?: JSX.Element }
   | "sep";
 
 const POLARITY_ICON = { rising: ArrowUp, falling: ArrowDown, both: ArrowUpDown } as const;
@@ -56,8 +56,8 @@ export function activeSignalMenu(opts: { multiBit: boolean; clockRow: number; co
     ] },
     { label: "Change Color…", accessory: <span class="menu-swatch" style={{ background: opts.color ?? "var(--muted)" }} /> },
     "sep",
-    { label: "Group with Selected", disabled: true },
-    { label: "Insert Divider", disabled: true },
+    { label: "Group with Selected", disabled: true, unimplemented: true },
+    { label: "Insert Divider", disabled: true, unimplemented: true },
     "sep",
     { label: "Move to Top" },
     { label: "Move to Bottom" },
@@ -98,7 +98,7 @@ export function ContextMenu(props: {
     ? <div class="menu-sep" />
     : (
       <div
-        class={`menu-item${it.disabled ? " disabled" : ""}${!isSub && it.submenu && sub() ? " active" : ""}`}
+        class={`menu-item${it.disabled ? " disabled" : ""}${it.unimplemented ? " unimplemented" : ""}${!isSub && it.submenu && sub() ? " active" : ""}`}
         onClick={() => select(it)}
         onMouseEnter={(e) => {
           if (isSub) return;

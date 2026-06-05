@@ -11,14 +11,14 @@ const baseName = (p: string) => p.split(/[\\/]/).pop() || p;
 // runtime state and are built in `menus()`.
 const EDIT_HELP: { name: string; items: MenuItem[] }[] = [
   { name: "Edit", items: [
-    { label: "Undo", kbd: "Ctrl+Z", disabled: true }, { label: "Redo", kbd: "Ctrl+Shift+Z", disabled: true }, "sep",
-    { label: "Cut", kbd: "Ctrl+X", disabled: true }, { label: "Copy", kbd: "Ctrl+C", disabled: true }, { label: "Paste", kbd: "Ctrl+V", disabled: true }, "sep", { label: "Find…", kbd: "Ctrl+F", disabled: true },
+    { label: "Undo", kbd: "Ctrl+Z", disabled: true, unimplemented: true }, { label: "Redo", kbd: "Ctrl+Shift+Z", disabled: true, unimplemented: true }, "sep",
+    { label: "Cut", kbd: "Ctrl+X", disabled: true, unimplemented: true }, { label: "Copy", kbd: "Ctrl+C", disabled: true, unimplemented: true }, { label: "Paste", kbd: "Ctrl+V", disabled: true, unimplemented: true }, "sep", { label: "Find…", kbd: "Ctrl+F", disabled: true, unimplemented: true },
   ] },
   { name: "Help", items: [
-    { label: "Documentation", disabled: true },
-    { label: "Keyboard Shortcuts", kbd: "Ctrl+/", disabled: true },
+    { label: "Documentation", disabled: true, unimplemented: true },
+    { label: "Keyboard Shortcuts", kbd: "Ctrl+/", disabled: true, unimplemented: true },
     "sep",
-    { label: "About Riptide", disabled: true },
+    { label: "About Riptide", disabled: true, unimplemented: true },
   ] },
 ];
 
@@ -70,11 +70,11 @@ export function MenuBar(props: {
 
   const menus = (): { name: string; items: MenuItem[] }[] => [
     { name: "File", items: [
-      { label: "New Window", kbd: "Ctrl+N", disabled: true },
+      { label: "New Window", kbd: "Ctrl+N", disabled: true, unimplemented: true },
       { label: "Open VCD…", kbd: "Ctrl+O", action: "open-vcd" },
       { label: "Open Recent", submenu: recentSubmenu() },
       "sep",
-      { label: "Reload Trace", kbd: "Ctrl+R", disabled: true },
+      { label: "Reload Trace", kbd: "Ctrl+R", disabled: true, unimplemented: true },
       "sep",
       { label: "Close Window", kbd: "Ctrl+W", action: "close-window" },
     ] },
@@ -90,7 +90,7 @@ export function MenuBar(props: {
       { label: "Grid Snap", checked: props.snapOn(), action: "toggle-snap" },
       { label: "Align Grid to Clock", checked: props.clockOn(), action: "toggle-clock" },
       "sep",
-      { label: "Reset Layout", disabled: true },
+      { label: "Reset Layout", disabled: true, unimplemented: true },
     ] },
     { name: "Signals", items: [
       { label: props.signalHidden() ? "Show Signal" : "Hide Signal", action: "signal-hide", disabled: !props.signalSelected() },
@@ -171,7 +171,7 @@ export function MenuBar(props: {
   const renderItem = (it: MenuItem, isSub: boolean) =>
     it === "sep" ? <div class="menu-sep" /> : (
       <div
-        class={`menu-item${it.disabled ? " disabled" : ""}${!isSub && it.submenu && sub() ? " active" : ""}`}
+        class={`menu-item${it.disabled ? " disabled" : ""}${it.unimplemented ? " unimplemented" : ""}${!isSub && it.submenu && sub() ? " active" : ""}`}
         onClick={() => activate(it)}
         onMouseEnter={(e) => {
           if (isSub) return;

@@ -89,6 +89,8 @@
         .menu-item:hover, .menu-item.active { background: var(--accent); color: var(--on-accent); }
         /* Not-yet-implemented entries: greyed, no hover, no clicks. */
         .menu-item.disabled { color: var(--muted); pointer-events: none; }
+        /* Unimplemented (vs. merely context-disabled) entries: struck through. */
+        .menu-item.unimplemented { text-decoration: line-through; }
         .menu-kbd { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); }
         .menu-item:hover .menu-kbd, .menu-item.active .menu-kbd { color: var(--on-accent); }
         .menu-check { display:inline-block; min-width: 12px; text-align:right; color: var(--accent); }
