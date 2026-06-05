@@ -67,7 +67,9 @@ pub fn packSignal(
     query: tide.Database.Query,
     opts: PackOpts,
 ) !seg.PackedSignal {
-    var ps = seg.PackedSignal{ .is_multi = opts.width > 1, .bit_width = opts.width };
+    // Pipeline routing is format-driven, not width-driven: bin (binary / reset /
+    // clock) renders on the single pipeline; hex/dec/enum render multi-bit pills.
+    var ps = seg.PackedSignal{ .is_multi = opts.radix != .bin, .bit_width = opts.width };
     errdefer ps.deinit(gpa);
 
     const bps = query.type.bytes();
@@ -113,9 +115,9 @@ pub fn packSignal(
                 rising_left = (val == 1);
             },
             .data => {
-                // Single-bit transitions touching x/z have no clean edge to
+                // Single-pipeline transitions touching x/z have no clean edge to
                 // draw — suppress the right-edge flag on the left segment.
-                if (draw_right and opts.width == 1) {
+                if (draw_right and !ps.is_multi) {
                     const next_x1 = query.x1s[(i + 1) * bps .. (i + 2) * bps];
                     if (anyNonzero(x1) or anyNonzero(next_x1)) draw_right = false;
                 }

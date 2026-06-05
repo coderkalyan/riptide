@@ -17,8 +17,21 @@ import {
   type Sidecar,
 } from "./sidecar";
 
-export type Radix = "bin" | "hex" | "dec" | "enum";
+export type Radix = "bin" | "hex" | "dec" | "sdec" | "enum";
 export type ActiveRole = "clock" | "reset" | "valid";
+
+// Clock-format config. A row formatted as a clock renders an idealized clock of
+// the given period; polarity picks which edge(s) the cursor/markers snap to.
+export type ClockPolarity = "rising" | "falling" | "both";
+export interface ClockConfig {
+  polarity: ClockPolarity;
+  period: number; // ticks (ns), full cycle
+}
+export const DEFAULT_CLOCK_CONFIG: ClockConfig = { polarity: "rising", period: 10 };
+
+// A user-editable enum table entry (integer value → display name). When a row
+// carries its own `enumTable`, it overrides the trace-derived table (enumTypeId).
+export interface EnumEntry { value: number; label: string; }
 
 // VCD variable kind shown in the row tooltip. Mock for now; "derived" covers
 // user expressions stored as precomputed waveforms in tide.
@@ -35,6 +48,8 @@ export interface ActiveSignalRef {
   selected?: boolean;
   hidden?: boolean;
   role?: ActiveRole;
+  clock?: ClockConfig;
+  enumTable?: EnumEntry[];
   derivedExpr?: string;
 }
 
@@ -58,6 +73,7 @@ interface RowConfig {
   pinned?: boolean;
   selected?: boolean;
   role?: ActiveRole;
+  clock?: ClockConfig;
   derivedExpr?: string;
   gatePath?: string;         // mute this row when the gate signal isn't logic-1
   enumTypeId?: number;       // overlay onto the signal node (tide lacks enums)
@@ -130,12 +146,18 @@ for (const r of ROWS) if (r.gatePath) GATE_BY_PATH.set(r.path, r.gatePath);
 // Per-row enum int→label table for the native label formatter (label.zig). Built
 // from the signal's overlaid enumTypeId (see buildScene); empty for non-enum rows.
 // value = parseInt(member.raw, 2), matching the old JS buildEnumLabels key.
-function enumsForSignal(h: Hierarchy, signalId: NodeId): { value: number; label: string }[] {
+function enumsForSignal(h: Hierarchy, signalId: NodeId): EnumEntry[] {
   const sig = getSignal(h, signalId);
   if (sig.enumTypeId == null) return [];
   const enumType = h.enumTypes.get(sig.enumTypeId);
   if (!enumType) return [];
   return enumType.members.map((m) => ({ value: parseInt(m.raw, 2), label: m.label }));
+}
+
+// The effective enum table for a row: its user-edited override if present, else
+// the trace-derived table. Used to seed the enum editor and the label maps.
+export function enumTableForRef(ref: ActiveSignalRef): EnumEntry[] {
+  return ref.enumTable ?? enumsForSignal(SCENE.hierarchy, ref.signalId);
 }
 
 // Native pack specs from the active signal list — what tide should query + how
@@ -151,7 +173,7 @@ function specsFromActive(h: Hierarchy, active: ActiveSignalRef[]): NativePackSpe
       shaded: s.role !== "clock",
       gateHandle: gatePath ? signalAt(h, gatePath).handle : null,
       radix: s.radix,
-      enums: enumsForSignal(h, s.signalId),
+      enums: s.enumTable ?? enumsForSignal(h, s.signalId),
     };
   });
 }

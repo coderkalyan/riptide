@@ -52,7 +52,7 @@ export interface NativePackSpec {
   shaded: boolean;
   gateHandle: string | null;
   // Multi-bit rows: how the native side formats the pill value label (label.zig).
-  radix: "bin" | "hex" | "dec" | "enum";
+  radix: "bin" | "hex" | "dec" | "sdec" | "enum";
   // Per-row enum int→label table (empty for non-enum rows). value = the integer
   // key the formatter matches against the low word of the sample.
   enums: { value: number; label: string }[];

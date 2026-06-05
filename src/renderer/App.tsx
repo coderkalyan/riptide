@@ -5,7 +5,8 @@ import { WaveCanvas } from "./wave/WaveCanvas";
 import { ActiveSignals } from "./ActiveSignals";
 import { HoverReadout } from "./HoverReadout";
 import { ColorPicker } from "./ColorPicker";
-import { ContextMenu, ACTIVE_SIGNAL_MENU } from "./ContextMenu";
+import { ContextMenu, activeSignalMenu } from "./ContextMenu";
+import { EnumDialog } from "./EnumDialog";
 import { SignalTree } from "./SignalTree";
 import { WavesToolbar } from "./WavesToolbar";
 import { MarkersBar } from "./MarkersBar";
@@ -149,6 +150,18 @@ export function App() {
 
   const deleteSelMarker = () => { if (s.selectedMarkerId != null) s.deleteMarker(s.selectedMarkerId); };
 
+  // Signals menu: operate on the selected active-signal row (mirrors the row's
+  // right-click menu). Color anchors to the selected row's pin swatch so Coloris
+  // opens in the same spot as clicking the pin directly.
+  const selSignal = () => s.activeSignals.find((r) => r.selected);
+  const onSignalColor = () => {
+    const r = selSignal();
+    if (!r) return;
+    const pin = document.querySelector(".s-row.sel .pin");
+    const rect = pin ? pin.getBoundingClientRect() : new DOMRect(220, 90, 0, 0);
+    s.setPicker({ row: r.row, anchorRect: rect });
+  };
+
   // Global keyboard shortcuts mirroring the File/View menus.
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -180,6 +193,13 @@ export function App() {
           markerCount={() => s.markers.length} markerSelected={() => s.selectedMarkerId != null}
           onMarkerAdd={() => s.addMarkerAtCursor()} onMarkerDelete={deleteSelMarker}
           onMarkerClear={() => s.clearMarkers()} onMarkerNext={() => s.cycleMarker(1)} onMarkerPrev={() => s.cycleMarker(-1)}
+          signalSelected={() => s.activeSignals.some((r) => r.selected)}
+          signalHidden={() => selSignal()?.hidden ?? false}
+          onSignalHide={() => { const r = selSignal(); if (r) s.toggleHidden(r.row); }}
+          onSignalColor={onSignalColor}
+          onSignalMoveTop={() => { const r = selSignal(); if (r) s.moveSignal(r.row, "top"); }}
+          onSignalMoveBottom={() => { const r = selSignal(); if (r) s.moveSignal(r.row, "bottom"); }}
+          onSignalRemove={() => { const r = selSignal(); if (r) s.removeSignal(r.row); }}
         />
         <div class="divider" />
         <div class="tabs">
@@ -256,17 +276,39 @@ export function App() {
         <ContextMenu
           x={m().x}
           y={m().y}
-          items={ACTIVE_SIGNAL_MENU}
+          items={(() => {
+            const ref = s.activeSignals.find((r) => r.row === m().row);
+            return activeSignalMenu({
+              multiBit: ref ? getSignal(SCENE.hierarchy, ref.signalId).bitWidth > 1 : false,
+              clockRow: m().row,
+              color: ref?.color,
+            });
+          })()}
           onClose={() => s.setCtxMenu(null)}
-          onSelect={(label) => {
+          onSelect={(it) => {
             const row = m().row;
             if (row < 0) return;
-            if (label === "Remove from View") s.removeSignal(row);
-            else if (label === "Move to Top") s.moveSignal(row, "top");
-            else if (label === "Move to Bottom") s.moveSignal(row, "bottom");
-            else if (label === "Change Color…") s.setPicker({ row, anchorRect: new DOMRect(m().x, m().y, 0, 0) });
+            if (it.action === "radix-bin") s.setFormat(row, "bin", undefined);
+            else if (it.action === "radix-dec") s.setFormat(row, "dec", undefined);
+            else if (it.action === "radix-sdec") s.setFormat(row, "sdec", undefined);
+            else if (it.action === "radix-hex") s.setFormat(row, "hex", undefined);
+            else if (it.action === "radix-enum") s.setFormat(row, "enum", undefined);
+            else if (it.action === "format-clock") s.setFormat(row, "bin", "clock");
+            else if (it.action === "format-reset") s.setFormat(row, "bin", "reset");
+            else if (it.label === "Remove from View") s.removeSignal(row);
+            else if (it.label === "Move to Top") s.moveSignal(row, "top");
+            else if (it.label === "Move to Bottom") s.moveSignal(row, "bottom");
+            else if (it.label === "Change Color…") s.setPicker({ row, anchorRect: new DOMRect(m().x, m().y, 0, 0) });
+          }}
+          onGear={(it) => {
+            const row = m().row;
+            if (row < 0) return;
+            if (it.action === "radix-enum") s.setEnumDialog({ row });
           }}
         />
+      )}</Show>
+      <Show when={s.enumDialog}>{(d) => (
+        <EnumDialog row={d().row} onClose={() => s.setEnumDialog(null)} />
       )}</Show>
       <GlobalTooltip />
       <PerfOverlay />

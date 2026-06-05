@@ -18,7 +18,7 @@ import { subscribeWithSelector } from "zustand/middleware";
 import { shallow } from "zustand/shallow";
 import { create } from "solid-zustand/store";
 
-import { SCENE, INITIAL, makeActiveRef, type ActiveSignalRef, type Radix } from "../hier/scene";
+import { SCENE, INITIAL, makeActiveRef, type ActiveSignalRef, type Radix, type ActiveRole, type ClockConfig, type EnumEntry } from "../hier/scene";
 import type { NodeId } from "../hier/types";
 import { MAX_ROWS } from "../gpu/colors";
 import {
@@ -68,6 +68,7 @@ export interface UiState {
   hover: { tick: number; row: number } | null;
   picker: { row: number; anchorRect: DOMRect } | null;
   ctxMenu: { x: number; y: number; row: number } | null;
+  enumDialog: { row: number } | null;
   // Bumped on viewport-settle (pan end / wheel / zoom-anim end) so the autosave
   // persists the final window — viewRange itself is excluded from the save
   // trigger (the rAF loop writes it per frame during interaction).
@@ -84,6 +85,12 @@ export interface Actions {
   moveSignal: (row: number, to: "top" | "bottom") => void;
   setColor: (row: number, color: string) => void;
   setRadix: (row: number, radix: Radix) => void;
+  setRole: (row: number, role: ActiveRole | undefined) => void;
+  // Apply a Format choice atomically: radix + role together (data formats clear
+  // any clock/reset role). One set → one repack, no transient inconsistent state.
+  setFormat: (row: number, radix: Radix, role: ActiveRole | undefined) => void;
+  setClockConfig: (row: number, clock: ClockConfig) => void;
+  setEnumTable: (row: number, enumTable: EnumEntry[]) => void;
   toggleHidden: (row: number) => void;
   selectRow: (row: number) => void;
   clearSelection: () => void;
@@ -117,6 +124,7 @@ export interface Actions {
   setHover: (h: { tick: number; row: number } | null) => void;
   setPicker: (p: { row: number; anchorRect: DOMRect } | null) => void;
   setCtxMenu: (m: { x: number; y: number; row: number } | null) => void;
+  setEnumDialog: (d: { row: number } | null) => void;
 
   // Re-seed the whole document slice from the freshly-swapped SCENE/INITIAL (the
   // caller runs scene.swapTrace first). One atomic set → subscribers fire once.
@@ -153,7 +161,7 @@ function hydrateDoc(): DocState {
   };
 }
 
-const freshUi = (): Omit<UiState, "traceNonce"> => ({ hover: null, picker: null, ctxMenu: null, viewSaveNonce: 0 });
+const freshUi = (): Omit<UiState, "traceNonce"> => ({ hover: null, picker: null, ctxMenu: null, enumDialog: null, viewSaveNonce: 0 });
 
 // Renumber rows so `row` stays the contiguous 0..N-1 canvas/Y slot. Keeps each
 // surviving row's `id` (identity) so reconcile/<For> reuse its DOM.
@@ -188,6 +196,18 @@ const vanilla = createVanilla<AppState>()(
     })),
     setRadix: (row, radix) => set((s) => ({
       activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, radix } : r)),
+    })),
+    setRole: (row, role) => set((s) => ({
+      activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, role } : r)),
+    })),
+    setFormat: (row, radix, role) => set((s) => ({
+      activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, radix, role } : r)),
+    })),
+    setClockConfig: (row, clock) => set((s) => ({
+      activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, clock } : r)),
+    })),
+    setEnumTable: (row, enumTable) => set((s) => ({
+      activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, enumTable } : r)),
     })),
     toggleHidden: (row) => set((s) => ({
       activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, hidden: !r.hidden } : r)),
@@ -263,6 +283,7 @@ const vanilla = createVanilla<AppState>()(
     setHover: (h) => set({ hover: h }),
     setPicker: (p) => set({ picker: p }),
     setCtxMenu: (m) => set({ ctxMenu: m }),
+    setEnumDialog: (d) => set({ enumDialog: d }),
 
     resetForTrace: () => set((st) => ({ ...hydrateDoc(), ...freshUi(), traceNonce: st.traceNonce + 1 })),
   })),

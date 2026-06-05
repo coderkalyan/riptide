@@ -72,7 +72,7 @@ Per-signal fields:
 | Field      | Required | Notes                                                       |
 |------------|----------|-------------------------------------------------------------|
 | `path`     | yes      | Dotted path. Derived signals use `derived.<name>`.          |
-| `radix`    | yes      | `bin` \| `hex` \| `dec`.                                    |
+| `radix`    | yes      | `bin` \| `hex` \| `dec` (unsigned) \| `sdec` (signed) \| `enum`. |
 | `color`    | yes      | CSS hex, `#RRGGBB`.                                          |
 | `hidden`   | no       | Eye toggled off (dimmed).                                   |
 | `selected` | no       | Highlighted/active row.                                     |

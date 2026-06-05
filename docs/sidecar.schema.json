@@ -99,7 +99,7 @@
   "$defs": {
     "radix": {
       "type": "string",
-      "enum": ["bin", "hex", "dec"]
+      "enum": ["bin", "hex", "dec", "sdec", "enum"]
     },
     "color": {
       "type": "string",

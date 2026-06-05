@@ -268,7 +268,7 @@ fn parseSpec(env: c.napi_env, v: c.napi_value, arena: std.mem.Allocator) ?PackSp
         var rlen: usize = 0;
         if (c.napi_get_value_string_utf8(env, radix_v, &rbuf, rbuf.len, &rlen) == c.napi_ok) {
             const rs = rbuf[0..rlen];
-            radix = if (std.mem.eql(u8, rs, "hex")) .hex else if (std.mem.eql(u8, rs, "dec")) .dec else if (std.mem.eql(u8, rs, "enum")) .@"enum" else .bin;
+            radix = if (std.mem.eql(u8, rs, "hex")) .hex else if (std.mem.eql(u8, rs, "dec")) .dec else if (std.mem.eql(u8, rs, "sdec")) .sdec else if (std.mem.eql(u8, rs, "enum")) .@"enum" else .bin;
         }
     }
 

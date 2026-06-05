@@ -4,8 +4,9 @@ const Allocator = std.mem.Allocator;
 // Radix and enum metadata needed to format a multi-bit value into its pill
 // label. Mirrors the renderer's Radix type + per-row enum maps.
 // `@"enum"` formats via the per-row enum table (value→label), falling back to
-// hex for unmatched values and X/Z bits.
-pub const Radix = enum { bin, hex, dec, @"enum" };
+// hex for unmatched values and X/Z bits. `dec` is unsigned, `sdec` two's-complement
+// signed (both share the divmod path; sdec negates the magnitude first).
+pub const Radix = enum { bin, hex, dec, sdec, @"enum" };
 pub const EnumEntry = struct { value: u32, label: []const u8 };
 
 const HEX_UPPER = "0123456789ABCDEF";
@@ -48,7 +49,9 @@ fn lowWord(x0: []const u8) u32 {
 // Decimal of an arbitrary-width little-endian value (x0 byte plane), via
 // repeated divmod-by-10 over a mutable u32-word copy. Matches the JS BigInt
 // path so widths > 32 print exactly. Only called on the all-defined dec path.
-fn appendDecimal(out: *std.ArrayList(u8), gpa: Allocator, x0: []const u8, width: u32) !void {
+// `signed`: treat the value as two's complement — if the sign bit (MSB) is set,
+// emit '-' and divmod the negated magnitude.
+fn appendDecimal(out: *std.ArrayList(u8), gpa: Allocator, x0: []const u8, width: u32, signed: bool) !void {
     const words: u32 = (width + 31) / 32;
     var buf = try gpa.alloc(u32, words);
     defer gpa.free(buf);
@@ -61,6 +64,23 @@ fn appendDecimal(out: *std.ArrayList(u8), gpa: Allocator, x0: []const u8, width:
             if (idx < x0.len) word |= @as(u32, x0[idx]) << @intCast(b * 8);
         }
         buf[w] = word;
+    }
+    // Clear bits above `width` in the top word so masking/negation are exact.
+    const top_bits: u5 = @intCast(width & 31);
+    if (top_bits != 0) buf[words - 1] &= (@as(u32, 1) << top_bits) - 1;
+
+    // Signed & negative: emit '-' and replace buf with its two's-complement
+    // magnitude (~buf + 1, masked back to `width`) before the divmod below.
+    if (signed and bitOf(x0, width - 1) == 1) {
+        try out.append(gpa, '-');
+        var carry: u64 = 1;
+        var i: u32 = 0;
+        while (i < words) : (i += 1) {
+            const s = @as(u64, ~buf[i]) + carry;
+            buf[i] = @truncate(s);
+            carry = s >> 32;
+        }
+        if (top_bits != 0) buf[words - 1] &= (@as(u32, 1) << top_bits) - 1;
     }
 
     // Collect digits least-significant first, then reverse.
@@ -223,8 +243,13 @@ pub fn formatValue(
     }
 
     if (width == 1) {
-        try out.append(gpa, '0' + @as(u8, bitOf(x0s, 0)));
+        // 1-bit two's complement: bit set is -1 (signed) or 1 (unsigned).
+        if (radix == .sdec and bitOf(x0s, 0) == 1) {
+            try out.appendSlice(gpa, "-1");
+        } else {
+            try out.append(gpa, '0' + @as(u8, bitOf(x0s, 0)));
+        }
         return;
     }
-    try appendDecimal(out, gpa, x0s, width);
+    try appendDecimal(out, gpa, x0s, width, radix == .sdec);
 }

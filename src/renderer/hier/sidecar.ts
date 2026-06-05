@@ -13,7 +13,7 @@
 import type { Hierarchy, NodeId } from "./types";
 import { pathOf } from "./types";
 import { getScope } from "./hierarchy";
-import type { ActiveRole, ActiveSignalRef, Radix, VcdType } from "./scene";
+import type { ActiveRole, ActiveSignalRef, ClockConfig, EnumEntry, Radix, VcdType } from "./scene";
 import { SIDECAR_PATH } from "../runtime";
 
 // Renderer runs with nodeIntegration; mirror native.ts's runtime require so
@@ -44,6 +44,8 @@ export interface SidecarSignal {
   selected?: boolean;
   pinned?: boolean;
   role?: ActiveRole;
+  clock?: ClockConfig;
+  enumTable?: EnumEntry[];
   derived?: { expr: string };
   // Reserved for forward-compat / scripting; not emitted by this build (enums
   // and muting are trace-side here). Documented in docs/sidecar.md.
@@ -222,6 +224,8 @@ export function resolveView(
       ...(s.selected ? { selected: true } : {}),
       ...(s.hidden ? { hidden: true } : {}),
       ...(s.role ? { role: s.role } : {}),
+      ...(s.clock ? { clock: s.clock } : {}),
+      ...(s.enumTable ? { enumTable: s.enumTable } : {}),
       ...(s.derived ? { derivedExpr: s.derived.expr } : {}),
     });
   }
@@ -263,6 +267,8 @@ export function serializeSidecar(snap: SidecarSnapshot): Sidecar {
     ...(r.selected ? { selected: true } : {}),
     ...(r.pinned ? { pinned: true } : {}),
     ...(r.role ? { role: r.role } : {}),
+    ...(r.clock ? { clock: r.clock } : {}),
+    ...(r.enumTable ? { enumTable: r.enumTable } : {}),
     ...(r.derivedExpr ? { derived: { expr: r.derivedExpr } } : {}),
   }));
 

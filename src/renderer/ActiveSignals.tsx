@@ -6,11 +6,11 @@ import { useAppStore } from "./store/store";
 import { ActiveSignal, type ActiveSignalKind } from "./ActiveSignal";
 import { valueAtTick, formatSegmentValue } from "./wave/value";
 
+// Icon reflects the chosen format: clock and reset get their own glyph, every
+// other format (binary/decimal/hex/enum) shows the generic data icon.
 function activeSignalKind(ref: ActiveSignalRef): ActiveSignalKind {
   if (ref.role === "clock") return "clock";
   if (ref.role === "reset") return "reset";
-  if (ref.role === "valid") return "valid";
-  if (ref.derivedExpr) return "derived";
   return "signal";
 }
 

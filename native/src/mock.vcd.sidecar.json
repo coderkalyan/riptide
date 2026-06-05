@@ -15,7 +15,7 @@
     "time": {
       "start": 0,
       "end": 90,
-      "cursor": 44.37845303867403
+      "cursor": 37.003485291204434
     },
     "signals": [
       {
@@ -23,7 +23,11 @@
         "radix": "bin",
         "color": "#72F5DF",
         "pinned": true,
-        "role": "clock"
+        "role": "clock",
+        "clock": {
+          "polarity": "rising",
+          "period": 10
+        }
       },
       {
         "path": "top.keysched.waves.rst",
@@ -33,24 +37,36 @@
       },
       {
         "path": "top.keysched.waves.state[1:0]",
-        "radix": "dec",
+        "radix": "enum",
         "color": "#B48CFF"
       },
       {
         "path": "top.keysched.waves.cycle_count[7:0]",
         "radix": "dec",
-        "color": "#B48CFF"
+        "color": "#B48CFF",
+        "clock": {
+          "polarity": "rising",
+          "period": 15
+        }
       },
       {
         "path": "top.keysched.waves.in_valid",
         "radix": "bin",
         "color": "#F4A698",
-        "role": "valid"
+        "role": "valid",
+        "clock": {
+          "polarity": "rising",
+          "period": 10
+        }
       },
       {
         "path": "top.keysched.waves.in_data[7:0]",
         "radix": "hex",
-        "color": "#F4A698"
+        "color": "#F4A698",
+        "clock": {
+          "polarity": "both",
+          "period": 10
+        }
       },
       {
         "path": "top.keysched.waves.in_addr[15:0]",
@@ -61,7 +77,6 @@
         "path": "top.keysched.waves.out_valid",
         "radix": "bin",
         "color": "#57C88A",
-        "selected": true,
         "role": "valid"
       },
       {
@@ -71,28 +86,41 @@
       },
       {
         "path": "top.keysched.waves.fifo_level[3:0]",
-        "radix": "dec",
-        "color": "#E6B14E"
+        "radix": "enum",
+        "color": "#E6B14E",
+        "enumTable": []
       },
       {
         "path": "top.keysched.waves.fifo_empty",
-        "radix": "bin",
+        "radix": "dec",
         "color": "#E6B14E"
       },
       {
         "path": "top.keysched.waves.dbus[7:0]",
         "radix": "hex",
-        "color": "#4FD2BD"
+        "color": "#4FD2BD",
+        "clock": {
+          "polarity": "rising",
+          "period": 50
+        }
       },
       {
         "path": "top.keysched.waves.wide_data[63:0]",
         "radix": "hex",
-        "color": "#E6B14E"
+        "color": "#E6B14E",
+        "clock": {
+          "polarity": "rising",
+          "period": 10
+        }
       },
       {
         "path": "derived.busy",
         "radix": "bin",
         "color": "#4FD2BD",
+        "clock": {
+          "polarity": "falling",
+          "period": 10
+        },
         "derived": {
           "expr": "in_valid | out_valid"
         }
@@ -121,13 +149,25 @@
         "color": "#B48CFF"
       }
     ],
-    "markers": []
+    "markers": [
+      {
+        "name": "M4",
+        "tick": 53.32634654471545,
+        "color": "#72f5b4"
+      },
+      {
+        "name": "M5",
+        "tick": 44.146341463414636,
+        "color": "#727bf5",
+        "selected": true
+      }
+    ]
   },
   "ui": {
     "panels": {
       "treeWidth": 236,
       "activeWidth": 296,
-      "treeCollapsed": false,
+      "treeCollapsed": true,
       "activeCollapsed": false,
       "activeCompactWidth": null
     },

@@ -1,8 +1,20 @@
 import { Dynamic } from "solid-js/web";
 import { Activity, Eye, EyeOff, CircleCheck, Clock, EqualApproximately, RotateCcw } from "lucide-solid";
-import type { JSX } from "solid-js";
+import { createMemo, type JSX } from "solid-js";
 
 export type ActiveSignalKind = "clock" | "reset" | "valid" | "derived" | "signal";
+
+// Split a signal name into its base and a trailing bit-range suffix (e.g.
+// "in_data[7:0]" → "in_data" + "[7:0]") so the range can be tinted apart from the
+// name. Pattern-based (last bracketed group), so it works for any VCD; names
+// without a trailing "[…]" render unchanged.
+function SignalName(props: { name: string }) {
+  const parts = createMemo(() => {
+    const m = props.name.match(/^(.*?)(\[[^\]]*\])$/);
+    return m ? { base: m[1], bits: m[2] } : { base: props.name, bits: "" };
+  });
+  return <>{parts().base}{parts().bits && <span class="s-bits">{parts().bits}</span>}</>;
+}
 
 export interface ActiveSignalProps {
   name: string;
@@ -40,7 +52,7 @@ export function ActiveSignal(props: ActiveSignalProps) {
       data-tip={props.collapsed ? `${props.name} · ${props.value}` : props.tip}
     >
       {props.collapsed ? (
-        <span class="n">{props.name}</span>
+        <span class="n"><SignalName name={props.name} /></span>
       ) : (
         <>
           <span
@@ -52,7 +64,7 @@ export function ActiveSignal(props: ActiveSignalProps) {
           <span class={"s-icon " + props.kind} data-tip={KIND_TIP[props.kind]}>
             <Dynamic component={KIND_ICON[props.kind]} size={12} />
           </span>
-          <span class="n">{props.name}</span>
+          <span class="n"><SignalName name={props.name} /></span>
           <span class="v">{props.value}</span>
           <span
             class={"eye" + (props.hidden ? " off" : "")}

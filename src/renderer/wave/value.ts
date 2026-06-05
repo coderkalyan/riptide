@@ -2,8 +2,7 @@
 // App.tsx's valueAtTick / formatSegmentValue / buildEnumLabels verbatim. (This is
 // a byte-for-byte sibling of the native label.zig formatter — keep in sync.)
 import { getValueAt } from "../native";
-import { getSignal } from "../hier/hierarchy";
-import { SCENE, type ActiveSignalRef, type Radix } from "../hier/scene";
+import { enumTableForRef, type ActiveSignalRef, type Radix } from "../hier/scene";
 
 // Decoded (lsb, msb) value of a signal at a tick via the native tide query.
 // lsb/msb are little-endian u32 word arrays (one word per 32 bits of width).
@@ -45,7 +44,7 @@ export function formatSegmentValue(
       else if (c === "Z") anyZ = true;
       else anyDef = true;
     }
-    if ((radix === "hex" || radix === "dec") && !anyDef && !(anyX && anyZ)) {
+    if ((radix === "hex" || radix === "dec" || radix === "sdec") && !anyDef && !(anyX && anyZ)) {
       return anyZ ? "Z" : "X";
     }
     if (radix === "hex") {
@@ -72,7 +71,11 @@ export function formatSegmentValue(
     const label = enumLabels.get(value.lsb[0] >>> 0);
     if (label) return label;
   }
-  if (bitWidth === 1) return String(bitOfWords(value.lsb, 0));
+  if (bitWidth === 1) {
+    // 1-bit two's complement: bit set is -1 (signed) or 1 (unsigned).
+    if (radix === "sdec") return bitOfWords(value.lsb, 0) ? "-1" : "0";
+    return String(bitOfWords(value.lsb, 0));
+  }
   if (radix === "hex") {
     let hex = "";
     for (let hi = bitWidth - 1; hi >= 0; hi -= 4) {
@@ -82,9 +85,12 @@ export function formatSegmentValue(
     }
     return `0x${hex.replace(/^0+/, "") || "0"}`;
   }
-  if (radix === "dec") {
+  if (radix === "dec" || radix === "sdec") {
     let big = 0n;
     for (let w = value.lsb.length - 1; w >= 0; w--) big = (big << 32n) | BigInt(value.lsb[w] >>> 0);
+    big &= (1n << BigInt(bitWidth)) - 1n; // mask to width
+    // Signed: re-interpret as two's complement when the sign bit is set.
+    if (radix === "sdec" && (big & (1n << BigInt(bitWidth - 1)))) big -= 1n << BigInt(bitWidth);
     return big.toString();
   }
   let bin = "";
@@ -92,17 +98,17 @@ export function formatSegmentValue(
   return `0b${bin}`;
 }
 
-// Enum label maps per row (value → label) for any active signal whose
-// declaration carries an enumTypeId. Recomputed when the active set changes.
+// Enum label maps per row (value → label) for any enum-radix active signal —
+// using the row's edited table if present, else the trace-derived one. Recomputed
+// when the active set changes.
 export function buildEnumLabels(active: ActiveSignalRef[]): Map<number, Map<number, string>> {
   const out = new Map<number, Map<number, string>>();
   for (const ref of active) {
-    const sig = getSignal(SCENE.hierarchy, ref.signalId);
-    if (sig.enumTypeId == null) continue;
-    const enumType = SCENE.hierarchy.enumTypes.get(sig.enumTypeId);
-    if (!enumType) continue;
+    if (ref.radix !== "enum") continue;
+    const table = enumTableForRef(ref);
+    if (!table.length) continue;
     const m = new Map<number, string>();
-    for (const mem of enumType.members) m.set(parseInt(mem.raw, 2), mem.label);
+    for (const e of table) m.set(e.value >>> 0, e.label);
     out.set(ref.row, m);
   }
   return out;

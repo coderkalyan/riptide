@@ -7,14 +7,12 @@ const baseName = (p: string) => p.split(/[\\/]/).pop() || p;
 
 // Static menu definitions. File items that depend on runtime state (Open Recent)
 // are injected in `menus()` below. Linux keyboard shortcuts, plain text only.
-const EDIT_PLUS: { name: string; items: MenuItem[] }[] = [
+// Edit + Help are static (state-independent). Signals/View/Markers depend on
+// runtime state and are built in `menus()`.
+const EDIT_HELP: { name: string; items: MenuItem[] }[] = [
   { name: "Edit", items: [
     { label: "Undo", kbd: "Ctrl+Z", disabled: true }, { label: "Redo", kbd: "Ctrl+Shift+Z", disabled: true }, "sep",
     { label: "Cut", kbd: "Ctrl+X", disabled: true }, { label: "Copy", kbd: "Ctrl+C", disabled: true }, { label: "Paste", kbd: "Ctrl+V", disabled: true }, "sep", { label: "Find…", kbd: "Ctrl+F", disabled: true },
-  ] },
-  { name: "Signals", items: [
-    { label: "Add Signal…", kbd: "⌘⏎" }, { label: "Group Selected" }, { label: "Remove from View" }, "sep",
-    { label: "Set Radix" }, { label: "Change Color…" },
   ] },
   { name: "Help", items: [
     { label: "Documentation", disabled: true },
@@ -47,6 +45,14 @@ export function MenuBar(props: {
   onMarkerClear: () => void;
   onMarkerNext: () => void;
   onMarkerPrev: () => void;
+  // Signals menu operates on the currently selected active-signal row.
+  signalSelected: () => boolean;
+  signalHidden: () => boolean;
+  onSignalHide: () => void;
+  onSignalColor: () => void;
+  onSignalMoveTop: () => void;
+  onSignalMoveBottom: () => void;
+  onSignalRemove: () => void;
 }) {
   const [open, setOpen] = createSignal<{ name: string; rect: DOMRect } | null>(null);
   // Frozen snapshot of the last-open menu — stays mounted while `open` is null so
@@ -72,7 +78,7 @@ export function MenuBar(props: {
       "sep",
       { label: "Close Window", kbd: "Ctrl+W", action: "close-window" },
     ] },
-    EDIT_PLUS[0], // Edit
+    EDIT_HELP[0], // Edit
     { name: "View", items: [
       { label: "Zoom In", kbd: "Ctrl+=", action: "zoom-in" },
       { label: "Zoom Out", kbd: "Ctrl+-", action: "zoom-out" },
@@ -84,9 +90,17 @@ export function MenuBar(props: {
       { label: "Grid Snap", checked: props.snapOn(), action: "toggle-snap" },
       { label: "Align Grid to Clock", checked: props.clockOn(), action: "toggle-clock" },
       "sep",
-      { label: "Reset Layout" },
+      { label: "Reset Layout", disabled: true },
     ] },
-    EDIT_PLUS[1], // Signals
+    { name: "Signals", items: [
+      { label: props.signalHidden() ? "Show Signal" : "Hide Signal", action: "signal-hide", disabled: !props.signalSelected() },
+      { label: "Change Color…", action: "signal-color", disabled: !props.signalSelected() },
+      "sep",
+      { label: "Move to Top", action: "signal-top", disabled: !props.signalSelected() },
+      { label: "Move to Bottom", action: "signal-bottom", disabled: !props.signalSelected() },
+      "sep",
+      { label: "Remove from View", action: "signal-remove", disabled: !props.signalSelected() },
+    ] },
     { name: "Markers", items: [
       { label: "Add Marker at Cursor", kbd: "M", action: "marker-add" },
       { label: "Delete Marker", kbd: "Backspace", action: "marker-delete", disabled: !props.markerSelected() },
@@ -95,7 +109,7 @@ export function MenuBar(props: {
       { label: "Next Marker", kbd: "]", action: "marker-next", disabled: props.markerCount() === 0 },
       { label: "Previous Marker", kbd: "[", action: "marker-prev", disabled: props.markerCount() === 0 },
     ] },
-    ...EDIT_PLUS.slice(2),
+    EDIT_HELP[1], // Help
   ];
 
   createEffect(() => {
@@ -147,6 +161,11 @@ export function MenuBar(props: {
     else if (it.action === "marker-clear") props.onMarkerClear();
     else if (it.action === "marker-next") props.onMarkerNext();
     else if (it.action === "marker-prev") props.onMarkerPrev();
+    else if (it.action === "signal-hide") props.onSignalHide();
+    else if (it.action === "signal-color") props.onSignalColor();
+    else if (it.action === "signal-top") props.onSignalMoveTop();
+    else if (it.action === "signal-bottom") props.onSignalMoveBottom();
+    else if (it.action === "signal-remove") props.onSignalRemove();
   };
 
   const renderItem = (it: MenuItem, isSub: boolean) =>
