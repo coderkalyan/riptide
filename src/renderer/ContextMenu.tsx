@@ -24,7 +24,7 @@ function ClockAccessory(props: { row: number }) {
     <span class="menu-clock-info" onClick={(e) => e.stopPropagation()}>
       <span
         class="menu-clock-pol"
-        title={`polarity: ${cfg().polarity} (click to cycle)`}
+        data-tip={`polarity: ${cfg().polarity} (click to cycle)`}
         onClick={(e) => { e.stopPropagation(); s.setClockConfig(props.row, { ...cfg(), polarity: NEXT_POLARITY[cfg().polarity] }); }}
       >
         <Dynamic component={POLARITY_ICON[cfg().polarity]} size={12} />
@@ -113,7 +113,7 @@ export function ContextMenu(props: {
             : it.gear ? (
               <span
                 class="menu-gear"
-                title="Configure…"
+                data-tip="configure enum"
                 onClick={(e) => { e.stopPropagation(); props.onGear?.(it); props.onClose(); }}
               >⚙</span>
             )
