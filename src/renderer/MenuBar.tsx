@@ -25,6 +25,7 @@ const EDIT_HELP: { name: string; items: MenuItem[] }[] = [
 export function MenuBar(props: {
   onOpenVcd: () => void;
   onOpenRecent: (path: string) => void;
+  onExportSidecar: () => void;
   getRecent: () => Promise<string[]>;
   onCloseWindow: () => void;
   onZoomIn: () => void;
@@ -73,6 +74,8 @@ export function MenuBar(props: {
       { label: "New Window", kbd: "Ctrl+N", disabled: true, unimplemented: true },
       { label: "Open VCD…", kbd: "Ctrl+O", action: "open-vcd" },
       { label: "Open Recent", submenu: recentSubmenu() },
+      "sep",
+      { label: "Export Sidecar…", action: "export-sidecar" },
       "sep",
       { label: "Reload Trace", kbd: "Ctrl+R", disabled: true, unimplemented: true },
       "sep",
@@ -148,6 +151,7 @@ export function MenuBar(props: {
     setOpen(null);
     if (it.action === "open-vcd") props.onOpenVcd();
     else if (it.action === "open-recent" && it.path) props.onOpenRecent(it.path);
+    else if (it.action === "export-sidecar") props.onExportSidecar();
     else if (it.action === "close-window") props.onCloseWindow();
     else if (it.action === "zoom-in") props.onZoomIn();
     else if (it.action === "zoom-out") props.onZoomOut();

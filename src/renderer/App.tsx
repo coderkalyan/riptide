@@ -1,11 +1,11 @@
 import { For, Show, createSignal, createMemo, onMount, onCleanup } from "solid-js";
 import { X, PanelLeftClose, PanelLeftOpen } from "lucide-solid";
-import { useAppStore } from "./store/store";
+import { useAppStore, selectExportSidecarText } from "./store/store";
 import { WaveCanvas } from "./wave/WaveCanvas";
 import { ActiveSignals } from "./ActiveSignals";
 import { HoverReadout } from "./HoverReadout";
 import { ColorPicker } from "./ColorPicker";
-import { ContextMenu, activeSignalMenu } from "./ContextMenu";
+import { ContextMenu, activeSignalMenu, dividerMenu } from "./ContextMenu";
 import { EnumDialog } from "./EnumDialog";
 import { SignalTree } from "./SignalTree";
 import { WavesToolbar } from "./WavesToolbar";
@@ -141,6 +141,13 @@ export function App() {
     s.resetForTrace();
   };
 
+  // Export the current view as a portable, UI-chrome-stripped sidecar via a
+  // native save dialog (main writes the file).
+  const handleExportSidecar = async () => {
+    const text = selectExportSidecarText(useAppStore.getState());
+    await ipc()?.invoke("riptide:export-sidecar", text);
+  };
+
   const getRecent = async () => ((await ipc()?.invoke("riptide:recent-vcds")) as string[] | null) ?? [];
   const closeWindow = () => { ipc()?.invoke("riptide:close-window"); };
 
@@ -184,7 +191,7 @@ export function App() {
         <div class="dots"><i class="r" /><i class="y" /><i class="g" /></div>
         <div class="title">Riptide</div>
         <MenuBar
-          onOpenVcd={handleOpenVcd} onOpenRecent={handleOpenRecent} getRecent={getRecent} onCloseWindow={closeWindow}
+          onOpenVcd={handleOpenVcd} onOpenRecent={handleOpenRecent} onExportSidecar={handleExportSidecar} getRecent={getRecent} onCloseWindow={closeWindow}
           onZoomIn={zoomIn} onZoomOut={zoomOut} onZoomFit={zoomFit}
           treeCollapsed={() => s.panels.treeCollapsed} onToggleTree={toggleTree}
           activeCollapsed={() => s.panels.activeCollapsed} onToggleActive={toggleActive}
@@ -277,11 +284,13 @@ export function App() {
           x={m().x}
           y={m().y}
           items={(() => {
+            if (m().kind === "divider") return dividerMenu();
             const ref = s.activeSignals.find((r) => r.row === m().row);
             return activeSignalMenu({
               multiBit: ref ? getSignal(SCENE.hierarchy, ref.signalId).bitWidth > 1 : false,
               clockRow: m().row,
               color: ref?.color,
+              dividerOn: ref?.dividerBelow ?? false,
             });
           })()}
           onClose={() => s.setCtxMenu(null)}
@@ -295,6 +304,7 @@ export function App() {
             else if (it.action === "radix-enum") s.setFormat(row, "enum", undefined);
             else if (it.action === "format-clock") s.setFormat(row, "bin", "clock");
             else if (it.action === "format-reset") s.setFormat(row, "bin", "reset");
+            else if (it.action === "toggle-divider") s.toggleDivider(row);
             else if (it.label === "Dim") s.toggleHidden(row);
             else if (it.label === "Dim Others") s.hideOthers(row);
             else if (it.label === "Remove from View") s.removeSignal(row);

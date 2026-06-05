@@ -461,6 +461,16 @@
         .s-resize:hover::after { opacity: 0.7; }
         .s-row:hover { background: var(--panel-2); }
         .s-row.sel { background: var(--accent-soft); }
+        /* User-inserted separator below a row. Height MUST equal DIVIDER_HEIGHT_CSS
+           (wave/constants.ts) so the canvas gap stays row-aligned. Styled like the
+           menu separator: a centered 1px line inset from both edges. A faint band +
+           continued row border integrate it into the list and keep it visible. */
+        .s-divider {
+            position: relative;
+            height: 16px; flex: 0 0 auto; display: flex; align-items: center; padding: 0 8px;
+            background: var(--panel-2); border-bottom: 1px solid var(--border);
+        }
+        .s-divider::after { content: ''; flex: 1; height: 1px; background: var(--border-strong); }
         .pin {
             width: 8px; height: 8px; border-radius: 50%;
             display: inline-block; cursor: pointer; flex-shrink: 0;

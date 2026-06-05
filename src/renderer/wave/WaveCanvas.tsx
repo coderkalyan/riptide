@@ -18,6 +18,7 @@ import { drainCaptures } from "./capture";
 import {
   ROW_HEIGHT_CSS, LINE_THICKNESS_CSS, LINE_HALF_CSS, NOTCH_HEIGHT, BOTTOM_RULER_HEIGHT,
   MAX_MARKERS, MARKER_GRAB_PX, ZOOM_PER_DELTA_Y, ZOOM_OUT_FACTOR, WINDOW_SHRINK_FACTOR,
+  DIVIDER_HEIGHT_CSS,
 } from "./constants";
 import * as P from "./palette";
 import { dynamicRulerTicks, clockRulerTicks, rulerSpacing, formatTime, formatClockWhole, clockEdgesBetween, snapToClockEdge, CLOCK_PERIOD_NS } from "./format";
@@ -96,7 +97,13 @@ export function WaveCanvas() {
       // height falls back to the default. No repack — same fast path as applyDim.
       const rowHeightOf = (row: number) =>
         useAppStore.getState().activeSignals.find((r) => r.row === row)?.height ?? ROW_HEIGHT_CSS;
-      const applyRowLayout = () => renderer.setRowLayout(scene, rowHeightOf, ROW_HEIGHT_CSS);
+      // Extra gap below a row carrying a divider (matches the .s-divider DOM
+      // height — the row's resized dividerHeight, else the default).
+      const gapBelowOf = (row: number) => {
+        const r = useAppStore.getState().activeSignals.find((x) => x.row === row);
+        return r?.dividerBelow ? (r.dividerHeight ?? DIVIDER_HEIGHT_CSS) : 0;
+      };
+      const applyRowLayout = () => renderer.setRowLayout(scene, rowHeightOf, ROW_HEIGHT_CSS, gapBelowOf);
       applyRowLayout();
 
       // Repack GPU buffers + pill labels for a new active list (add/remove/radix)
@@ -548,7 +555,8 @@ export function WaveCanvas() {
         for (let i = 0; i < rows.length; i++) {
           const h = rows[i].height ?? ROW_HEIGHT_CSS;
           if (py >= y && py < y + h) { row = i; break; }
-          y += h;
+          // Skip the row's height plus any divider gap below it (no row there).
+          y += h + (rows[i].dividerBelow ? (rows[i].dividerHeight ?? DIVIDER_HEIGHT_CSS) : 0);
         }
         useAppStore.getState().setHover({ tick, row });
       };

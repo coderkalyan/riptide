@@ -67,8 +67,9 @@ export interface DigitalRenderer {
   setDimFlags(scene: SceneBuffers, isHidden: (row: number) => boolean): void;
   // Write the per-row vertical layout (y_offset/height as f32 bits) into the
   // rowInfo buffer. `top` is the first row's y (below the ruler); heights stack.
-  // One writeBuffer, no repack — call after a scene (re)build and on row resize.
-  setRowLayout(scene: SceneBuffers, heightOf: (row: number) => number, top: number): void;
+  // `gapBelowOf` adds empty space after a row (divider) without growing its drawn
+  // height. One writeBuffer, no repack — call after a scene (re)build / row resize.
+  setRowLayout(scene: SceneBuffers, heightOf: (row: number) => number, top: number, gapBelowOf?: (row: number) => number): void;
 }
 
 export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
@@ -198,7 +199,7 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
     if (cpu.byteLength > 0) device.queue.writeBuffer(scene.rowInfo, 0, cpu);
   }
 
-  function setRowLayout(scene: SceneBuffers, heightOf: (row: number) => number, top: number): void {
+  function setRowLayout(scene: SceneBuffers, heightOf: (row: number) => number, top: number, gapBelowOf?: (row: number) => number): void {
     const cpu = scene.rowInfoCpu;
     const rows = cpu.length / ROW_INFO_WORDS;
     // Same backing buffer, viewed as f32 to write the y_offset/height words.
@@ -208,7 +209,7 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
       const h = heightOf(r);
       f[r * ROW_INFO_WORDS + ROW_WORD_Y] = y;
       f[r * ROW_INFO_WORDS + ROW_WORD_H] = h;
-      y += h;
+      y += h + (gapBelowOf ? gapBelowOf(r) : 0);
     }
     if (cpu.byteLength > 0) device.queue.writeBuffer(scene.rowInfo, 0, cpu);
   }

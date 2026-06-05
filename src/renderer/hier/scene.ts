@@ -51,6 +51,8 @@ export interface ActiveSignalRef {
   clock?: ClockConfig;
   enumTable?: EnumEntry[];
   height?: number;           // per-row vertical size (CSS px); default ROW_HEIGHT_CSS
+  dividerBelow?: boolean;     // render a thin separator below this row (DOM + canvas gap)
+  dividerHeight?: number;     // resized divider height (CSS px); default DIVIDER_HEIGHT_CSS
   derivedExpr?: string;
 }
 

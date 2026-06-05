@@ -146,6 +146,22 @@ ipcMain.handle("riptide:save-canvas", async (e, bytes: Uint8Array) => {
   return r.filePath;
 });
 
+// Renderer built the stripped (view-only) sidecar text -> native save dialog,
+// write file. Returns the chosen path (or null if cancelled).
+ipcMain.handle("riptide:export-sidecar", async (e, text: string) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win) return null;
+  const base = currentVcd ? path.basename(currentVcd).replace(/\.vcd$/i, "") : "view";
+  const r = await dialog.showSaveDialog(win, {
+    title: "Export Sidecar",
+    defaultPath: `${base}.sidecar.json`,
+    filters: [{ name: "Riptide Sidecar", extensions: ["json"] }],
+  });
+  if (r.canceled || !r.filePath) return null;
+  fs.writeFileSync(r.filePath, text);
+  return r.filePath;
+});
+
 // Close the window that asked (File > Close Window).
 ipcMain.handle("riptide:close-window", (e) => {
   BrowserWindow.fromWebContents(e.sender)?.close();

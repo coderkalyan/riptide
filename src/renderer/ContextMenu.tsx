@@ -42,7 +42,7 @@ function ClockAccessory(props: { row: number }) {
 // Right-click menu for an active-signal row. Binary collapses a value to a single
 // line, which only makes sense for a 1-bit signal — so it's disabled for multi-bit
 // signals (all other formats stay available); 1-bit signals allow every format.
-export function activeSignalMenu(opts: { multiBit: boolean; clockRow: number; color?: string }): MenuItem[] {
+export function activeSignalMenu(opts: { multiBit: boolean; clockRow: number; color?: string; dividerOn?: boolean }): MenuItem[] {
   return [
     { label: "Format", submenu: [
       { label: "Binary", action: "radix-bin", disabled: opts.multiBit },
@@ -57,7 +57,7 @@ export function activeSignalMenu(opts: { multiBit: boolean; clockRow: number; co
     { label: "Change Color…", accessory: <span class="menu-swatch" style={{ background: opts.color ?? "var(--muted)" }} /> },
     "sep",
     { label: "Group with Selected", disabled: true, unimplemented: true },
-    { label: "Insert Divider", disabled: true, unimplemented: true },
+    { label: opts.dividerOn ? "Remove Divider" : "Insert Divider", action: "toggle-divider" },
     "sep",
     { label: "Move to Top" },
     { label: "Move to Bottom" },
@@ -66,6 +66,11 @@ export function activeSignalMenu(opts: { multiBit: boolean; clockRow: number; co
     { label: "Dim Others" },
     { label: "Remove from View" },
   ];
+}
+
+// Right-click menu for a divider entry in the active-signal list.
+export function dividerMenu(): MenuItem[] {
+  return [{ label: "Remove Divider", action: "toggle-divider" }];
 }
 
 type Leaf = Exclude<MenuItem, "sep">;

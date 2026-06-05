@@ -11,6 +11,14 @@ export const ROW_HEIGHT_CSS = 28;
 export const ROW_MIN_HEIGHT_CSS = 18;
 export const ROW_MAX_HEIGHT_CSS = 200;
 
+// Extra vertical space inserted below a row that carries `dividerBelow`. Mirrors
+// the .s-divider element height so the canvas gap stays aligned with the DOM list.
+// This is the DEFAULT; a divider can be individually resized (dividerHeight).
+export const DIVIDER_HEIGHT_CSS = 16;
+// Clamp for dragging a divider's resize handle.
+export const DIVIDER_MIN_HEIGHT_CSS = 6;
+export const DIVIDER_MAX_HEIGHT_CSS = 200;
+
 // Vertical-line thickness — MUST match the `thickness` literal in lines.wgsl.
 export const LINE_THICKNESS_CSS = 2.5;
 export const LINE_HALF_CSS = LINE_THICKNESS_CSS * 0.5;
