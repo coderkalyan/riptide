@@ -96,6 +96,8 @@ export interface Actions {
   toggleHidden: (row: number) => void;
   // Hide every active row except `row` (which is forced visible).
   hideOthers: (row: number) => void;
+  // Global toggle: if any row is dimmed, show all; otherwise dim all.
+  toggleAllHidden: () => void;
   selectRow: (row: number) => void;
   clearSelection: () => void;
 
@@ -222,6 +224,11 @@ const vanilla = createVanilla<AppState>()(
     hideOthers: (row) => set((s) => ({
       activeSignals: s.activeSignals.map((r) => ({ ...r, hidden: r.row !== row })),
     })),
+    toggleAllHidden: () => set((s) => {
+      // Any row dimmed → show all; none dimmed → dim all.
+      const next = !s.activeSignals.some((r) => r.hidden);
+      return { activeSignals: s.activeSignals.map((r) => ({ ...r, hidden: next })) };
+    }),
     selectRow: (row) => set((s) => {
       const wasSelected = s.activeSignals.find((r) => r.row === row)?.selected ?? false;
       return { activeSignals: s.activeSignals.map((r) => ({ ...r, selected: !wasSelected && r.row === row })) };

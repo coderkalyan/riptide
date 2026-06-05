@@ -1,5 +1,5 @@
 import { For, Show, createMemo } from "solid-js";
-import { PanelLeftClose, PanelLeftOpen } from "lucide-solid";
+import { PanelLeftClose, PanelLeftOpen, Eye, EyeOff } from "lucide-solid";
 import { getSignal } from "./hier/hierarchy";
 import { SCENE, type ActiveSignalRef } from "./hier/scene";
 import { useAppStore } from "./store/store";
@@ -68,7 +68,23 @@ export function ActiveSignals(props: {
       </div>
       <Show
         when={props.collapsed}
-        fallback={<div class="s-head"><span /><span /><span>Name</span><span>Value</span><span /></div>}
+        fallback={
+          <div class="s-head">
+            <span /><span /><span>Name</span><span>Value</span>
+            {(() => {
+              const anyDimmed = () => s.activeSignals.some((r) => r.hidden);
+              return (
+                <span
+                  class="eye head"
+                  data-tip={anyDimmed() ? "show all signals" : "dim all signals"}
+                  onClick={() => s.toggleAllHidden()}
+                >
+                  {anyDimmed() ? <EyeOff size={12} /> : <Eye size={12} />}
+                </span>
+              );
+            })()}
+          </div>
+        }
       >
         <div class="s-head"><span style={{ "font-weight": 700 }}>Name</span></div>
       </Show>
