@@ -10,6 +10,12 @@ export function requestCanvasCapture(): Promise<Blob | null> {
   return new Promise((resolve) => pending.push(resolve));
 }
 
+// True when a snapshot is queued — the (optimized) frame loop must render even if
+// nothing else changed so drainCaptures has a fresh front buffer to read.
+export function hasPendingCaptures(): boolean {
+  return pending.length > 0;
+}
+
 // Called by the frame loop after renderFrame. No-op when nothing is queued.
 export function drainCaptures(canvas: HTMLCanvasElement): void {
   if (pending.length === 0) return;

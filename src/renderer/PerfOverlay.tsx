@@ -18,8 +18,13 @@ function budgetColor(frameMs: number): string {
 export function PerfOverlay() {
   const [on, setOn] = createSignal(perf.isEnabled());
   const [snap, setSnap] = createSignal<perf.PerfSnapshot | null>(null);
+  const [forceRender, setForceRender] = createSignal(perf.isForceRender());
 
-  onMount(() => { const unsub = perf.onEnabledChange(setOn); onCleanup(unsub); });
+  onMount(() => {
+    const unsubOn = perf.onEnabledChange(setOn);
+    const unsubForce = perf.onForceRenderChange(setForceRender);
+    onCleanup(() => { unsubOn(); unsubForce(); });
+  });
   createEffect(() => {
     if (!on()) return;
     const tick = () => setSnap(perf.snapshot());
@@ -97,6 +102,24 @@ export function PerfOverlay() {
             {row("add → first frame", `${s().add!.total.toFixed(0)}ms · ${s().add!.rows} rows`, "#72f5df")}
             <For each={s().add!.phases}>{(p) => phaseRow(p.label, p.ms)}</For>
           </Show>
+          {sep()}
+
+          {/* The overlay is click-through (pointer-events: none); re-enable it for
+              the one interactive control so the checkbox is clickable. */}
+          <label style={{
+            display: "flex", "align-items": "center", gap: "8px", cursor: "pointer",
+            "pointer-events": "auto", "user-select": "none",
+          }}>
+            <input
+              type="checkbox"
+              checked={forceRender()}
+              onChange={(e) => perf.setForceRender(e.currentTarget.checked)}
+              style={{ margin: 0, cursor: "pointer" }}
+            />
+            <span style={{ color: forceRender() ? "#e6b14e" : "#8a8f98" }}>
+              force render every frame
+            </span>
+          </label>
         </div>
       )}
     </Show>
