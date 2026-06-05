@@ -1,6 +1,6 @@
 import {
   ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight,
-  Clock, Grid2x2, Maximize, Minus, Plus,
+  Clock, Grid2x2, Maximize, Minus, Plus, Save,
 } from "lucide-solid";
 import { SCENE } from "./hier/scene";
 import { useAppStore } from "./store/store";
@@ -8,6 +8,23 @@ import { view } from "./wave/viewport";
 import { formatTime, formatTimescale } from "./wave/format";
 import { ZOOM_STEP } from "./wave/constants";
 import { EditableNum } from "./EditableNum";
+import { requestCanvasCapture } from "./wave/capture";
+
+declare const require: (m: string) => unknown;
+
+// Snapshot the waveform canvas (next rendered frame) and hand the PNG bytes to
+// the main process, which shows a native save dialog.
+async function saveCanvas() {
+  const blob = await requestCanvasCapture();
+  if (!blob) return;
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  try {
+    const ipc = (require("electron") as { ipcRenderer: { invoke(c: string, ...a: unknown[]): Promise<unknown> } }).ipcRenderer;
+    await ipc.invoke("riptide:save-canvas", bytes);
+  } catch (e) {
+    console.error("[save-canvas] failed", e);
+  }
+}
 
 // Waves toolbar: cursor pill (jump-to-cursor + edit), nav segs (decorative,
 // mock — match the React build), editable [start–end] range, zoom in/out/fit,
@@ -71,6 +88,7 @@ export function WavesToolbar() {
           onClick={() => s.toggleClock()}
         ><Clock size={14} /></span>
       </div>
+      <span class="btn icon" data-tip="save canvas image" onClick={saveCanvas}><Save size={14} /></span>
     </div>
   );
 }

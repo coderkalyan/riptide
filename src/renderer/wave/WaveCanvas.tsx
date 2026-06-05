@@ -14,6 +14,7 @@ import { getMockSegments } from "../native";
 import * as perf from "../perf";
 import { useAppStore } from "../store/store";
 import { view } from "./viewport";
+import { drainCaptures } from "./capture";
 import {
   ROW_HEIGHT_CSS, LINE_THICKNESS_CSS, LINE_HALF_CSS, NOTCH_HEIGHT, BOTTOM_RULER_HEIGHT,
   MAX_MARKERS, MARKER_GRAB_PX, ZOOM_PER_DELTA_Y, ZOOM_OUT_FACTOR, WINDOW_SHRINK_FACTOR,
@@ -486,6 +487,7 @@ export function WaveCanvas() {
 
         const encodeStart = performance.now();
         renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, labels: labelBatch, linesFg, textBody, pills: allPills }, vp, gpuTimer);
+        drainCaptures(canvasEl); // snapshot requests, while the front buffer holds this frame
         const frameDone = performance.now();
         perf.frameEnd(frameDone - encodeStart, frameDone - cpuStart);
         perf.markFirstFrame();

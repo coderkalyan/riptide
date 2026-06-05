@@ -124,6 +124,22 @@ ipcMain.handle("riptide:open-recent", (_e, p: string) => {
   return p;
 });
 
+// Renderer captured the canvas as PNG bytes -> native save dialog, write file.
+// Returns the chosen path (or null if cancelled).
+ipcMain.handle("riptide:save-canvas", async (e, bytes: Uint8Array) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win) return null;
+  const base = currentVcd ? path.basename(currentVcd).replace(/\.vcd$/i, "") : "waveform";
+  const r = await dialog.showSaveDialog(win, {
+    title: "Save Canvas Image",
+    defaultPath: `${base}.png`,
+    filters: [{ name: "PNG Image", extensions: ["png"] }],
+  });
+  if (r.canceled || !r.filePath) return null;
+  fs.writeFileSync(r.filePath, Buffer.from(bytes));
+  return r.filePath;
+});
+
 // Close the window that asked (File > Close Window).
 ipcMain.handle("riptide:close-window", (e) => {
   BrowserWindow.fromWebContents(e.sender)?.close();
