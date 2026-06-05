@@ -1,6 +1,6 @@
 import {
   ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight,
-  Clock, Grid2x2, Maximize, Minus, Plus, Save,
+  Clock, Grid2x2, Maximize, Minus, Plus, Save, Undo2,
 } from "lucide-solid";
 import { SCENE } from "./hier/scene";
 import { useAppStore } from "./store/store";
@@ -71,6 +71,7 @@ export function WavesToolbar() {
         <EditableNum value={s.viewRange.end} format={formatTime} onCommit={(n) => applyRange(s.viewRange.start, n)} /> ns
       </span>
       <div class="divider" />
+      <span class="btn icon" data-tip="undo view change" onClick={() => view.undo()}><Undo2 size={14} /></span>
       <div class="seg">
         <span class="btn icon" data-tip="zoom out" onClick={() => view.zoomBy(ZOOM_STEP)}><Minus size={14} /></span>
         <span class="btn icon" data-tip="zoom to fit" onClick={() => view.fitView()}><Maximize size={14} /></span>
@@ -88,6 +89,7 @@ export function WavesToolbar() {
           onClick={() => s.toggleClock()}
         ><Clock size={14} /></span>
       </div>
+      <div class="divider" />
       <span class="btn icon" data-tip="save canvas image" onClick={saveCanvas}><Save size={14} /></span>
     </div>
   );
