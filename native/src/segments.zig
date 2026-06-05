@@ -8,6 +8,7 @@ pub const FLAG_RISING_EDGE: u32 = 1 << 18;
 pub const FLAG_FALLING_EDGE: u32 = 1 << 19;
 pub const FLAG_MUTE: u32 = 1 << 20;
 pub const FLAG_RISING_EDGE_LEFT: u32 = 1 << 21;
+pub const FLAG_FALLING_EDGE_LEFT: u32 = 1 << 22;
 
 // Segment is now lean: timing (t_start, t_end) + row_flags (row index + edge/shade
 // bits). 3 × u32 = 12 bytes. The actual bit values live in shared x0/x1 pools,

@@ -6,11 +6,16 @@ const label = @import("label.zig");
 
 pub const PackKind = enum { data, clk };
 
+// Which clock edges get a chevron (clk kind only). Mirrors the renderer's
+// ClockPolarity; `both` draws rising + falling.
+pub const ClockPolarity = enum { rising, falling, both };
+
 pub const PackOpts = struct {
     width: u32,
     shaded: bool,
     end_t: u32,
     kind: PackKind = .data,
+    polarity: ClockPolarity = .rising,
     gate_id: ?tide.Signal.Id = null,
     // Multi-bit rows only: how to format the pill value label (label.zig).
     radix: label.Radix = .bin,
@@ -103,16 +108,31 @@ pub fn packSignal(
         var draw_right = has_next;
         var rising = false;
         var rising_left = false;
+        var falling = false;
+        var falling_left = false;
 
         switch (opts.kind) {
             .clk => {
-                // val lives in the low byte (clock is 1-bit, 2-state). The low
-                // half-period (val==0) owns the rising caret's left arm at its
-                // right boundary; the high half-period (val==1) owns the right
-                // arm at its left boundary.
+                // val lives in the low byte (clock is 1-bit, 2-state). A rising
+                // chevron (top of the row) straddles each 0→1 boundary; a falling
+                // chevron (bottom) each 1→0. Every boundary is split across the
+                // two abutting half-periods: the one before the edge draws its
+                // left arm at its right boundary, the one after draws the right
+                // arm at its left boundary. Polarity gates which chevrons emit.
                 const val: u8 = if (x0.len > 0) x0[0] else 0;
-                rising = (val == 0) and has_next;
-                rising_left = (val == 1);
+                const want_rise = opts.polarity != .falling; // rising or both
+                const want_fall = opts.polarity != .rising; // falling or both
+                // Left-arm halves are gated on has_next (the right boundary is an
+                // edge only if a next half-period follows). Right-arm (…_left)
+                // halves are gated on i > 0: the window's first sample has no
+                // in-window predecessor — its left boundary is at/left of q_start
+                // (offscreen), except at the trace's very start (q_start == 0,
+                // fully zoomed out) where the first sample is value-init, not a
+                // transition, so it must not sprout a chevron either way.
+                rising = want_rise and val == 0 and has_next;
+                rising_left = want_rise and val == 1 and i > 0;
+                falling = want_fall and val == 1 and has_next;
+                falling_left = want_fall and val == 0 and i > 0;
             },
             .data => {
                 // Single-pipeline transitions touching x/z have no clean edge to
@@ -130,6 +150,8 @@ pub fn packSignal(
             (if (draw_right) seg.FLAG_RIGHT_EDGE else @as(u32, 0)) |
             (if (rising) seg.FLAG_RISING_EDGE else @as(u32, 0)) |
             (if (rising_left) seg.FLAG_RISING_EDGE_LEFT else @as(u32, 0)) |
+            (if (falling) seg.FLAG_FALLING_EDGE else @as(u32, 0)) |
+            (if (falling_left) seg.FLAG_FALLING_EDGE_LEFT else @as(u32, 0)) |
             (if (muted) seg.FLAG_MUTE else @as(u32, 0));
 
         try ps.pushSegment(gpa, t_start, t_end, flags);

@@ -184,6 +184,7 @@ const PackSpec = struct {
     row: u32,
     handle: tide.Signal.Id,
     kind: pack.PackKind,
+    polarity: pack.ClockPolarity,
     shaded: bool,
     gate: ?tide.Signal.Id,
     radix: label.Radix,
@@ -253,6 +254,19 @@ fn parseSpec(env: c.napi_env, v: c.napi_value, arena: std.mem.Allocator) ?PackSp
     if (c.napi_get_value_string_utf8(env, kind_v, &kind_buf, kind_buf.len, &kind_len) != c.napi_ok) return null;
     const kind: pack.PackKind = if (std.mem.eql(u8, kind_buf[0..kind_len], "clk")) .clk else .data;
 
+    // polarity: optional string, defaults to rising (clk kind only; ignored for
+    // data). Picks which clock edges get a chevron.
+    var polarity: pack.ClockPolarity = .rising;
+    var pol_v: c.napi_value = undefined;
+    if (c.napi_get_named_property(env, v, "polarity", &pol_v) == c.napi_ok) {
+        var pbuf: [8]u8 = undefined;
+        var plen: usize = 0;
+        if (c.napi_get_value_string_utf8(env, pol_v, &pbuf, pbuf.len, &plen) == c.napi_ok) {
+            const ps = pbuf[0..plen];
+            polarity = if (std.mem.eql(u8, ps, "falling")) .falling else if (std.mem.eql(u8, ps, "both")) .both else .rising;
+        }
+    }
+
     var shaded: bool = false;
     if (c.napi_get_value_bool(env, shaded_v, &shaded) != c.napi_ok) return null;
 
@@ -272,7 +286,7 @@ fn parseSpec(env: c.napi_env, v: c.napi_value, arena: std.mem.Allocator) ?PackSp
         }
     }
 
-    return .{ .row = row, .handle = handle, .kind = kind, .shaded = shaded, .gate = gate, .radix = radix, .enums = parseEnums(env, v, arena) };
+    return .{ .row = row, .handle = handle, .kind = kind, .polarity = polarity, .shaded = shaded, .gate = gate, .radix = radix, .enums = parseEnums(env, v, arena) };
 }
 
 // getMockSegments(specs, qStart, qEnd): pack each active signal over the tick
@@ -326,6 +340,7 @@ fn getMockSegments(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.n
             .shaded = s.shaded,
             .end_t = end_t,
             .kind = s.kind,
+            .polarity = s.polarity,
             .gate_id = s.gate,
             .radix = s.radix,
             .enums = s.enums,

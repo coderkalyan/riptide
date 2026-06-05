@@ -640,12 +640,13 @@ export function WaveCanvas() {
       // B (structural): membership or format change → flag a repack. The key must
       // cover everything that changes the native pack: signal/row, radix (single vs
       // multi pipeline + label format), role (clk kind/shade, e.g. bin↔clock keeps
-      // radix bin), and the enum table (multi pill label content). The frame loop is
-      // the single packer, so it repacks at the live viewport window (markAddRebuilt
-      // fires there once the new buffers present).
+      // radix bin), clock polarity (which edges get a chevron), and the enum table
+      // (multi pill label content). The frame loop is the single packer, so it
+      // repacks at the live viewport window (markAddRebuilt fires there once the
+      // new buffers present).
       const unsubStructural = useAppStore.subscribe(
         (s) => s.activeSignals.map((r) =>
-          `${r.signalId}:${r.row}:${r.radix}:${r.role ?? ""}:${r.enumTable?.map((e) => `${e.value}=${e.label}`).join(",") ?? ""}`,
+          `${r.signalId}:${r.row}:${r.radix}:${r.role ?? ""}:${r.clock?.polarity ?? ""}:${r.enumTable?.map((e) => `${e.value}=${e.label}`).join(",") ?? ""}`,
         ).join("|"),
         () => {
           perf.addMark("solid render + commit + paint");

@@ -171,6 +171,7 @@ function specsFromActive(h: Hierarchy, active: ActiveSignalRef[]): NativePackSpe
       row: s.row,
       handle: signalAt(h, s.path).handle,
       kind: s.role === "clock" ? "clk" : "data",
+      polarity: s.clock?.polarity ?? DEFAULT_CLOCK_CONFIG.polarity,
       shaded: s.role !== "clock",
       gateHandle: gatePath ? signalAt(h, gatePath).handle : null,
       radix: s.radix,

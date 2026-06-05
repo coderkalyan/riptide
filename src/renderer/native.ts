@@ -49,6 +49,9 @@ export interface NativePackSpec {
   row: number;
   handle: string;
   kind: "clk" | "data";
+  // Clock rows only: which edges get a chevron (ignored for data). Defaults to
+  // "rising" on the renderer side when a row has no clock config yet.
+  polarity: "rising" | "falling" | "both";
   shaded: boolean;
   gateHandle: string | null;
   // Multi-bit rows: how the native side formats the pill value label (label.zig).

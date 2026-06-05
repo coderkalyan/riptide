@@ -27,10 +27,11 @@ struct Segment {
     // [15:0] = row index
     // [  16] = enable shading
     // [  17] = enable right edge
-    // [  18] = rising edge arrow (caret left arm, at right boundary)
-    // [  19] = falling edge arrow
+    // [  18] = rising caret left arm  (top chevron, at this seg's right boundary)
+    // [  19] = falling caret left arm (bottom chevron, at this seg's right boundary)
     // [  20] = mute segment
-    // [  21] = rising edge left (caret right arm, at left boundary)
+    // [  21] = rising caret right arm  (top chevron, at this seg's left boundary)
+    // [  22] = falling caret right arm (bottom chevron, at this seg's left boundary)
     row_flags: u32,
 }
 
@@ -72,7 +73,8 @@ const F_RIGHT_EDGE: u32 = 1u << 1u;
 const F_RISING_EDGE: u32 = 1u << 2u;
 const F_FALLING_EDGE: u32 = 1u << 3u;
 const F_MUTE: u32 = 1u << 4u;
-const F_RISING_EDGE_LEFT: u32 = 1u << 5u; // companion: rising edge at left boundary
+const F_RISING_EDGE_LEFT: u32 = 1u << 5u;  // companion: rising caret right arm, at left boundary
+const F_FALLING_EDGE_LEFT: u32 = 1u << 6u; // companion: falling caret right arm, at left boundary
 const F_CROSSHATCH: u32 = 1u << 8u;
 const F_HATCH_COLOR: u32 = 1u << 9u;
 const F_DRAW_LINE: u32 = 1u << 10u;
@@ -134,15 +136,18 @@ fn segment_sdf(point: vec2f, a: vec2f, b: vec2f) -> f32 {
     return length(pa - ba * t);
 }
 
-fn caret_sdf(point: vec2f, apex: vec2f) -> f32 {
+fn caret_sdf(point: vec2f, apex: vec2f, y_dir: f32) -> f32 {
     let arm_length_px = 8.0;
     let half_angle_rad = radians(40.0);
     let half_thickness_px = 1.0;
 
-    // Vertical caret (apex up): mirror across x, no rotation. The horizontal
-    // span-arrows in rect.wgsl take a rotation arg; this one never does.
+    // Vertical caret: mirror across x to draw both arms, and flip across y by
+    // y_dir so the arms descend from a top apex (y_dir +1, rising chevron) or
+    // ascend from a bottom apex (y_dir −1, falling chevron). The horizontal
+    // span-arrows in rect.wgsl take a rotation arg; this one only flips an axis.
     var q = point - apex;
     q.x = abs(q.x);
+    q.y = q.y * y_dir;
 
     let e = arm_length_px * vec2f(sin(half_angle_rad), cos(half_angle_rad));
     return segment_sdf(q, vec2f(0.0), e) - half_thickness_px;
@@ -241,6 +246,8 @@ fn fs_single(in: VertexData) -> @location(0) vec4f {
     let highlight = (in.flags & F_HIGHLIGHT) != 0u;
     let rising = (in.flags & F_RISING_EDGE) != 0u;
     let rising_left = (in.flags & F_RISING_EDGE_LEFT) != 0u;
+    let falling = (in.flags & F_FALLING_EDGE) != 0u;
+    let falling_left = (in.flags & F_FALLING_EDGE_LEFT) != 0u;
 
     // Horizontal line mask.
     let line_lo_px = in.half_size_px.y - (line_thickness_px * 0.5);
@@ -255,27 +262,36 @@ fn fs_single(in: VertexData) -> @location(0) vec4f {
     let edge_mask_raw = select(0.0, 1.0, in.pill_local_px.x >= edge_left_x);
     let edge_mask = select(0.0, edge_mask_raw, draw_edge);
 
-    // Rising-edge caret: a downward chevron centered on the top of the rising
-    // edge. The edge straddles two segments, so each draws one half clipped to
-    // its quad — the low segment (F_RISING_EDGE) renders the left arm at its
-    // top-right corner, the high segment (F_RISING_EDGE_LEFT) the right arm at
-    // its top-left corner. apex.x is the shared edge x, apex.y the row top.
-    // The visible edge line is the low segment's right edge, occupying
-    // [T - line_thickness, T]; bias the tip left by half a line width so it
-    // centers on the line rather than on the boundary tick T.
-    let caret = rising || rising_left;
+    // Edge carets. The rising chevron sits at the TOP of a 0→1 edge (apex up);
+    // the falling chevron at the BOTTOM of a 1→0 edge (apex down). Each edge
+    // straddles two segments, so each draws one arm clipped to its quad — the
+    // segment before the edge (F_RISING_EDGE / F_FALLING_EDGE) renders the left
+    // arm at its right corner, the segment after (…_LEFT) the right arm at its
+    // left corner. apex.x is the shared edge x; the visible edge line occupies
+    // [T - line_thickness, T], so bias the tip left by half a line width to
+    // center it on the line rather than the boundary tick T. apex.y is the row
+    // top (rising) or bottom (falling); y_dir flips the arms to match.
+    //
     // The caret SDF's derivative (fwidth) must be evaluated in UNIFORM control
-    // flow. `caret` is per-instance-coherent at runtime, but it derives from
-    // in.flags (a varying), so WGSL's static uniformity analysis treats a branch
-    // on it as non-uniform and Tint rejects fwidth inside it. Compute the chevron
-    // for every fragment and gate the result with select instead of an `if`.
-    let apex_x = select(-in.half_size_px.x, in.half_size_px.x, rising) - line_thickness_px * 0.5;
-    let caret_apex = vec2f(apex_x, -in.half_size_px.y);
-    let caret_d = caret_sdf(in.pill_local_px, caret_apex);
+    // flow. The rising/falling flags are per-instance-coherent at runtime but
+    // derive from in.flags (a varying), so WGSL's static uniformity analysis
+    // treats a branch on them as non-uniform and Tint rejects fwidth inside it.
+    // Compute both chevrons for every fragment and gate with select, not `if`.
     // 1px-wide coverage: feather over a single pixel centered on the zero
     // crossing (smoothstep(-aa, aa, …) spreads over 2px and reads as blur).
-    let caret_aa = fwidth(caret_d);
-    let caret_mask = select(0.0, clamp(0.5 - caret_d / caret_aa, 0.0, 1.0), caret);
+    let rising_any = rising || rising_left;
+    let rise_apex_x = select(-in.half_size_px.x, in.half_size_px.x, rising) - line_thickness_px * 0.5;
+    let rise_d = caret_sdf(in.pill_local_px, vec2f(rise_apex_x, -in.half_size_px.y), 1.0);
+    let rise_aa = fwidth(rise_d);
+    let rise_mask = select(0.0, clamp(0.5 - rise_d / rise_aa, 0.0, 1.0), rising_any);
+
+    let falling_any = falling || falling_left;
+    let fall_apex_x = select(-in.half_size_px.x, in.half_size_px.x, falling) - line_thickness_px * 0.5;
+    let fall_d = caret_sdf(in.pill_local_px, vec2f(fall_apex_x, in.half_size_px.y), -1.0);
+    let fall_aa = fwidth(fall_d);
+    let fall_mask = select(0.0, clamp(0.5 - fall_d / fall_aa, 0.0, 1.0), falling_any);
+
+    let caret_mask = max(rise_mask, fall_mask);
 
     let stroke_mask = max(max(line_mask * f32(draw_line), edge_mask), caret_mask);
 
