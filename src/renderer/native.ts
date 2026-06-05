@@ -78,6 +78,12 @@ interface NativeModule {
   };
   getHierarchy(): RawHierarchy;
   getValueAt(handle: string, tick: number): { lsb: number[]; msb: number[] } | null;
+  getEdges(handle: string, startTick: number, count: number): {
+    ticks: ArrayBuffer;
+    lsb: ArrayBuffer;
+    msb: ArrayBuffer;
+    count: number;
+  } | null;
 }
 
 stamp("native:require");
@@ -149,6 +155,28 @@ export function getMockSegments(
 // carried in full. Returns null off the end of the trace.
 export function getValueAt(handle: string, tick: number): { lsb: number[]; msb: number[] } | null {
   return native.getValueAt(handle, tick);
+}
+
+// Up to `count` transitions of a signal at/after `startTick`. Each transition
+// carries its tick + the low byte of the (lsb, msb) logic planes — enough to
+// decode 1-bit clock/reset levels. Used for cheap prefix detection of a clock's
+// period/phase and a reset's held interval (see wave/clock.ts). Null if the
+// handle is unknown.
+export interface NativeEdges {
+  ticks: Uint32Array<ArrayBuffer>;
+  lsb: Uint8Array<ArrayBuffer>;
+  msb: Uint8Array<ArrayBuffer>;
+  count: number;
+}
+export function getEdges(handle: string, startTick: number, count: number): NativeEdges | null {
+  const r = native.getEdges(handle, startTick, count);
+  if (!r) return null;
+  return {
+    ticks: new Uint32Array(r.ticks),
+    lsb: new Uint8Array(r.lsb),
+    msb: new Uint8Array(r.msb),
+    count: r.count,
+  };
 }
 
 export function getHierarchy(): Hierarchy {

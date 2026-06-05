@@ -30,6 +30,24 @@ export const view = {
   history: [] as ViewWindow[],
   lastHistoryAt: 0,
 
+  // Stamp the canvas CSS width. When the width actually changes (e.g. a panel
+  // collapse/resize shrinks the canvas) while the user holds an explicit zoom,
+  // preserve the logical [start, end] window by rescaling ticks/pixel: the same
+  // time range fills the now-smaller canvas (physical scale changes, logical zoom
+  // does not). The auto-fit path (no user interaction) already re-fits full-range
+  // each frame, and an in-flight zoom animation owns ticks/pixel, so both are left
+  // untouched.
+  setWidth(px: number): void {
+    const old = this.timelinePx;
+    if (px > 0 && old > 0 && Math.abs(px - old) > 0.5 && this.userInteracted && !this.zoomAnim && this.ticksPerPixel > 0) {
+      this.ticksPerPixel = (old * this.ticksPerPixel) / px;
+      this.timelinePx = px;
+      this.clampPan();
+      return;
+    }
+    this.timelinePx = px;
+  },
+
   // Per-frame: seed once from the persisted window, else auto-fit until the user
   // interacts. A full-range saved window is left to auto-fit (keeps re-fitting on
   // resize); any other saved window is treated as an explicit zoom.

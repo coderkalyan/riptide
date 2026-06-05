@@ -13,9 +13,6 @@ export interface Viewport {
   wave_y_offset: number;
 }
 
-export const MOCK_CLOCK_TICK_NS = 5;
-export const MOCK_END_TICKS = 90;
-
 // Viewport = 12 × 4 B = 48 bytes (multiple of 16, required by WebGPU). Mixed
 // int/float fields per the WGSL Viewport struct: slot 1 (start_ticks_int) and
 // slot 7 (selected_row) are i32; the rest are f32. Slots 9..11 are pad to hit

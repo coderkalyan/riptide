@@ -1,9 +1,19 @@
 // Ruler / time / clock formatting — pure helpers ported verbatim from the React
 // App.tsx. Time is ns (integer ticks). Reused by the canvas ruler + (later) the
 // toolbar/markers readouts.
-import { MOCK_CLOCK_TICK_NS } from "../gpu/data";
 import { SCENE } from "../hier/scene";
 import type { Timescale, TimeUnit } from "../hier/types";
+
+// The timebase clock grid: phase = tick of the first reference (rising) edge,
+// period = full-cycle length in ticks. Detected from the designated clock
+// signal's transitions (wave/clock.ts), or set by a manual override. `valid` is
+// false when detection couldn't establish a stable period — clock-aligned mode
+// falls back to absolute time in that case.
+export interface ClockGrid {
+  phase: number;
+  period: number;
+  valid: boolean;
+}
 
 // "Nice" ruler-tick spacing — multiples of {1,2,5} × 10^n — so the visible range
 // gets ~8 labels.
@@ -35,47 +45,46 @@ export function dynamicRulerTicks(startTicks: number, visibleTicks: number): { t
   return { ticks, labels };
 }
 
-// Clock period in ticks (full cycle = two half-period segments). Cycle c's rising
-// edge lands at MOCK_CLOCK_TICK_NS + (c-1)*PERIOD (5, 15, 25…).
-export const CLOCK_PERIOD_NS = 2 * MOCK_CLOCK_TICK_NS;
+// Clock math is parameterized by the timebase ClockGrid: cycle c's reference edge
+// lands at `g.phase + (c-1)*g.period` (e.g. 5, 15, 25… for phase 5, period 10).
 
 // Rising edges crossed moving from one tick to the other, in (a, b].
-export function clockEdgesBetween(a: number, b: number): number {
+export function clockEdgesBetween(a: number, b: number, g: ClockGrid): number {
   const lo = Math.min(a, b);
   const hi = Math.max(a, b);
-  const eps = CLOCK_PERIOD_NS * 1e-6;
-  const kHi = Math.floor((hi - MOCK_CLOCK_TICK_NS + eps) / CLOCK_PERIOD_NS);
-  const kLo = Math.floor((lo - MOCK_CLOCK_TICK_NS + eps) / CLOCK_PERIOD_NS);
+  const eps = g.period * 1e-6;
+  const kHi = Math.floor((hi - g.phase + eps) / g.period);
+  const kLo = Math.floor((lo - g.phase + eps) / g.period);
   const kStart = Math.max(kLo + 1, 0);
   return Math.max(0, kHi - kStart + 1);
 }
 
-// Integer cycle index a tick sits in (the most recent rising edge). Cycle 1's
-// rising edge is at MOCK_CLOCK_TICK_NS.
-export function clockCycleOf(tick: number): number {
-  const eps = CLOCK_PERIOD_NS * 1e-6;
-  return Math.floor((tick - MOCK_CLOCK_TICK_NS + eps) / CLOCK_PERIOD_NS) + 1;
+// Integer cycle index a tick sits in (the most recent reference edge). Cycle 1's
+// edge is at g.phase.
+export function clockCycleOf(tick: number, g: ClockGrid): number {
+  const eps = g.period * 1e-6;
+  return Math.floor((tick - g.phase + eps) / g.period) + 1;
 }
 // Inverse on edit commit: snap a typed cycle count to a rounded tick.
-export function clockCycleToTick(cycle: number): number {
-  return cycle * CLOCK_PERIOD_NS;
+export function clockCycleToTick(cycle: number, g: ClockGrid): number {
+  return g.phase + (cycle - 1) * g.period;
 }
-export function formatClockWhole(tick: number): string {
-  return `#${clockCycleOf(tick)}`;
+export function formatClockWhole(tick: number, g: ClockGrid): string {
+  return `#${clockCycleOf(tick, g)}`;
 }
 
-// Clock-anchored ruler: ticks land on clock rising edges, labels count cycles.
-export function clockRulerTicks(startTicks: number, visibleTicks: number): { ticks: number[]; labels: string[] } {
-  const edge0 = MOCK_CLOCK_TICK_NS;
-  const visibleCycles = visibleTicks / CLOCK_PERIOD_NS;
+// Clock-anchored ruler: ticks land on clock reference edges, labels count cycles.
+export function clockRulerTicks(startTicks: number, visibleTicks: number, g: ClockGrid): { ticks: number[]; labels: string[] } {
+  const edge0 = g.phase;
+  const visibleCycles = visibleTicks / g.period;
   const cycleStep = Math.max(1, Math.round(rulerSpacing(visibleCycles)));
-  const startCycle = (startTicks - edge0) / CLOCK_PERIOD_NS + 1;
+  const startCycle = (startTicks - edge0) / g.period + 1;
   let c = Math.max(cycleStep, Math.ceil(startCycle / cycleStep) * cycleStep);
   const ticks: number[] = [];
   const labels: string[] = [];
-  const end = startTicks + visibleTicks + CLOCK_PERIOD_NS * 1e-6;
+  const end = startTicks + visibleTicks + g.period * 1e-6;
   for (; ; c += cycleStep) {
-    const t = edge0 + (c - 1) * CLOCK_PERIOD_NS;
+    const t = edge0 + (c - 1) * g.period;
     if (t > end) break;
     ticks.push(t);
     labels.push(`#${c}`);
@@ -100,7 +109,8 @@ function timeDecimals(ts: Timescale): number {
 export const TIME_DECIMALS = timeDecimals(SCENE.hierarchy.timescale);
 export const formatTime = (tick: number): string => tick.toFixed(TIME_DECIMALS);
 
-export function snapToClockEdge(tick: number): number {
-  const period = 2 * MOCK_CLOCK_TICK_NS;
-  return Math.round((tick - MOCK_CLOCK_TICK_NS) / period) * period + MOCK_CLOCK_TICK_NS;
+// Snap to the nearest reference edge of the timebase grid (full-period spacing
+// from the phase, e.g. …,5,15,25,… for phase 5 / period 10).
+export function snapToClockEdge(tick: number, g: ClockGrid): number {
+  return Math.round((tick - g.phase) / g.period) * g.period + g.phase;
 }

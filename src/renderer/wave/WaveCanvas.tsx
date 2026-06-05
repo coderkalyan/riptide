@@ -3,13 +3,12 @@ import { initGPU, resizeCanvas, GPUInitError } from "../gpu/device";
 import { createDigitalRenderer } from "../gpu/digital";
 import { renderFrame, PillRange } from "../gpu/frame";
 import { createColorBuffer, writeRowColors } from "../gpu/colors";
-import { MOCK_CLOCK_TICK_NS } from "../gpu/data";
 import { createTextRenderer, MAX_GLYPHS, ATLAS_MIDDLE_DOT } from "../gpu/text";
 import { createLabelRenderer } from "../gpu/labels";
 import { createLineRenderer } from "../gpu/lines";
 import { createRectRenderer } from "../gpu/rect";
 import { createGpuTimer } from "../gpu/timing";
-import { RESET_HELD_TICKS, TRACE_END, buildPackSpecs, packSpecsFor, type ActiveSignalRef } from "../hier/scene";
+import { TRACE_END, buildPackSpecs, packSpecsFor, type ActiveSignalRef } from "../hier/scene";
 import { getMockSegments } from "../native";
 import * as perf from "../perf";
 import { useAppStore } from "../store/store";
@@ -20,7 +19,7 @@ import {
   MAX_MARKERS, MARKER_GRAB_PX, ZOOM_PER_DELTA_Y, ZOOM_OUT_FACTOR, WINDOW_SHRINK_FACTOR,
 } from "./constants";
 import * as P from "./palette";
-import { dynamicRulerTicks, clockRulerTicks, rulerSpacing, formatTime, formatClockWhole, clockEdgesBetween, snapToClockEdge, CLOCK_PERIOD_NS } from "./format";
+import { dynamicRulerTicks, clockRulerTicks, rulerSpacing, formatTime, formatClockWhole, clockEdgesBetween, snapToClockEdge } from "./format";
 
 type RectMut = { x: number; y: number; w: number; h: number; color: number; crosshatch?: boolean; rounded?: boolean; caret?: boolean; caretRight?: boolean; squareBottomLeft?: boolean; squareBottomRight?: boolean };
 type LineMut = { x: number; color: number; dashed?: boolean; fullHeight?: boolean };
@@ -239,7 +238,7 @@ export function WaveCanvas() {
           return;
         }
 
-        view.timelinePx = timelinePx;
+        view.setWidth(timelinePx);
         view.ensureInit();
         if (view.advance(now)) st.bumpViewSave(); // zoom/fit animation landed
 
@@ -294,7 +293,11 @@ export function WaveCanvas() {
         }
 
         const cursor = st.cursorTicks;
-        const clockAnchor = st.clockAnchor;
+        // Clock-aligned mode is on only when a valid detected/overridden grid
+        // exists; otherwise everything falls back to absolute time.
+        const grid = st.clockGrid;
+        const resetBand = st.resetBand;
+        const clockMode = st.clockAnchor && grid != null && grid.valid;
         const xForTick = (tick: number) => (tick - startTicks) / ticksPerPixel;
         vp.ticks_per_pixel = ticksPerPixel;
         vp.start_ticks = startTicks;
@@ -309,8 +312,8 @@ export function WaveCanvas() {
         const notchY = rulerHeightCSS - NOTCH_HEIGHT;
         const bottomRulerH = BOTTOM_RULER_HEIGHT;
         const bottomRulerTop = canvasH - bottomRulerH;
-        const { ticks: rulerTicks, labels: rulerLabels } = clockAnchor
-          ? clockRulerTicks(startTicks, visibleTicks)
+        const { ticks: rulerTicks, labels: rulerLabels } = clockMode
+          ? clockRulerTicks(startTicks, visibleTicks, grid!)
           : dynamicRulerTicks(startTicks, visibleTicks);
         const rulerArrowLabels: { x: number; y: number; text: string; color: number }[] = [];
         let bgRectN = 0;
@@ -396,9 +399,9 @@ export function WaveCanvas() {
             }
           };
 
-          {
-            const rx0 = xForTick(RESET_HELD_TICKS.tStart);
-            const rx1 = xForTick(RESET_HELD_TICKS.tEnd);
+          if (resetBand) {
+            const rx0 = xForTick(resetBand.tStart);
+            const rx1 = xForTick(resetBand.tEnd);
             const rc = getRect(rectsBgScratch, bgRectN++);
             rc.x = rx0; rc.y = bottomRulerTop; rc.w = rx1 - rx0; rc.h = bottomRulerH;
             rc.color = P.RESET_RED; rc.crosshatch = true;
@@ -419,17 +422,21 @@ export function WaveCanvas() {
           if (arrowMarker) {
             const mX = xForTick(arrowMarker.tick) + LINE_HALF_CSS;
             const cX = xForTick(cursor) + LINE_HALF_CSS;
-            const spanLabel = clockAnchor
-              ? `${clockEdgesBetween(arrowMarker.tick, cursor)} clks`
+            const spanLabel = clockMode
+              ? `${clockEdgesBetween(arrowMarker.tick, cursor, grid!)} clks`
               : `${formatTime(Math.abs(cursor - arrowMarker.tick))} ns`;
             drawSpanArrow(Math.min(mX, cX), Math.max(mX, cX), spanLabel, arrowMarker.color);
           }
         }
         rectsBg.setRects(rectsBgScratch, bgRectN);
 
-        // Dashed clock-edge grid, decimated like the ruler.
-        const gridEdge0 = MOCK_CLOCK_TICK_NS;
-        const gridStepTicks = Math.max(1, Math.round(rulerSpacing(visibleTicks / CLOCK_PERIOD_NS))) * CLOCK_PERIOD_NS;
+        // Dashed grid, decimated like the ruler. In clock mode it lands on the
+        // detected cycle edges (phase + k·period); in absolute mode it's a plain
+        // time grid on "nice" ns spacing.
+        const gridEdge0 = clockMode ? grid!.phase : 0;
+        const gridStepTicks = clockMode
+          ? Math.max(1, Math.round(rulerSpacing(visibleTicks / grid!.period))) * grid!.period
+          : rulerSpacing(visibleTicks);
         const gridVisEnd = startTicks + visibleTicks;
         const gridEps = gridStepTicks * 1e-6;
         let bgLineN = 0;
@@ -513,12 +520,12 @@ export function WaveCanvas() {
         for (const m of ordered) {
           if (mi >= MAX_MARKERS) break;
           const lineX = xForTick(m.tick);
-          const mLabel = clockAnchor ? formatClockWhole(m.tick) : `${formatTime(m.tick)} ns`;
+          const mLabel = clockMode ? formatClockWhole(m.tick, grid!) : `${formatTime(m.tick)} ns`;
           const box = addFlag(lineX, `${m.name} · ${mLabel}`, m.color);
           markerHits.push({ id: m.id, x0: box.x0, x1: box.x1, lineX: lineX + LINE_HALF_CSS });
           mi++;
         }
-        const cursorLabel = clockAnchor ? formatClockWhole(cursor) : `${formatTime(cursor)} ns`;
+        const cursorLabel = clockMode ? formatClockWhole(cursor, grid!) : `${formatTime(cursor)} ns`;
         addFlag(xForTick(cursor), cursorLabel, P.HOT);
         pillRects.setRects(pillRectScratch, pillRectN);
         pillText.setGlyphs(pillGlyphN);
@@ -538,7 +545,8 @@ export function WaveCanvas() {
         const rect = host.getBoundingClientRect();
         const px = Math.max(0, Math.min(rect.width, clientX - rect.left)) - LINE_HALF_CSS;
         let tick = view.startTicks + px * view.ticksPerPixel;
-        if (useAppStore.getState().snapCursor) tick = snapToClockEdge(tick);
+        const stSnap = useAppStore.getState();
+        if (stSnap.snapCursor && stSnap.clockGrid) tick = snapToClockEdge(tick, stSnap.clockGrid);
         return tick;
       };
       const setCursorAtClientX = (clientX: number) => useAppStore.getState().setCursor(tickAtClientX(clientX));
@@ -579,7 +587,7 @@ export function WaveCanvas() {
         e.preventDefault();
         view.beginInteract();
         const rect = host.getBoundingClientRect();
-        view.timelinePx = rect.width;
+        view.setWidth(rect.width);
         if (e.ctrlKey) {
           const mouseX = e.clientX - rect.left;
           view.zoomAtPixel(mouseX, Math.exp(e.deltaY * ZOOM_PER_DELTA_Y));

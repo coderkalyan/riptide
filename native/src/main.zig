@@ -399,6 +399,59 @@ fn getValueAt(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.napi_v
     return o;
 }
 
+// ---- getEdges -----------------------------------------------------------
+// Returns up to `count` transitions of a signal at/after `startTick`, for cheap
+// prefix reads (clock period/phase + reset-band detection on the renderer side).
+// Each transition yields its tick plus the LOW byte of its x0/x1 planes — enough
+// to decode the (msb,lsb) logic level of 1-bit clock/reset signals, which is all
+// the consumers need.
+fn getEdges(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.napi_value {
+    var argc: usize = 3;
+    var argv: [3]c.napi_value = undefined;
+    _ = c.napi_get_cb_info(env, info, &argc, &argv, null, null);
+    if (argc < 3) return jsNull(env);
+
+    const id = parseHandle(env, argv[0]) orelse return jsNull(env);
+
+    var start_tick: u32 = 0;
+    if (c.napi_get_value_uint32(env, argv[1], &start_tick) != c.napi_ok) return jsNull(env);
+    var count: u32 = 0;
+    if (c.napi_get_value_uint32(env, argv[2], &count) != c.napi_ok) return jsNull(env);
+
+    const q = getDb().queryNext(id, start_tick, count) orelse return jsNull(env);
+    const n: usize = @intCast(q.len);
+    const bps = q.type.bytes();
+
+    // ticks (u32 each) + lsb/msb (one byte per transition: the sample's low byte).
+    var ticks: c.napi_value = undefined;
+    var ticks_data: ?*anyopaque = null;
+    _ = c.napi_create_arraybuffer(env, n * @sizeOf(u32), &ticks_data, &ticks);
+    var lsb: c.napi_value = undefined;
+    var lsb_data: ?*anyopaque = null;
+    _ = c.napi_create_arraybuffer(env, n, &lsb_data, &lsb);
+    var msb: c.napi_value = undefined;
+    var msb_data: ?*anyopaque = null;
+    _ = c.napi_create_arraybuffer(env, n, &msb_data, &msb);
+    if (n > 0) {
+        const tdst = @as([*]u32, @ptrCast(@alignCast(ticks_data.?)))[0..n];
+        const ldst = @as([*]u8, @ptrCast(lsb_data.?))[0..n];
+        const mdst = @as([*]u8, @ptrCast(msb_data.?))[0..n];
+        var i: usize = 0;
+        while (i < n) : (i += 1) {
+            tdst[i] = @intCast(q.timestamps[i]);
+            ldst[i] = q.x0s[i * bps];
+            mdst[i] = q.x1s[i * bps];
+        }
+    }
+
+    const o = jsObj(env);
+    setProp(env, o, "ticks", ticks);
+    setProp(env, o, "lsb", lsb);
+    setProp(env, o, "msb", msb);
+    setProp(env, o, "count", jsU32(env, @intCast(n)));
+    return o;
+}
+
 // ---- getHierarchy -------------------------------------------------------
 
 fn scopeTypeStr(t: hier.ScopeType) []const u8 {
@@ -480,9 +533,10 @@ fn getHierarchy(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.napi
     }
     setProp(env, root, "nodes", nodes);
 
+    const tsv = getLoaded().timescale;
     const ts = jsObj(env);
-    setProp(env, ts, "value", jsU32(env, 1));
-    setProp(env, ts, "unit", jsStr(env, "ns"));
+    setProp(env, ts, "value", jsU32(env, tsv.value));
+    setProp(env, ts, "unit", jsStr(env, tsv.unit));
     setProp(env, root, "timescale", ts);
 
     // Trace's true end tick (last ingested timestamp) — the renderer's source of
@@ -506,5 +560,6 @@ export fn napi_register_module_v1(env: c.napi_env, exports: c.napi_value) c.napi
     registerFn(env, exports, "getMockSegments", getMockSegments);
     registerFn(env, exports, "getHierarchy", getHierarchy);
     registerFn(env, exports, "getValueAt", getValueAt);
+    registerFn(env, exports, "getEdges", getEdges);
     return exports;
 }

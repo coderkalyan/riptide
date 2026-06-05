@@ -315,6 +315,33 @@
             outline: none; text-align: center; vertical-align: middle;
         }
         .num-input.err { border-color: var(--hot); }
+        /* Two-line timescale box: editable start–end window on top, timescale info
+           (smaller, right-justified, muted) underneath. */
+        .ts-box { display: flex; flex-direction: column; gap: 0; line-height: 1.25; }
+        .ts-range { font-family: 'JetBrains Mono', monospace; font-size: 10.5px; color: var(--text); white-space: nowrap; }
+        .ts-info { font-size: 9px; color: var(--muted); text-align: right; white-space: nowrap; }
+        /* Timebase clock selector: standalone dropdown button (current clock +
+           chevron) + the detected period/phase edit block inside the popup.
+           Disabled (greyed, still visible) when clock alignment is off. */
+        .clock-picker { display: inline-flex; }
+        .clock-trigger { gap: 3px; padding: 0 6px; height: 24px; min-width: 0; }
+        .clock-trig-label { font-size: 10.5px; color: var(--text-2); max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .clock-chevron { color: var(--muted); flex: none; }
+        .clock-trigger:hover { background: var(--panel-2); }
+        .clock-trigger:hover .clock-trig-label { color: var(--text); }
+        .clock-trigger:hover .clock-chevron { color: var(--text); }
+        .clock-trigger.disabled { opacity: .5; cursor: default; }
+        .clock-trigger.disabled:hover { background: var(--panel); }
+        .clock-trigger.disabled:hover .clock-trig-label { color: var(--text-2); }
+        .clock-trigger.disabled:hover .clock-chevron { color: var(--muted); }
+        /* Clock options: leading green ✓ marks the active timebase (radio-list). */
+        .clock-opt { justify-content: flex-start; gap: 8px; }
+        .clock-tick { display: inline-block; width: 12px; text-align: center; color: var(--accent); flex: none; }
+        .menu-item.clock-opt:hover .clock-tick { color: var(--on-accent); }
+        /* Inline [phase] + [period] ns editor on the Custom option, pushed to the
+           right edge of the row (mirrors the Clock format item's accessory). */
+        .clock-custom { margin-left: auto; }
+        .clock-custom-op { padding: 0 1px; }
         .col-head .collapse { width: 22px; height: 22px; display:inline-flex; align-items:center; justify-content:center; border-radius: 4px; color: var(--muted); font-size: 14px; cursor: default; margin-left: 4px; }
         .col-head .collapse:hover { background: var(--panel); color: var(--text); }
         .col-head.toolbar { height: 34px; padding: 0 8px; gap: 6px; justify-content: flex-start; }
@@ -528,7 +555,11 @@
         .s-row:hover .eye.off { color: var(--text); }
         /* Global dim-all toggle in the Name/Value header — always visible,
            centered in the full bar (offsetting the header's 5px bottom pad). */
-        .s-head .eye.head { opacity: 1; align-self: center; transform: translateY(2.5px); }
+        /* Dim-all eye: hidden until the header is hovered (or kept visible while
+           any row is dimmed, via .eye.off), aligned to the Name/Value text line
+           (flex-end) rather than centered on the full header height. */
+        .s-head .eye.head { align-self: flex-end; transform: translateY(-1.5px); }
+        .s-head:hover .eye.head { opacity: 1; color: var(--text); }
         .s-head .eye.head:hover { color: var(--text); }
         .s-row.nested { padding-left: 22px; background: color-mix(in srgb, var(--panel-2) 60%, transparent); }
         /* Collapse: swatch + icon vanish instantly; the name slides left from

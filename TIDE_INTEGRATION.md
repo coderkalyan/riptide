@@ -1,37 +1,57 @@
 # Tide → Riptide integration — remaining shims
 
 Riptide reads a real VCD via tide-vcd → `tide.Database`. The items below are the
-**temporary mocks/overlays still in place** because tide / tide-vcd / VCD don't
-carry that info yet — delete each as the stack grows the capability. Everything
-else (pool/pack pipeline, windowed packing, open-file/sidecar flow) is done; see
-the code.
+**temporary mocks/overlays still in place** — delete each as the stack grows the
+capability. Everything else (pool/pack pipeline, windowed packing,
+open-file/sidecar flow) is done; see the code. Todo-only: once an item is real,
+remove it from this file rather than recording it as resolved.
 
 Siblings: `tide` at `../tide`, `tide-vcd` at `../tide-vcd` (`native/build.zig.zon`
 → `../../tide`, `../../tide-vcd`).
 
-## Trace-data gaps (tide/tide-vcd can't supply)
+Each item is binned by *why* it's still mocked:
+
+- **Not in the VCD** — the format carries no such data; closing the gap needs a
+  new source (a VCD convention, the sidecar, or an upstream tool), not parsing.
+- **In the VCD, not surfaced** — the data is in the trace but riptide drops it,
+  tide can't represent it, or tide-vcd doesn't parse it correctly. The fix lives
+  in our stack, not the format.
+- **Riptide-internal** — engineering shims independent of what the VCD carries.
+
+## Not in the VCD (no source to read)
 
 - [ ] **Enum int→label table.** Mocked in `scene.ts` `ENUM_TYPES` + an `enumTypeId`
-  overlay on the signal node; `native.ts` ships `enumTypes` empty. → when a VCD
-  (`$comment`/translate) or tide's hierarchy carries enum members.
-- [ ] **real / string values.** `mock_db.zig` skips real/string changes; weak/pull
-  scalars (`h l u w -`) collapse to `x` (tide is quaternary-only). → when tide
-  gains real/string + weak/pull state. *(reals also surface in tests/FINDINGS.md.)*
-- [ ] **`package` scope kind.** `scene.ts` overlays it onto the `derived` root
-  (declared as a `module` in the VCD). → when tide-vcd grows scope kinds.
-- [ ] **Timescale (whole thing).** `main.zig` `getHierarchy` hardcodes
-  `{value:1, unit:"ns"}` — it never reads tide-vcd's parsed `$timescale`, so a
-  `10 ps` (etc.) trace still reports `1 ns`. `scene.ts` then overlays a `{10, ps}`
-  precision on top. → read the real value+unit from tide-vcd and thread precision
-  through (not just precision — the unit is faked too).
-- [ ] **Signal direction + fine var-type.** `mock_db.zig` `mapVarType` collapses
-  every tide-vcd var type to `vcd_wire`/`vcd_reg`, and `walkInto` never sets a
-  direction, so `hier.zig` defaults it to `.implicit` for every signal — the
-  renderer's richer `Direction`/`VarType` enums (+ `scene.ts` `vcdTypeOf` switch)
-  can never see their other cases. Direction isn't surfaced in the UI yet, so it's
-  a latent stub. → when tide-vcd carries port direction + the full var-type set.
+  overlay on the signal node; `native.ts` ships `enumTypes` empty. Standard VCD
+  carries no enum members. → when a VCD convention (`$comment`/translate) or tide's
+  hierarchy starts carrying them.
+- [ ] **Signal direction.** VCD `$var` lines carry no port direction, so `walkInto`
+  never sets one and `hier.zig` defaults every signal to `.implicit` — the
+  renderer's `Direction` enum never sees its other cases. Not surfaced in the UI
+  yet, so it's a latent stub. → when tide-vcd (or a VCD convention) supplies port
+  direction.
+- [ ] **`package` scope kind.** VCD scope types are module/task/function/begin/fork
+  only; the fixture declares the package as a plain `module`, and `scene.ts`
+  overlays the `package` kind onto the `derived` root. → when the source format
+  distinguishes it *and* tide-vcd grows the scope kind.
+- [ ] **Timescale precision.** Value+unit are real (`mock_db.zig` maps
+  `p.header.timescale` → `Loaded.timescale`, shipped by `main.zig` `getHierarchy`),
+  but VCD `$timescale` carries no precision magnitude (that's a Verilog source
+  concept), so `scene.ts` still overlays a `{10, ps}` precision. → only if a real
+  precision source appears (a sidecar field or a `$comment` convention).
 
-## Riptide-side
+## In the VCD but not surfaced (dropped by riptide / unrepresentable in tide / mis-parsed by tide-vcd)
+
+- [ ] **real / string + weak-pull values.** Present in the event stream, but tide's
+  data model is quaternary-only: `mock_db.zig` skips real/string changes and
+  collapses weak/pull scalars (`h l u w -`) to `x`. *Cause: tide can't represent
+  them.* → when tide gains real/string + weak/pull state. *(reals also surface in
+  tests/FINDINGS.md.)*
+- [ ] **Fine var-type.** tide-vcd parses the full `$var` type set
+  (wire/reg/integer/time/…), but `mock_db.zig` `mapVarType` collapses every one to
+  `vcd_wire`/`vcd_reg`, so the renderer's richer `VarType` enum + `scene.ts`
+  `vcdTypeOf` switch can never see the other cases. *Cause: riptide throws it
+  away.* → widen `mapVarType` to thread the full type through.
+## Riptide-internal (independent of the VCD)
 
 - [ ] **u32 tick ceiling.** GPU/napi path narrows tide's u64 ticks to u32
   (`pack.zig` `t_start`/`t_end` + `assert(ts <= maxInt(u32))`, `main.zig`/`mock_db.zig`
@@ -41,30 +61,10 @@ Siblings: `tide` at `../tide`, `tide-vcd` at `../tide-vcd` (`native/build.zig.zo
 - [ ] **Derived signals.** No expression engine — the VCD precomputes `busy`/`done`
   under a `derived` scope and `scene.ts` tags a cosmetic `derivedExpr`. → when a
   live derivation layer computes them from inputs.
-- [ ] **Clock period/phase hardcoded.** `MOCK_CLOCK_TICK_NS = 5` (`gpu/data.ts`)
-  fixes a 5 ns half-period clock with its first rising edge at tick 5. The
-  clock-anchored ruler (`#cycle`), the cursor↔marker "N clks" span, snap-to-edge
-  (all `wave/format.ts`), and the dashed background grid (`WaveCanvas.tsx` ~397)
-  all derive from it — silently wrong for any trace whose clock differs. → measure
-  period/phase from the actual clock signal's transitions (the `role:"clock"` row).
-- [ ] **Reset-held window hardcoded.** `RESET_HELD_TICKS = {0, 10}` (`scene.ts`)
-  drives the crosshatch "RESET" overlay band (`WaveCanvas.tsx` ~366), pinned to the
-  mock's reset deassert at tick 10. → derive the held interval from the actual
-  reset signal (the `role:"reset"` row).
 - [ ] **Row gating is a hardcoded fixture map.** `GATE_BY_PATH` (`scene.ts`, built
   from `ROWS[].gatePath`) mutes a row while its gate signal isn't logic-1, but the
   signal→gate mapping is hardcoded to the mock's paths (`in_data`/`in_addr`←`in_valid`,
   `out_data`←`out_valid`) and deliberately kept out of the sidecar. → make the gate
-  a user-selectable, sidecar-persisted per-row field (then it leaves this list and
-  joins the sidecar-owned set below).
-- [ ] **Dead `MOCK_END_TICKS`.** `gpu/data.ts` still exports `MOCK_END_TICKS = 90`;
-  `TRACE_END` / native `endTicks` replaced it and nothing reads it. → delete.
+  a user-selectable, sidecar-persisted per-row field.
 - [ ] **Packaged-build trace path.** Default `app.getAppPath()/native/src/mock.vcd`
   works under `electron .`; a packaged build needs the fixture shipped + path fixed.
-
-## Not shims (don't re-add as work)
-
-- Per-row display config (radix/color/role/…) is **sidecar-owned by design** — UI
-  state, never trace data.
-- Nav-only chrome signals/scopes are mock-fixture content from `gen_mock_vcd.py`;
-  they vanish with a real VCD, no riptide change needed.

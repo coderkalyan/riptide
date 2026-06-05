@@ -8,6 +8,7 @@ import { view } from "./wave/viewport";
 import { formatTime, formatTimescale } from "./wave/format";
 import { ZOOM_STEP } from "./wave/constants";
 import { EditableNum } from "./EditableNum";
+import { ClockPicker } from "./ClockPicker";
 import { requestCanvasCapture } from "./wave/capture";
 
 declare const require: (m: string) => unknown;
@@ -64,12 +65,14 @@ export function WavesToolbar() {
         <span class="btn icon" data-tip="next transition"><ArrowRightToLine size={14} /></span>
       </div>
       <span class="sp" style={{ flex: 1 }} />
-      <span class="hint mono">
-        {formatTimescale(SCENE.hierarchy.timescale)} ·{" "}
-        <EditableNum value={s.viewRange.start} format={formatTime} onCommit={(n) => applyRange(n, s.viewRange.end)} />
-        {" – "}
-        <EditableNum value={s.viewRange.end} format={formatTime} onCommit={(n) => applyRange(s.viewRange.start, n)} /> ns
-      </span>
+      <div class="ts-box">
+        <span class="ts-range mono">
+          <EditableNum value={s.viewRange.start} format={formatTime} onCommit={(n) => applyRange(n, s.viewRange.end)} />
+          {" – "}
+          <EditableNum value={s.viewRange.end} format={formatTime} onCommit={(n) => applyRange(s.viewRange.start, n)} /> ns
+        </span>
+        <span class="ts-info mono">{formatTimescale(SCENE.hierarchy.timescale)}</span>
+      </div>
       <div class="divider" />
       <span class="btn icon" data-tip="undo view change" onClick={() => view.undo()}><Undo2 size={14} /></span>
       <div class="seg">
@@ -89,6 +92,7 @@ export function WavesToolbar() {
           onClick={() => s.toggleClock()}
         ><Clock size={14} /></span>
       </div>
+      <ClockPicker />
       <div class="divider" />
       <span class="btn icon" data-tip="save canvas image" onClick={saveCanvas}><Save size={14} /></span>
     </div>

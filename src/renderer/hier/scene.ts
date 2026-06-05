@@ -118,6 +118,17 @@ function signalAt(h: Hierarchy, path: string): Signal {
   return node;
 }
 
+// Resolve a signal path to its native handle against the current SCENE, or null
+// if it doesn't resolve (e.g. a sidecar timebase clock absent from this trace).
+// Used by the store/timebase detection to read a signal's edges.
+export function handleForPath(path: string): string | null {
+  try {
+    return signalAt(SCENE.hierarchy, path).handle;
+  } catch {
+    return null;
+  }
+}
+
 function lookupByPath(h: Hierarchy, path: string): NodeId {
   const parts = path.split(".");
   let candidates = h.rootIds;
@@ -238,8 +249,10 @@ function buildScene(sc: Sidecar | null): Scene {
   setHierarchyNodes(hierarchy.nodes.size);
 
   // Overlay TS-only metadata that the VCD/tide hierarchy doesn't carry. Enum
-  // association is keyed by path, independent of the sidecar.
-  hierarchy.timescale = { value: 1, unit: "ns", precision: { value: 10, unit: "ps" } };
+  // association is keyed by path, independent of the sidecar. The timescale
+  // value/unit are now real (parsed from the VCD `$timescale` in the native
+  // backend); VCD carries no precision magnitude, so precision stays mocked.
+  hierarchy.timescale = { ...hierarchy.timescale, precision: { value: 10, unit: "ps" } };
   for (const t of ENUM_TYPES) hierarchy.enumTypes.set(t.id, t);
   for (const r of ROWS) {
     if (r.enumTypeId == null) continue;
@@ -304,10 +317,6 @@ export let TRACE_END = SCENE.hierarchy.endTicks;
 export let INITIAL: InitialState = SIDECAR
   ? initialFromSidecar(SIDECAR, TRACE_END)
   : freshInitial(TRACE_END);
-
-// Reset is held high from tick 0 until async deassertion at the first clock
-// falling edge (tick 10). Exposed for overlay rendering.
-export const RESET_HELD_TICKS = { tStart: 0, tEnd: 10 };
 
 // Swap the loaded trace in place (no window reload). Recomputes the whole trace
 // layer — native db, sidecar, SCENE (hierarchy + active signals + pack specs),

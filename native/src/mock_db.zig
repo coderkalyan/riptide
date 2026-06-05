@@ -13,12 +13,39 @@ const hier = @import("hier.zig");
 // Everything produced from one parse of the fixture. Both the renderer's
 // segment queries and its SignalTree read from this; it is built once and cached
 // (see main.zig).
+// Viewer-side timescale (the VCD `$timescale` magnitude + unit). tide is
+// unaware of time units — this is presentation metadata parsed from the header
+// and carried straight to the renderer. The unit string is a static literal, so
+// it outlives the Parser it came from.
+pub const Timescale = struct {
+    value: u32, // 1, 10, or 100
+    unit: []const u8, // "s" | "ms" | "us" | "ns" | "ps" | "fs"
+};
+
+fn mapTimescale(ts: tide_vcd.Header.Timescale) Timescale {
+    return .{
+        // Number enum is one=1 / ten=10 / hundred=100, so its tag value is the
+        // magnitude directly.
+        .value = @intFromEnum(ts.number),
+        .unit = switch (ts.unit) {
+            .s => "s",
+            .ms => "ms",
+            .us => "us",
+            .ns => "ns",
+            .ps => "ps",
+            .fs => "fs",
+        },
+    };
+}
+
 pub const Loaded = struct {
     db: tide.Database,
     hierarchy: hier.Hierarchy,
-    /// Right boundary of the trace (max timestamp seen). The last segment of
-    /// every signal extends to here, matching the old MOCK_END_TICKS.
+    /// Right boundary of the trace (last timestamp in the event stream). The
+    /// last segment of every signal extends to here.
     end_t: u32,
+    /// Viewer timescale parsed from the VCD `$timescale` declaration.
+    timescale: Timescale,
 
     pub fn deinit(self: *Loaded) void {
         self.db.deinit();
@@ -177,13 +204,14 @@ pub fn load(gpa: Allocator, path: []const u8) !Loaded {
     // Clean up any builders we don't end up consuming (error paths only).
     errdefer for (builders) |*b| if (b.*) |*bb| bb.deinit(gpa);
 
+    // The timeline end is the last timestamp encountered in the event stream
+    // (VCD time markers are monotonic non-decreasing, so the final `.time` event
+    // is the trace's right boundary). Replaces the old hardcoded MOCK_END_TICKS.
     var cur_t: u64 = 0;
-    var end_t: u64 = 0;
     while (p.next()) |ev| {
         switch (ev) {
             .time => |t| {
                 cur_t = t;
-                if (t > end_t) end_t = t;
             },
             .scalar => |sc| {
                 const sid: u64 = @intFromEnum(sc.code);
@@ -220,6 +248,7 @@ pub fn load(gpa: Allocator, path: []const u8) !Loaded {
         .db = db,
         .hierarchy = hierarchy,
         // u32 tick ceiling (panics in ReleaseSafe past 2^32) — see TIDE_INTEGRATION.md §3.10.
-        .end_t = @intCast(if (end_t == 0) 1 else end_t),
+        .end_t = @intCast(if (cur_t == 0) 1 else cur_t),
+        .timescale = mapTimescale(p.header.timescale),
     };
 }

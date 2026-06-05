@@ -18,8 +18,10 @@ import { subscribeWithSelector } from "zustand/middleware";
 import { shallow } from "zustand/shallow";
 import { create } from "solid-zustand/store";
 
-import { SCENE, INITIAL, makeActiveRef, type ActiveSignalRef, type Radix, type ActiveRole, type ClockConfig, type EnumEntry } from "../hier/scene";
+import { SCENE, INITIAL, makeActiveRef, handleForPath, type ActiveSignalRef, type Radix, type ActiveRole, type ClockConfig, type EnumEntry } from "../hier/scene";
 import type { NodeId } from "../hier/types";
+import type { ClockGrid } from "../wave/format";
+import { detectClockGrid, detectResetBand } from "../wave/clock";
 import { MAX_ROWS } from "../gpu/colors";
 import {
   serializeSidecar,
@@ -59,6 +61,14 @@ export interface DocState {
   viewRange: { start: number; end: number };
   snapCursor: boolean;
   clockAnchor: boolean;
+  // Timebase: which clock-format signal (by path) drives cycle math + the grid,
+  // and an optional manual period/phase override. Persisted in the sidecar.
+  timebaseClock: string | null;
+  timebaseOverride: { period: number; phase: number } | null;
+  // Derived (NOT serialized — recomputed on load / selection from the timebase
+  // clock + the first reset signal): the detected cycle grid + reset-held band.
+  clockGrid: ClockGrid | null;
+  resetBand: { tStart: number; tEnd: number } | null;
   expandedScopes: NodeId[]; // array (not Set) so reconcile/serialization stay simple
   panels: PanelState;
   tabs: { open: string[]; active: number };
@@ -126,7 +136,14 @@ export interface Actions {
   setViewRange: (start: number, end: number) => void;
   bumpViewSave: () => void;
   toggleSnap: () => void;
+  // Toggle clock-aligned mode on/off (View menu). Turning it on with no timebase
+  // clock auto-picks the first role:"clock" row.
   toggleClock: () => void;
+  // Set (or clear, with null = absolute time) the timebase clock by path. Drives
+  // clock-aligned mode + re-detects the cycle grid.
+  setTimebaseClock: (path: string | null) => void;
+  // Manually override the detected period/phase of the timebase clock.
+  setTimebaseOverride: (period: number, phase: number) => void;
 
   toggleScope: (id: NodeId) => void;
   setExpanded: (ids: NodeId[]) => void;
@@ -159,6 +176,34 @@ let selectionAnchor = -1; // last single/ctrl-selected row; shift-range pivots h
 
 const withRowId = (r: ActiveSignalRef): Row => ({ ...r, id: rowSeq++ });
 
+// Detect the cycle grid (from the timebase clock, unless overridden) and the
+// reset-held band (from the first role:"reset" row). Pure read of the prefix of
+// each signal via native getEdges. Returns nulls when nothing resolves.
+function computeTimebase(
+  active: readonly ActiveSignalRef[],
+  clockPath: string | null,
+  override: { period: number; phase: number } | null,
+): { clockGrid: ClockGrid | null; resetBand: { tStart: number; tEnd: number } | null } {
+  let clockGrid: ClockGrid | null = null;
+  if (clockPath != null) {
+    const handle = handleForPath(clockPath);
+    if (handle != null) {
+      if (override) clockGrid = { period: override.period, phase: override.phase, valid: true };
+      else {
+        const polarity = active.find((r) => r.path === clockPath)?.clock?.polarity ?? "rising";
+        clockGrid = detectClockGrid(handle, polarity);
+      }
+    }
+  }
+  let resetBand: { tStart: number; tEnd: number } | null = null;
+  const resetRow = active.find((r) => r.role === "reset");
+  if (resetRow) {
+    const h = handleForPath(resetRow.path);
+    if (h != null) resetBand = detectResetBand(h);
+  }
+  return { clockGrid, resetBand };
+}
+
 // ---- hydration ----------------------------------------------------------
 
 function hydrateDoc(): DocState {
@@ -167,14 +212,34 @@ function hydrateDoc(): DocState {
   }));
   markerSeq = markers.length + 1;
   const selIdx = INITIAL.markers.findIndex((m) => m.selected);
+
+  // Timebase: prefer the saved clock path; else auto-pick the first role:"clock"
+  // row so a grid is ready the moment clock-aligned mode is toggled. The on/off
+  // (clockAnchor) honours the saved/fresh toggle — we don't force it on.
+  const active = SCENE.activeSignals;
+  let timebaseClock = INITIAL.timebase.clockPath;
+  let clockAnchor = INITIAL.toggles.clockAnchor;
+  if (timebaseClock == null) {
+    const firstClock = active.find((r) => r.role === "clock");
+    if (firstClock) timebaseClock = firstClock.path;
+  }
+  const timebaseOverride = INITIAL.timebase.override ?? null;
+  const { clockGrid, resetBand } = computeTimebase(active, timebaseClock, timebaseOverride);
+  // A saved/auto clock absent from this trace → fall back to absolute time.
+  if (timebaseClock != null && clockGrid == null) { timebaseClock = null; clockAnchor = false; }
+
   return {
-    activeSignals: SCENE.activeSignals.map(withRowId),
+    activeSignals: active.map(withRowId),
     markers,
     selectedMarkerId: selIdx >= 0 ? selIdx + 1 : null,
     cursorTicks: INITIAL.time.cursor,
     viewRange: { start: INITIAL.time.start, end: INITIAL.time.end },
     snapCursor: INITIAL.toggles.snapCursor,
-    clockAnchor: INITIAL.toggles.clockAnchor,
+    clockAnchor,
+    timebaseClock,
+    timebaseOverride,
+    clockGrid,
+    resetBand,
     expandedScopes: [...SCENE.initialExpanded],
     panels: { ...INITIAL.panels },
     tabs: { open: [...INITIAL.tabs.open], active: INITIAL.tabs.active },
@@ -247,9 +312,16 @@ const vanilla = createVanilla<AppState>()(
     setFormat: (row, radix, role) => set((s) => ({
       activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, radix, role } : r)),
     })),
-    setClockConfig: (row, clock) => set((s) => ({
-      activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, clock } : r)),
-    })),
+    setClockConfig: (row, clock) => set((s) => {
+      const activeSignals = s.activeSignals.map((r) => (r.row === row ? { ...r, clock } : r));
+      const changed = activeSignals.find((r) => r.row === row);
+      // If the edited row is the timebase clock (and not manually overridden), a
+      // polarity change re-detects the grid.
+      if (changed && changed.path === s.timebaseClock && s.timebaseOverride == null) {
+        return { activeSignals, clockGrid: computeTimebase(activeSignals, s.timebaseClock, null).clockGrid };
+      }
+      return { activeSignals };
+    }),
     setEnumTable: (row, enumTable) => set((s) => ({
       activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, enumTable } : r)),
     })),
@@ -328,7 +400,25 @@ const vanilla = createVanilla<AppState>()(
     setViewRange: (start, end) => set({ viewRange: { start, end } }),
     bumpViewSave: () => set((s) => ({ viewSaveNonce: s.viewSaveNonce + 1 })),
     toggleSnap: () => set((s) => ({ snapCursor: !s.snapCursor })),
-    toggleClock: () => set((s) => ({ clockAnchor: !s.clockAnchor })),
+    toggleClock: () => set((s) => {
+      if (s.clockAnchor) return { clockAnchor: false };
+      // Turning on: ensure a timebase clock exists (auto-pick the first one).
+      if (s.timebaseClock != null && s.clockGrid != null) return { clockAnchor: true };
+      const fc = s.activeSignals.find((r) => r.role === "clock");
+      if (!fc) return s; // nothing to anchor to
+      return { clockAnchor: true, timebaseClock: fc.path, timebaseOverride: null, clockGrid: computeTimebase(s.activeSignals, fc.path, null).clockGrid };
+    }),
+    // Select which clock drives the timebase (the on/off lives in clockAnchor,
+    // toggled separately). Recomputes the grid; leaves clockAnchor untouched.
+    setTimebaseClock: (path) => set((s) => ({
+      timebaseClock: path,
+      timebaseOverride: null,
+      clockGrid: computeTimebase(s.activeSignals, path, null).clockGrid,
+    })),
+    setTimebaseOverride: (period, phase) => set((s) => {
+      if (s.timebaseClock == null) return s;
+      return { timebaseOverride: { period, phase }, clockGrid: { period, phase, valid: true } };
+    }),
 
     toggleScope: (id) => set((s) => ({
       expandedScopes: s.expandedScopes.includes(id)
@@ -377,6 +467,7 @@ export function selectSidecarText(s: AppState): string {
       panels: s.panels,
       treeExpanded: new Set(s.expandedScopes),
       toggles: { snapCursor: s.snapCursor, clockAnchor: s.clockAnchor },
+      timebase: { clockPath: s.timebaseClock, override: s.timebaseOverride },
       tabs: { open: s.tabs.open, active: s.tabs.active },
     }),
   );
@@ -392,6 +483,7 @@ export function startAutosave(): () => void {
   return useAppStore.subscribe(
     (s) => [
       s.activeSignals, s.markers, s.selectedMarkerId, s.snapCursor, s.clockAnchor,
+      s.timebaseClock, s.timebaseOverride,
       s.panels, s.expandedScopes, s.tabs, s.cursorTicks, s.viewSaveNonce,
     ] as const,
     () => {

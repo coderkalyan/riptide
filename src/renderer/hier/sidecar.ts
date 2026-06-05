@@ -75,10 +75,19 @@ export interface UiPanels {
   activeCompactWidth: number | null;
 }
 
+// The timebase clock: which signal (by path) drives clock-aligned cycle math +
+// the grid, plus an optional manual period/phase override. clockPath null =
+// absolute time.
+export interface SidecarTimebase {
+  clockPath: string | null;
+  override?: { period: number; phase: number };
+}
+
 export interface UiSection {
   panels: UiPanels;
   tree: { expanded: string[] };
   toggles: { snapCursor: boolean; clockAnchor: boolean };
+  timebase?: SidecarTimebase;
   tabs: { open: string[]; active: number };
 }
 
@@ -254,6 +263,7 @@ export interface SidecarSnapshot {
   panels: UiPanels;
   treeExpanded: Set<NodeId>;
   toggles: { snapCursor: boolean; clockAnchor: boolean };
+  timebase: { clockPath: string | null; override: { period: number; phase: number } | null };
   tabs: { open: string[]; active: number };
 }
 
@@ -301,6 +311,10 @@ export function serializeSidecar(snap: SidecarSnapshot): Sidecar {
       panels: snap.panels,
       tree: { expanded },
       toggles: { snapCursor: snap.toggles.snapCursor, clockAnchor: snap.toggles.clockAnchor },
+      timebase: {
+        clockPath: snap.timebase.clockPath,
+        ...(snap.timebase.override ? { override: snap.timebase.override } : {}),
+      },
       tabs: { open: snap.tabs.open, active: snap.tabs.active },
     },
   };
@@ -319,6 +333,7 @@ export interface InitialState {
   markers: { name: string; tick: number; color: number; selected: boolean }[];
   panels: UiPanels;
   toggles: { snapCursor: boolean; clockAnchor: boolean };
+  timebase: { clockPath: string | null; override?: { period: number; phase: number } };
   tabs: { open: string[]; active: number };
 }
 
@@ -334,6 +349,7 @@ export function freshInitial(endTicks: number): InitialState {
       activeCompactWidth: null,
     },
     toggles: { snapCursor: false, clockAnchor: false },
+    timebase: { clockPath: null },
     tabs: { open: ["keysched.vcd"], active: 0 },
   };
 }
@@ -356,6 +372,7 @@ export function initialFromSidecar(sc: Sidecar, endTicks: number): InitialState 
     markers,
     panels: ui?.panels ?? fresh.panels,
     toggles: ui?.toggles ?? fresh.toggles,
+    timebase: ui?.timebase ?? fresh.timebase,
     tabs: ui?.tabs ?? fresh.tabs,
   };
 }

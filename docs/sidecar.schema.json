@@ -85,6 +85,27 @@
             "clockAnchor": { "type": "boolean", "description": "Ruler counts clock cycles instead of nanoseconds." }
           }
         },
+        "timebase": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Which clock-format signal (by path) drives clock-aligned cycle math and the grid; period/phase are detected from the signal unless overridden.",
+          "properties": {
+            "clockPath": {
+              "type": ["string", "null"],
+              "description": "Hierarchical path of the timebase clock signal, or null for absolute time."
+            },
+            "override": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Manual period/phase (ticks), overriding detection.",
+              "properties": {
+                "period": { "type": "number" },
+                "phase": { "type": "number" }
+              },
+              "required": ["period", "phase"]
+            }
+          }
+        },
         "tabs": {
           "type": "object",
           "additionalProperties": false,

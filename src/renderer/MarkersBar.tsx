@@ -10,6 +10,8 @@ import { formatTime, formatClockWhole, clockCycleOf, clockCycleToTick } from "./
 // clock-anchor mode), and deletes.
 export function MarkersBar() {
   const s = useAppStore();
+  // Clock-aligned editing only when a valid timebase grid exists.
+  const clockMode = () => s.clockAnchor && s.clockGrid != null && s.clockGrid.valid;
   const applyMarkerTick = (id: number, n: number): boolean => {
     if (!isFinite(n) || n < 0) return false;
     s.setMarkerTick(id, n);
@@ -31,18 +33,18 @@ export function MarkersBar() {
             <span>
               {m.name} ·{" "}
               <span data-tip="edit marker time" onClick={(e) => e.stopPropagation()}>
-                {s.clockAnchor ? (
+                {clockMode() ? (
                   <EditableNum
                     value={m.tick}
-                    editValue={clockCycleOf(m.tick)}
-                    format={formatClockWhole}
-                    onCommit={(n) => applyMarkerTick(m.id, clockCycleToTick(n))}
+                    editValue={clockCycleOf(m.tick, s.clockGrid!)}
+                    format={(t) => formatClockWhole(t, s.clockGrid!)}
+                    onCommit={(n) => applyMarkerTick(m.id, clockCycleToTick(n, s.clockGrid!))}
                   />
                 ) : (
                   <EditableNum value={m.tick} format={formatTime} onCommit={(n) => applyMarkerTick(m.id, n)} />
                 )}
               </span>
-              {s.clockAnchor ? null : <>{" "}ns</>}
+              {clockMode() ? null : <>{" "}ns</>}
             </span>
             <span class="rm" data-tip="delete marker" onClick={(e) => { e.stopPropagation(); s.deleteMarker(m.id); }}>
               <X size={10} />
