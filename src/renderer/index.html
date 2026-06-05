@@ -509,6 +509,10 @@
         .s-row:hover .eye { opacity: 1; color: var(--text); }
         .eye.off { opacity: 1; color: var(--muted); }
         .s-row:hover .eye.off { color: var(--text); }
+        /* Global dim-all toggle in the Name/Value header — always visible,
+           centered in the full bar (offsetting the header's 5px bottom pad). */
+        .s-head .eye.head { opacity: 1; align-self: center; transform: translateY(2.5px); }
+        .s-head .eye.head:hover { color: var(--text); }
         .s-row.nested { padding-left: 22px; background: color-mix(in srgb, var(--panel-2) 60%, transparent); }
         /* Collapse: swatch + icon vanish instantly; the name slides left from
            where it sat (8px pin + 6 gap + 12 icon + 6 gap = 32px) into place.
