@@ -1,4 +1,4 @@
-import { For, createSignal, onMount, onCleanup } from "solid-js";
+import { Index, createSignal, onMount, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useAppStore } from "./store/store";
 import { enumTableForRef } from "./hier/scene";
@@ -30,7 +30,14 @@ export function EnumDialog(props: { row: number; onClose: () => void }) {
   };
 
   const setAt = (i: number, p: Partial<Draft>) => commit(rows().map((d, j) => (j === i ? { ...d, ...p } : d)));
-  const add = () => commit([...rows(), { value: "", label: "" }]);
+  // New entry's value defaults to one past the last row's integer (0 when empty
+  // or the last value isn't a number).
+  const add = () => {
+    const cur = rows();
+    const last = cur.length ? parseInt(cur[cur.length - 1].value, 10) : NaN;
+    const next = Number.isFinite(last) ? last + 1 : 0;
+    commit([...cur, { value: String(next), label: "" }]);
+  };
   const remove = (i: number) => commit(rows().filter((_, j) => j !== i));
 
   onMount(() => {
@@ -42,34 +49,39 @@ export function EnumDialog(props: { row: number; onClose: () => void }) {
   return (
     <Portal>
       <div class="modal-backdrop" onMouseDown={props.onClose}>
-        <div class="modal" onMouseDown={(e) => e.stopPropagation()}>
+        <div class="modal enum-modal" onMouseDown={(e) => e.stopPropagation()}>
           <div class="modal-title">Enum Table</div>
 
-          <div class="enum-head">
-            <span>Value</span>
-            <span>Name</span>
-          </div>
-          <div class="enum-list">
-            <For each={rows()} fallback={<div class="enum-empty">No entries yet.</div>}>{(d, i) => (
-              <div class="enum-row">
-                <input
-                  class="text-input enum-val"
-                  type="text"
-                  inputmode="numeric"
-                  placeholder="0"
-                  value={d.value}
-                  onInput={(e) => setAt(i(), { value: e.currentTarget.value })}
-                />
-                <input
-                  class="text-input enum-name"
-                  type="text"
-                  placeholder="NAME"
-                  value={d.label}
-                  onInput={(e) => setAt(i(), { label: e.currentTarget.value })}
-                />
-                <button class="enum-del" title="Remove entry" onClick={() => remove(i())}>✕</button>
-              </div>
-            )}</For>
+          {/* One ruled table: header + borderless cells. Index (not For) keeps
+              each input mounted across edits so typing never drops focus. */}
+          <div class="enum-table">
+            <div class="enum-row enum-head">
+              <span>Value</span>
+              <span>Name</span>
+              <span />
+            </div>
+            <div class="enum-body">
+              <Index each={rows()} fallback={<div class="enum-empty">No entries yet.</div>}>{(d, i) => (
+                <div class="enum-row">
+                  <input
+                    class="enum-cell enum-val"
+                    type="text"
+                    inputmode="numeric"
+                    placeholder="0"
+                    value={d().value}
+                    onInput={(e) => setAt(i, { value: e.currentTarget.value })}
+                  />
+                  <input
+                    class="enum-cell enum-name"
+                    type="text"
+                    placeholder="NAME"
+                    value={d().label}
+                    onInput={(e) => setAt(i, { label: e.currentTarget.value })}
+                  />
+                  <button class="enum-del" title="Remove entry" onClick={() => remove(i)}>✕</button>
+                </div>
+              )}</Index>
+            </div>
           </div>
 
           <div class="modal-actions between">

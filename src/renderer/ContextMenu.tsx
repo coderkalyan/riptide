@@ -42,17 +42,19 @@ function ClockAccessory(props: { row: number }) {
 // Right-click menu for an active-signal row. Binary collapses a value to a single
 // line, which only makes sense for a 1-bit signal — so it's disabled for multi-bit
 // signals (all other formats stay available); 1-bit signals allow every format.
-export function activeSignalMenu(opts: { multiBit: boolean; clockRow: number; color?: string }): MenuItem[] {
+export function activeSignalMenu(opts: { multiBit: boolean; clockRow: number; color?: string; currentFormat?: string }): MenuItem[] {
+  // Tick the one format whose action matches the row's current radix/role.
+  const fmt = (it: Exclude<MenuItem, "sep">): MenuItem => ({ ...it, checked: it.action === opts.currentFormat });
   return [
     { label: "Format", submenu: [
-      { label: "Binary", action: "radix-bin", disabled: opts.multiBit },
-      { label: "Clock", action: "format-clock", accessory: <ClockAccessory row={opts.clockRow} /> },
-      { label: "Reset", action: "format-reset" },
+      fmt({ label: "Binary", action: "radix-bin", disabled: opts.multiBit }),
+      fmt({ label: "Clock", action: "format-clock", accessory: <ClockAccessory row={opts.clockRow} /> }),
+      fmt({ label: "Reset", action: "format-reset" }),
       "sep",
-      { label: "Signed Decimal", action: "radix-sdec", disabled: !opts.multiBit },
-      { label: "Unsigned Decimal", action: "radix-dec" },
-      { label: "Hex", action: "radix-hex" },
-      { label: "Enum", action: "radix-enum", gear: true },
+      fmt({ label: "Signed Decimal", action: "radix-sdec", disabled: !opts.multiBit }),
+      fmt({ label: "Unsigned Decimal", action: "radix-dec" }),
+      fmt({ label: "Hex", action: "radix-hex" }),
+      fmt({ label: "Enum", action: "radix-enum", gear: true }),
     ] },
     { label: "Change Color…", accessory: <span class="menu-swatch" style={{ background: opts.color ?? "var(--muted)" }} /> },
     "sep",
@@ -107,7 +109,7 @@ export function ContextMenu(props: {
           else setSub(null);
         }}
       >
-        <span>{it.label}</span>
+        <span class="menu-label"><span class="menu-check">{it.checked ? "✓" : ""}</span>{it.label}</span>
         <span class="menu-end">
           {it.accessory}
           {it.submenu ? <span class="menu-arrow">›</span>

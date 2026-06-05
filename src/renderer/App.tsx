@@ -282,6 +282,11 @@ export function App() {
               multiBit: ref ? getSignal(SCENE.hierarchy, ref.signalId).bitWidth > 1 : false,
               clockRow: m().row,
               color: ref?.color,
+              currentFormat: ref
+                ? ref.role === "clock" ? "format-clock"
+                  : ref.role === "reset" ? "format-reset"
+                  : `radix-${ref.radix}`
+                : undefined,
             });
           })()}
           onClose={() => s.setCtxMenu(null)}
