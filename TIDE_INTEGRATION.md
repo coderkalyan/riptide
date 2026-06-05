@@ -19,8 +19,17 @@ Siblings: `tide` at `../tide`, `tide-vcd` at `../tide-vcd` (`native/build.zig.zo
   gains real/string + weak/pull state. *(reals also surface in tests/FINDINGS.md.)*
 - [ ] **`package` scope kind.** `scene.ts` overlays it onto the `derived` root
   (declared as a `module` in the VCD). → when tide-vcd grows scope kinds.
-- [ ] **Timescale precision.** `scene.ts` overlays `{10, ps}`; native emits only
-  `{1, ns}`. → when tide-vcd threads precision through.
+- [ ] **Timescale (whole thing).** `main.zig` `getHierarchy` hardcodes
+  `{value:1, unit:"ns"}` — it never reads tide-vcd's parsed `$timescale`, so a
+  `10 ps` (etc.) trace still reports `1 ns`. `scene.ts` then overlays a `{10, ps}`
+  precision on top. → read the real value+unit from tide-vcd and thread precision
+  through (not just precision — the unit is faked too).
+- [ ] **Signal direction + fine var-type.** `mock_db.zig` `mapVarType` collapses
+  every tide-vcd var type to `vcd_wire`/`vcd_reg`, and `walkInto` never sets a
+  direction, so `hier.zig` defaults it to `.implicit` for every signal — the
+  renderer's richer `Direction`/`VarType` enums (+ `scene.ts` `vcdTypeOf` switch)
+  can never see their other cases. Direction isn't surfaced in the UI yet, so it's
+  a latent stub. → when tide-vcd carries port direction + the full var-type set.
 
 ## Riptide-side
 
@@ -32,6 +41,24 @@ Siblings: `tide` at `../tide`, `tide-vcd` at `../tide-vcd` (`native/build.zig.zo
 - [ ] **Derived signals.** No expression engine — the VCD precomputes `busy`/`done`
   under a `derived` scope and `scene.ts` tags a cosmetic `derivedExpr`. → when a
   live derivation layer computes them from inputs.
+- [ ] **Clock period/phase hardcoded.** `MOCK_CLOCK_TICK_NS = 5` (`gpu/data.ts`)
+  fixes a 5 ns half-period clock with its first rising edge at tick 5. The
+  clock-anchored ruler (`#cycle`), the cursor↔marker "N clks" span, snap-to-edge
+  (all `wave/format.ts`), and the dashed background grid (`WaveCanvas.tsx` ~397)
+  all derive from it — silently wrong for any trace whose clock differs. → measure
+  period/phase from the actual clock signal's transitions (the `role:"clock"` row).
+- [ ] **Reset-held window hardcoded.** `RESET_HELD_TICKS = {0, 10}` (`scene.ts`)
+  drives the crosshatch "RESET" overlay band (`WaveCanvas.tsx` ~366), pinned to the
+  mock's reset deassert at tick 10. → derive the held interval from the actual
+  reset signal (the `role:"reset"` row).
+- [ ] **Row gating is a hardcoded fixture map.** `GATE_BY_PATH` (`scene.ts`, built
+  from `ROWS[].gatePath`) mutes a row while its gate signal isn't logic-1, but the
+  signal→gate mapping is hardcoded to the mock's paths (`in_data`/`in_addr`←`in_valid`,
+  `out_data`←`out_valid`) and deliberately kept out of the sidecar. → make the gate
+  a user-selectable, sidecar-persisted per-row field (then it leaves this list and
+  joins the sidecar-owned set below).
+- [ ] **Dead `MOCK_END_TICKS`.** `gpu/data.ts` still exports `MOCK_END_TICKS = 90`;
+  `TRACE_END` / native `endTicks` replaced it and nothing reads it. → delete.
 - [ ] **Packaged-build trace path.** Default `app.getAppPath()/native/src/mock.vcd`
   works under `electron .`; a packaged build needs the fixture shipped + path fixed.
 
