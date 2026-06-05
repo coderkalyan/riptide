@@ -5,7 +5,10 @@ import { SCENE, type ActiveSignalRef } from "./hier/scene";
 import { useAppStore } from "./store/store";
 import { ActiveSignal, type ActiveSignalKind } from "./ActiveSignal";
 import { valueAtTick, formatSegmentValue } from "./wave/value";
-import { ROW_HEIGHT_CSS, ROW_MIN_HEIGHT_CSS, ROW_MAX_HEIGHT_CSS } from "./wave/constants";
+import {
+  ROW_HEIGHT_CSS, ROW_MIN_HEIGHT_CSS, ROW_MAX_HEIGHT_CSS,
+  DIVIDER_HEIGHT_CSS, DIVIDER_MIN_HEIGHT_CSS, DIVIDER_MAX_HEIGHT_CSS,
+} from "./wave/constants";
 
 // Icon reflects the chosen format: clock and reset get their own glyph, every
 // other format (binary/decimal/hex/enum) shows the generic data icon.
@@ -28,16 +31,14 @@ export function ActiveSignals(props: {
   // Drag the row's bottom handle to resize its height; pointer capture keeps the
   // drag alive past the thin handle. Persists via setRowHeight (sidecar autosave);
   // the canvas re-applies the GPU row layout through its cosmetic subscription.
-  const startRowResize = (row: number, current: number | undefined) => (e: PointerEvent) => {
+  // Shared bottom-handle drag: tracks pointer Y, clamps, and writes the new height
+  // via `apply`. Used by both signal rows and divider entries.
+  const startVResize = (startH: number, min: number, max: number, apply: (h: number) => void) => (e: PointerEvent) => {
     e.preventDefault();
     const startY = e.clientY;
-    const startH = current ?? ROW_HEIGHT_CSS;
     const target = e.currentTarget as HTMLElement;
     target.setPointerCapture(e.pointerId);
-    const onMove = (ev: PointerEvent) => {
-      const h = Math.max(ROW_MIN_HEIGHT_CSS, Math.min(ROW_MAX_HEIGHT_CSS, startH + (ev.clientY - startY)));
-      s.setRowHeight(row, h);
-    };
+    const onMove = (ev: PointerEvent) => apply(Math.max(min, Math.min(max, startH + (ev.clientY - startY))));
     const onUp = (ev: PointerEvent) => {
       target.releasePointerCapture(ev.pointerId);
       target.removeEventListener("pointermove", onMove);
@@ -46,6 +47,10 @@ export function ActiveSignals(props: {
     target.addEventListener("pointermove", onMove);
     target.addEventListener("pointerup", onUp);
   };
+  const startRowResize = (row: number, current: number | undefined) =>
+    startVResize(current ?? ROW_HEIGHT_CSS, ROW_MIN_HEIGHT_CSS, ROW_MAX_HEIGHT_CSS, (h) => s.setRowHeight(row, h));
+  const startDividerResize = (row: number, current: number | undefined) =>
+    startVResize(current ?? DIVIDER_HEIGHT_CSS, DIVIDER_MIN_HEIGHT_CSS, DIVIDER_MAX_HEIGHT_CSS, (h) => s.setDividerHeight(row, h));
   return (
     <div class="col">
       <div class="col-head" style={{ "padding-right": "3px" }}>
@@ -98,30 +103,46 @@ export function ActiveSignals(props: {
           const value = createMemo(() =>
             formatSegmentValue(valueAtTick(sig.handle, s.cursorTicks), sig.bitWidth, row.radix, props.enumLabels().get(row.row)));
           return (
-            <ActiveSignal
-              name={sig.name}
-              kind={activeSignalKind(row)}
-              color={row.color}
-              selected={row.selected || s.ctxMenu?.row === row.row}
-              hidden={row.hidden}
-              collapsed={props.collapsed}
-              sliding={props.sliding}
-              value={value()}
-              height={row.height}
-              onPinClick={(e) => s.setPicker({ row: row.row, anchorRect: (e.currentTarget as HTMLElement).getBoundingClientRect() })}
-              onToggleVisible={() => s.toggleHidden(row.row)}
-              onClick={(e) => s.selectRow(row.row, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                // No persistent selection change — the ctxMenu row is highlighted
-                // transiently (see `selected` above + WaveCanvas) only while the menu
-                // is open, so a lone right-click shows the row as active.
-                s.setCtxMenu({ x: e.clientX, y: e.clientY, row: row.row });
-              }}
-              onResizeStart={startRowResize(row.row, row.height)}
-              onResizeReset={() => s.setRowHeight(row.row, undefined)}
-            />
+            <>
+              <ActiveSignal
+                name={sig.name}
+                kind={activeSignalKind(row)}
+                color={row.color}
+                selected={row.selected || s.ctxMenu?.row === row.row}
+                hidden={row.hidden}
+                collapsed={props.collapsed}
+                sliding={props.sliding}
+                value={value()}
+                height={row.height}
+                onPinClick={(e) => s.setPicker({ row: row.row, anchorRect: (e.currentTarget as HTMLElement).getBoundingClientRect() })}
+                onToggleVisible={() => s.toggleHidden(row.row)}
+                onClick={(e) => s.selectRow(row.row, { ctrl: e.ctrlKey || e.metaKey, shift: e.shiftKey })}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  // No persistent selection change — the ctxMenu row is highlighted
+                  // transiently (see `selected` above + WaveCanvas) only while the menu
+                  // is open, so a lone right-click shows the row as active.
+                  s.setCtxMenu({ x: e.clientX, y: e.clientY, row: row.row });
+                }}
+                onResizeStart={startRowResize(row.row, row.height)}
+                onResizeReset={() => s.setRowHeight(row.row, undefined)}
+              />
+              <Show when={row.dividerBelow}>
+                <div
+                  class="s-divider"
+                  style={row.dividerHeight ? { height: `${row.dividerHeight}px` } : undefined}
+                  onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); s.setCtxMenu({ x: e.clientX, y: e.clientY, row: row.row, kind: "divider" }); }}
+                >
+                  <span
+                    class="s-resize"
+                    onPointerDown={(e) => { e.stopPropagation(); startDividerResize(row.row, row.dividerHeight)(e); }}
+                    onDblClick={(e) => { e.stopPropagation(); s.setDividerHeight(row.row, undefined); }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                </div>
+              </Show>
+            </>
           );
         }}</For>
       </div>

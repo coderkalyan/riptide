@@ -41,6 +41,28 @@ export function setEnabled(on: boolean): void {
   for (const fn of enableSubs) fn(on);
 }
 
+// ---- force-render flag (optimized-rendering override) -------------------
+// The canvas only re-renders when something changes (see WaveCanvas). This
+// forces a draw every rAF instead — for steady-state fps measurement. Persisted
+// like `enabled` so it survives the Open-VCD reload. Default off (optimized).
+
+const FORCE_RENDER_KEY = "riptide.perf.forceRender";
+let forceRender = false;
+try { forceRender = sessionStorage.getItem(FORCE_RENDER_KEY) === "1"; } catch { /* unavailable */ }
+
+const forceRenderSubs = new Set<(on: boolean) => void>();
+export function onForceRenderChange(fn: (on: boolean) => void): () => void {
+  forceRenderSubs.add(fn);
+  return () => forceRenderSubs.delete(fn);
+}
+export function isForceRender(): boolean { return forceRender; }
+export function setForceRender(on: boolean): void {
+  if (on === forceRender) return;
+  forceRender = on;
+  try { sessionStorage.setItem(FORCE_RENDER_KEY, on ? "1" : "0"); } catch { /* ignore */ }
+  for (const fn of forceRenderSubs) fn(on);
+}
+
 // ---- rolling sample rings -----------------------------------------------
 
 interface Ring { buf: Float64Array; len: number; head: number; }
@@ -284,6 +306,7 @@ try {
     enable: () => setEnabled(true),
     disable: () => setEnabled(false),
     toggle: () => setEnabled(!enabled),
+    forceRender: (on = true) => setForceRender(on),
     dump() {
       const s = snapshot();
       console.log(

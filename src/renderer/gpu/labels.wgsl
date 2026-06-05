@@ -85,15 +85,23 @@ fn vs_label(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     // against that drawn width, not the full tick span.
     let right_inset_px = 2.0;
     let body_end_px = end_px - right_inset_px;
-    let pill_w = body_end_px - start_px;
     let text_w = f32(text_len) * cell_w;
 
-    // Narrow-pill cull (was the CPU `widthPx < textWidthPx + 6` skip).
-    if (pill_w < text_w + 6.0) {
+    // Center on the *visible* portion of the pill, not the full tick span: a
+    // segment that runs off the left/right edge keeps its label centered in the
+    // on-screen sliver (clamped to [0, width]) so it stays readable while
+    // scrolling, instead of drifting off with the segment's true midpoint.
+    let vis_start = max(start_px, 0.0);
+    let vis_end = min(body_end_px, viewport.width);
+    let vis_w = vis_end - vis_start;
+
+    // Narrow-pill cull (was the CPU `widthPx < textWidthPx + 6` skip) — against
+    // the visible width, so a too-thin on-screen sliver drops the label.
+    if (vis_w < text_w + 6.0) {
         return VertexData(CULLED, vec2f(0.0), vec3f(0.0));
     }
 
-    let label_x0 = snap((start_px + body_end_px) * 0.5 - text_w * 0.5);
+    let label_x0 = snap((vis_start + vis_end) * 0.5 - text_w * 0.5);
     let glyph_x = label_x0 + f32(glyph_index) * cell_w;
 
     // Off-screen cull (the CPU loop never did this — wide off-screen pills used to

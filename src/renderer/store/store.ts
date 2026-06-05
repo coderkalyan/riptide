@@ -28,6 +28,7 @@ import {
   sidecarToString,
   writeSidecarFile,
   sidecarPath,
+  type SidecarSnapshot,
 } from "../hier/sidecar";
 import { MARKER_PALETTE } from "../wave/palette";
 
@@ -79,7 +80,8 @@ export interface UiState {
   // `row` anchors the swatch/Coloris; `rows` (optional) is the full set the chosen
   // color is applied to (a selection from the context menu). Defaults to [row].
   picker: { row: number; rows?: number[]; anchorRect: DOMRect } | null;
-  ctxMenu: { x: number; y: number; row: number } | null;
+  // `kind` distinguishes a signal-row menu from a divider menu.
+  ctxMenu: { x: number; y: number; row: number; kind?: "signal" | "divider" } | null;
   enumDialog: { row: number } | null;
   // Bumped on viewport-settle (pan end / wheel / zoom-anim end) so the autosave
   // persists the final window — viewRange itself is excluded from the save
@@ -112,6 +114,10 @@ export interface Actions {
   setEnumTable: (row: number, enumTable: EnumEntry[]) => void;
   // Per-row vertical size (CSS px). undefined resets to the default ROW_HEIGHT_CSS.
   setRowHeight: (row: number, height: number | undefined) => void;
+  // Toggle a thin separator below `row` (DOM list + canvas gap).
+  toggleDivider: (row: number) => void;
+  // Resized divider height (CSS px). undefined resets to DIVIDER_HEIGHT_CSS.
+  setDividerHeight: (row: number, height: number | undefined) => void;
   toggleHidden: (row: number) => void;
   // Hide every active row except `row` (which is forced visible).
   hideOthers: (row: number) => void;
@@ -159,7 +165,7 @@ export interface Actions {
 
   setHover: (h: { tick: number; row: number } | null) => void;
   setPicker: (p: { row: number; rows?: number[]; anchorRect: DOMRect } | null) => void;
-  setCtxMenu: (m: { x: number; y: number; row: number } | null) => void;
+  setCtxMenu: (m: { x: number; y: number; row: number; kind?: "signal" | "divider" } | null) => void;
   setEnumDialog: (d: { row: number } | null) => void;
 
   // Re-seed the whole document slice from the freshly-swapped SCENE/INITIAL (the
@@ -328,6 +334,12 @@ const vanilla = createVanilla<AppState>()(
     setRowHeight: (row, height) => set((s) => ({
       activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, height } : r)),
     })),
+    toggleDivider: (row) => set((s) => ({
+      activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, dividerBelow: !r.dividerBelow } : r)),
+    })),
+    setDividerHeight: (row, height) => set((s) => ({
+      activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, dividerHeight: height } : r)),
+    })),
     toggleHidden: (row) => set((s) => ({
       activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, hidden: !r.hidden } : r)),
     })),
@@ -454,23 +466,33 @@ export const useAppStore = create(vanilla);
 // ---- sidecar (clean export) ---------------------------------------------
 // Thin adapter onto the existing framework-agnostic serializer — the document
 // slice is shaped to be exactly its argument. Format/backend unchanged.
+function sidecarSnapshot(s: AppState): SidecarSnapshot {
+  return {
+    hierarchy: SCENE.hierarchy,
+    trace: { id: "keysched" },
+    activeSignals: s.activeSignals,
+    time: { start: s.viewRange.start, end: s.viewRange.end, cursor: s.cursorTicks },
+    markers: s.markers.map((m) => ({
+      name: m.name, tick: m.tick, color: m.color, selected: m.id === s.selectedMarkerId,
+    })),
+    panels: s.panels,
+    treeExpanded: new Set(s.expandedScopes),
+    toggles: { snapCursor: s.snapCursor, clockAnchor: s.clockAnchor },
+    timebase: { clockPath: s.timebaseClock, override: s.timebaseOverride },
+    tabs: { open: s.tabs.open, active: s.tabs.active },
+  };
+}
+
 export function selectSidecarText(s: AppState): string {
-  return sidecarToString(
-    serializeSidecar({
-      hierarchy: SCENE.hierarchy,
-      trace: { id: "keysched" },
-      activeSignals: s.activeSignals,
-      time: { start: s.viewRange.start, end: s.viewRange.end, cursor: s.cursorTicks },
-      markers: s.markers.map((m) => ({
-        name: m.name, tick: m.tick, color: m.color, selected: m.id === s.selectedMarkerId,
-      })),
-      panels: s.panels,
-      treeExpanded: new Set(s.expandedScopes),
-      toggles: { snapCursor: s.snapCursor, clockAnchor: s.clockAnchor },
-      timebase: { clockPath: s.timebaseClock, override: s.timebaseOverride },
-      tabs: { open: s.tabs.open, active: s.tabs.active },
-    }),
-  );
+  return sidecarToString(serializeSidecar(sidecarSnapshot(s)));
+}
+
+// Portable export: same view (time range, active signals, markers) but with the
+// UI-chrome section (panel sizes, tree-expansion, tabs) stripped, so the file
+// describes only what to show, not how this window was laid out.
+export function selectExportSidecarText(s: AppState): string {
+  const { ui: _ui, ...view } = serializeSidecar(sidecarSnapshot(s));
+  return sidecarToString(view);
 }
 
 // Auto-write the sidecar on discrete document changes. Selects everything that

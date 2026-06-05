@@ -45,7 +45,8 @@ function ClockAccessory(props: { row: number }) {
 // a multi-row target, enablement is ANY across the set: Binary stays enabled if any
 // target is 1-bit, Signed Decimal if any is multi-bit (the action then applies only
 // to the rows it fits). `anySingleBit`/`anyMultiBit` carry that across the selection.
-export function activeSignalMenu(opts: { anyMultiBit: boolean; anySingleBit: boolean; clockRow: number; color?: string; currentFormat?: string }): MenuItem[] {
+// `dividerOn` toggles the Insert/Remove Divider label for the (single) target row.
+export function activeSignalMenu(opts: { anyMultiBit: boolean; anySingleBit: boolean; clockRow: number; color?: string; currentFormat?: string; dividerOn?: boolean }): MenuItem[] {
   // Tick the one format whose action matches the row's current radix/role.
   const fmt = (it: Exclude<MenuItem, "sep">): MenuItem => ({ ...it, checked: it.action === opts.currentFormat });
   return [
@@ -63,7 +64,7 @@ export function activeSignalMenu(opts: { anyMultiBit: boolean; anySingleBit: boo
     { label: "Change Color…", accessory: opts.color ? <span class="menu-swatch" style={{ background: opts.color }} /> : undefined },
     "sep",
     { label: "Group with Selected", disabled: true, unimplemented: true },
-    { label: "Insert Divider", disabled: true, unimplemented: true },
+    { label: opts.dividerOn ? "Remove Divider" : "Insert Divider", action: "toggle-divider" },
     "sep",
     { label: "Move to Top" },
     { label: "Move to Bottom" },
@@ -72,6 +73,11 @@ export function activeSignalMenu(opts: { anyMultiBit: boolean; anySingleBit: boo
     { label: "Dim Others" },
     { label: "Remove from View" },
   ];
+}
+
+// Right-click menu for a divider entry in the active-signal list.
+export function dividerMenu(): MenuItem[] {
+  return [{ label: "Remove Divider", action: "toggle-divider" }];
 }
 
 type Leaf = Exclude<MenuItem, "sep">;

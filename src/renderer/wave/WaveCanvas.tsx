@@ -13,10 +13,11 @@ import { getMockSegments } from "../native";
 import * as perf from "../perf";
 import { useAppStore } from "../store/store";
 import { view } from "./viewport";
-import { drainCaptures } from "./capture";
+import { drainCaptures, hasPendingCaptures } from "./capture";
 import {
   ROW_HEIGHT_CSS, LINE_THICKNESS_CSS, LINE_HALF_CSS, NOTCH_HEIGHT, BOTTOM_RULER_HEIGHT,
   MAX_MARKERS, MARKER_GRAB_PX, ZOOM_PER_DELTA_Y, ZOOM_OUT_FACTOR, WINDOW_SHRINK_FACTOR,
+  DIVIDER_HEIGHT_CSS,
 } from "./constants";
 import * as P from "./palette";
 import { dynamicRulerTicks, clockRulerTicks, rulerSpacing, formatTime, formatClockWhole, clockEdgesBetween, snapToClockEdge } from "./format";
@@ -37,6 +38,15 @@ export function WaveCanvas() {
   onMount(() => {
     let raf = 0;
     let disposed = false;
+    // Optimized rendering: the rAF loop polls every frame but only does the
+    // (expensive) geometry build + encode + GPU submit when something changed.
+    // `needsRender` is the dirty flag; requestRender() arms it for non-store
+    // triggers (resize/DPR). Store changes arm it via a broad subscription
+    // below; in-flight zoom animation / pending repack / queued capture are
+    // checked directly in the frame gate. The perf "force render" toggle
+    // bypasses all of this to draw every frame. Starts true → first frame draws.
+    let needsRender = true;
+    const requestRender = () => { needsRender = true; };
     const cleanups: Array<() => void> = [];
     perf.stamp("gpu:start");
 
@@ -102,7 +112,13 @@ export function WaveCanvas() {
       // height falls back to the default. No repack — same fast path as applyDim.
       const rowHeightOf = (row: number) =>
         useAppStore.getState().activeSignals.find((r) => r.row === row)?.height ?? ROW_HEIGHT_CSS;
-      const applyRowLayout = () => renderer.setRowLayout(scene, rowHeightOf, ROW_HEIGHT_CSS);
+      // Extra gap below a row carrying a divider (matches the .s-divider DOM
+      // height — the row's resized dividerHeight, else the default).
+      const gapBelowOf = (row: number) => {
+        const r = useAppStore.getState().activeSignals.find((x) => x.row === row);
+        return r?.dividerBelow ? (r.dividerHeight ?? DIVIDER_HEIGHT_CSS) : 0;
+      };
+      const applyRowLayout = () => renderer.setRowLayout(scene, rowHeightOf, ROW_HEIGHT_CSS, gapBelowOf);
       applyRowLayout();
 
       // Repack GPU buffers + pill labels for a new active list (add/remove/radix)
@@ -193,7 +209,7 @@ export function WaveCanvas() {
       // Per-frame marker hit boxes (CSS px), populated below, read by markerAt.
       let markerHits: { id: number; x0: number; x1: number; lineX: number }[] = [];
 
-      const ro = new ResizeObserver(() => { resizeCanvas(canvasEl); });
+      const ro = new ResizeObserver(() => { resizeCanvas(canvasEl); requestRender(); });
       ro.observe(canvasEl);
       resizeCanvas(canvasEl);
       // DPR-only changes (dragging between displays) don't fire ResizeObserver;
@@ -201,6 +217,7 @@ export function WaveCanvas() {
       let dprMql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
       const onDprChange = () => {
         resizeCanvas(canvasEl);
+        requestRender();
         dprMql.removeEventListener("change", onDprChange);
         dprMql = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
         dprMql.addEventListener("change", onDprChange);
@@ -217,6 +234,15 @@ export function WaveCanvas() {
       perf.stamp("gpu:ready");
 
       const frame = (now: number) => {
+        // Optimized-render gate: skip the whole frame (no metering) unless there's
+        // a reason to draw — a dirty flag (input/store/resize), an in-flight zoom
+        // animation, a pending repack, or a queued canvas capture. The perf
+        // "force render" toggle draws every frame for steady-state measurement.
+        if (!perf.isForceRender() && !needsRender && view.zoomAnim == null && !specsDirty && !hasPendingCaptures()) {
+          raf = requestAnimationFrame(frame);
+          return;
+        }
+        needsRender = false;
         perf.frameStart(now);
         const cpuStart = performance.now();
         const st = useAppStore.getState();
@@ -234,6 +260,7 @@ export function WaveCanvas() {
         // re-run resizeCanvas yet, so the backing store (and thus the swapchain
         // texture from getCurrentTexture) is still 0 — Dawn rejects a 0-size texture.
         if (timelinePx <= 0 || canvasEl.width === 0 || canvasEl.height === 0) {
+          needsRender = true; // retry once the backing store is sized
           raf = requestAnimationFrame(frame);
           return;
         }
@@ -575,7 +602,8 @@ export function WaveCanvas() {
         for (let i = 0; i < rows.length; i++) {
           const h = rows[i].height ?? ROW_HEIGHT_CSS;
           if (py >= y && py < y + h) { row = i; break; }
-          y += h;
+          // Skip the row's height plus any divider gap below it (no row there).
+          y += h + (rows[i].dividerBelow ? (rows[i].dividerHeight ?? DIVIDER_HEIGHT_CSS) : 0);
         }
         useAppStore.getState().setHover({ tick, row });
       };
@@ -656,6 +684,14 @@ export function WaveCanvas() {
       host.addEventListener("pointerleave", onPointerLeave);
       window.addEventListener("keydown", onKey);
 
+      // Any document-state change (cursor, markers, hover, viewport report, active
+      // signals, panels, …) arms the dirty flag so the next rAF draws. Covers all
+      // store-driven triggers in one place; resize/DPR (above) cover the rest.
+      const unsubRender = useAppStore.subscribe(requestRender);
+      // Toggling the perf "force render" checkbox draws immediately rather than
+      // waiting for the next incidental change.
+      const unsubForce = perf.onForceRenderChange(requestRender);
+
       // ---- store-driven GPU sync -------------------------------------------
       // A (cosmetic, runs on any active-set change): row colors + dim/select +
       // apply dim. Registered first so hiddenRows is fresh before B's repack
@@ -718,6 +754,8 @@ export function WaveCanvas() {
         unsubCtxRow,
         unsubStructural,
         unsubTrace,
+        unsubRender,
+        unsubForce,
       );
     }).catch((e) => {
       if (e instanceof GPUInitError) console.error("GPU init failed:", e.message);

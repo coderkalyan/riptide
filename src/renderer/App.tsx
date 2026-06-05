@@ -1,11 +1,11 @@
 import { For, Show, createSignal, createMemo, onMount, onCleanup } from "solid-js";
 import { X, PanelLeftClose, PanelLeftOpen, FileText } from "lucide-solid";
-import { useAppStore } from "./store/store";
+import { useAppStore, selectExportSidecarText } from "./store/store";
 import { WaveCanvas } from "./wave/WaveCanvas";
 import { ActiveSignals } from "./ActiveSignals";
 import { HoverReadout } from "./HoverReadout";
 import { ColorPicker } from "./ColorPicker";
-import { ContextMenu, activeSignalMenu } from "./ContextMenu";
+import { ContextMenu, activeSignalMenu, dividerMenu } from "./ContextMenu";
 import { EnumDialog } from "./EnumDialog";
 import { SignalTree } from "./SignalTree";
 import { WavesToolbar } from "./WavesToolbar";
@@ -141,6 +141,13 @@ export function App() {
     s.resetForTrace();
   };
 
+  // Export the current view as a portable, UI-chrome-stripped sidecar via a
+  // native save dialog (main writes the file).
+  const handleExportSidecar = async () => {
+    const text = selectExportSidecarText(useAppStore.getState());
+    await ipc()?.invoke("riptide:export-sidecar", text);
+  };
+
   const getRecent = async () => ((await ipc()?.invoke("riptide:recent-vcds")) as string[] | null) ?? [];
   const closeWindow = () => { ipc()?.invoke("riptide:close-window"); };
 
@@ -188,7 +195,7 @@ export function App() {
         <div class="dots"><i class="r" /><i class="y" /><i class="g" /></div>
         <div class="title">Riptide</div>
         <MenuBar
-          onOpenVcd={handleOpenVcd} onOpenRecent={handleOpenRecent} getRecent={getRecent} onCloseWindow={closeWindow}
+          onOpenVcd={handleOpenVcd} onOpenRecent={handleOpenRecent} onExportSidecar={handleExportSidecar} getRecent={getRecent} onCloseWindow={closeWindow}
           onZoomIn={zoomIn} onZoomOut={zoomOut} onZoomFit={zoomFit}
           treeCollapsed={() => s.panels.treeCollapsed} onToggleTree={toggleTree}
           activeCollapsed={() => s.panels.activeCollapsed} onToggleActive={toggleActive}
@@ -312,6 +319,7 @@ export function App() {
           x={m().x}
           y={m().y}
           items={(() => {
+            if (m().kind === "divider") return dividerMenu();
             const t = menuTargets();
             const ref = s.activeSignals.find((r) => r.row === t.primary);
             const widths = t.rows.map((r) => bitWidthOf(r));
@@ -327,10 +335,14 @@ export function App() {
                   : ref.role === "reset" ? "format-reset"
                   : `radix-${ref.radix}`
                 : undefined,
+              dividerOn: ref?.dividerBelow ?? false,
             });
           })()}
           onClose={() => s.setCtxMenu(null)}
           onSelect={(it) => {
+            // The divider toggle (divider menu, or the Insert/Remove Divider item)
+            // acts on the single row it belongs to.
+            if (it.action === "toggle-divider") { if (m().row >= 0) s.toggleDivider(m().row); return; }
             const { rows, primary } = menuTargets();
             if (rows.length === 0) return;
             // Binary/Signed Decimal are enabled if ANY target fits; apply only to
