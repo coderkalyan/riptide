@@ -244,6 +244,23 @@ export function makeActiveRef(h: Hierarchy, signalId: NodeId, row: number): Acti
   };
 }
 
+// The idle trace layer used before any VCD is opened: an empty hierarchy with no
+// nodes, so the tree / active list / canvas render empty and nothing queries the
+// native db. swapTrace replaces it on the first in-app "Open VCD…".
+function emptyHierarchy(): Hierarchy {
+  return {
+    nodes: new Map(),
+    rootIds: [],
+    byHandle: new Map(),
+    enumTypes: new Map(),
+    timescale: { value: 1, unit: "ns" },
+    endTicks: 0,
+  };
+}
+function emptyScene(): Scene {
+  return { hierarchy: emptyHierarchy(), activeSignals: [], initialExpanded: new Set() };
+}
+
 function buildScene(sc: Sidecar | null): Scene {
   stamp("scene:start");
   const hierarchy = getHierarchy();
@@ -298,27 +315,34 @@ function buildScene(sc: Sidecar | null): Scene {
 // by swapTrace on an in-app "Open VCD…".
 let CURRENT_VCD_PATH = VCD_PATH;
 export function currentVcdPath(): string { return CURRENT_VCD_PATH; }
+// True once a trace is loaded. While false the app is idle: empty scene, no
+// native queries, empty canvas — until an in-app "Open VCD…" calls swapTrace.
+export function hasTrace(): boolean { return CURRENT_VCD_PATH !== ""; }
 
-// Load the sidecar once at module init (before App.tsx's module-load consts read
-// SCENE.activeSignals). Non-fatal: a missing/bad file -> curated default scene.
-// SCENE/INITIAL/SIDECAR are `let` (not const) so swapTrace can reassign them; ES
-// live bindings propagate the new value to every `import { SCENE, INITIAL }`
-// site (re-read at render/effect time), so the in-app trace swap needs no reload.
-let SIDECAR = loadSidecar(sidecarPath());
+// Trace layer, built at module init only when the window opened with a ?vcd=
+// (before App.tsx's module-load consts read SCENE.activeSignals). With no trace
+// the app boots idle: empty scene, no sidecar read, no native query. SCENE/
+// INITIAL/SIDECAR are `let` (not const) so swapTrace can reassign them; ES live
+// bindings propagate the new value to every `import { SCENE, INITIAL }` site
+// (re-read at render/effect time), so the in-app trace swap needs no reload.
+let SIDECAR = VCD_PATH ? loadSidecar(sidecarPath()) : null;
 
-export let SCENE = buildScene(SIDECAR);
+export let SCENE = VCD_PATH ? buildScene(SIDECAR) : emptyScene();
 
 // The trace's true end tick (native loaded.end_t, via getHierarchy). Source of
 // truth for the fit window / viewport clamps / zoom-out dead-zone — replaces the
-// hardcoded mock end so real VCDs fit correctly. `let` + reassigned in swapTrace;
-// ES live bindings propagate the new value to importers (App.tsx).
+// hardcoded mock end so real VCDs fit correctly. 0 while idle. `let` + reassigned
+// in swapTrace; ES live bindings propagate the new value to importers (App.tsx).
 export let TRACE_END = SCENE.hierarchy.endTicks;
 
 // Cursor / markers / time window / UI chrome initial values — from the sidecar
-// when present, else fresh defaults.
-export let INITIAL: InitialState = SIDECAR
-  ? initialFromSidecar(SIDECAR, TRACE_END)
-  : freshInitial(TRACE_END);
+// when present, else fresh defaults. While idle: fresh defaults over an empty
+// window with no open tab.
+export let INITIAL: InitialState = !VCD_PATH
+  ? { ...freshInitial(0), tabs: { open: [], active: 0 } }
+  : SIDECAR
+    ? initialFromSidecar(SIDECAR, TRACE_END)
+    : freshInitial(TRACE_END);
 
 // Swap the loaded trace in place (no window reload). Recomputes the whole trace
 // layer — native db, sidecar, SCENE (hierarchy + active signals + pack specs),

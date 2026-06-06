@@ -9,7 +9,7 @@ import { createLineRenderer } from "../gpu/lines";
 import { createRectRenderer } from "../gpu/rect";
 import { createGpuTimer } from "../gpu/timing";
 import { TRACE_END, buildPackSpecs, packSpecsFor, type ActiveSignalRef } from "../hier/scene";
-import { getMockSegments } from "../native";
+import { getMockSegments, hasTrace } from "../native";
 import * as perf from "../perf";
 import { useAppStore } from "../store/store";
 import { view } from "./viewport";
@@ -261,6 +261,25 @@ export function WaveCanvas() {
         // texture from getCurrentTexture) is still 0 — Dawn rejects a 0-size texture.
         if (timelinePx <= 0 || canvasEl.width === 0 || canvasEl.height === 0) {
           needsRender = true; // retry once the backing store is sized
+          raf = requestAnimationFrame(frame);
+          return;
+        }
+
+        // No trace loaded: keep the canvas idle — clear it (so no stale pixels),
+        // but run no tick math (TRACE_END is 0 → divide-by-zero), no native
+        // queries, no viewport seeding. The dirty-render gate then leaves it
+        // alone until a trace swaps in (traceNonce → requestRender). All draw
+        // batches are still empty (fresh) so the pass just clears to background.
+        if (!hasTrace()) {
+          vp.ticks_per_pixel = 1; vp.start_ticks = 0;
+          vp.width = canvasW; vp.height = canvasH; vp.row_height = rowHeightCSS;
+          vp.dpr = dpr; vp.selected_row = -1; vp.wave_y_offset = rulerHeightCSS;
+          const encStart = performance.now();
+          renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, labels: labelBatch, linesFg, textBody, pillRects, pillText, pillRanges, pillRangeCount: 0 }, vp, gpuTimer);
+          drainCaptures(canvasEl);
+          const done = performance.now();
+          perf.frameEnd(done - encStart, done - cpuStart);
+          perf.markFirstFrame();
           raf = requestAnimationFrame(frame);
           return;
         }

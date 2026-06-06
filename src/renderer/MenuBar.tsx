@@ -23,6 +23,8 @@ const EDIT_HELP: { name: string; items: MenuItem[] }[] = [
 ];
 
 export function MenuBar(props: {
+  // No trace loaded: disable everything except File ▸ Open / Open Recent / Close.
+  idle: () => boolean;
   onOpenVcd: () => void;
   onOpenRecent: (path: string) => void;
   onExportSidecar: () => void;
@@ -69,13 +71,17 @@ export function MenuBar(props: {
       ? [{ label: "No Recent Traces", disabled: true }]
       : recent().map((p) => ({ label: baseName(p), action: "open-recent", path: p }));
 
-  const menus = (): { name: string; items: MenuItem[] }[] => [
+  const menus = (): { name: string; items: MenuItem[] }[] => {
+    // Idle (no trace): only File ▸ Open / Open Recent / Close Window stay live;
+    // everything that operates on a loaded trace is disabled.
+    const idle = props.idle();
+    return [
     { name: "File", items: [
       { label: "New Window", kbd: "Ctrl+N", disabled: true, unimplemented: true },
       { label: "Open VCD…", kbd: "Ctrl+O", action: "open-vcd" },
       { label: "Open Recent", submenu: recentSubmenu() },
       "sep",
-      { label: "Export Sidecar…", action: "export-sidecar" },
+      { label: "Export Sidecar…", action: "export-sidecar", disabled: idle },
       "sep",
       { label: "Reload Trace", kbd: "Ctrl+R", disabled: true, unimplemented: true },
       "sep",
@@ -83,37 +89,38 @@ export function MenuBar(props: {
     ] },
     EDIT_HELP[0], // Edit
     { name: "View", items: [
-      { label: "Zoom In", kbd: "Ctrl+=", action: "zoom-in" },
-      { label: "Zoom Out", kbd: "Ctrl+-", action: "zoom-out" },
-      { label: "Zoom to Fit", kbd: "Ctrl+0", action: "zoom-fit" },
+      { label: "Zoom In", kbd: "Ctrl+=", action: "zoom-in", disabled: idle },
+      { label: "Zoom Out", kbd: "Ctrl+-", action: "zoom-out", disabled: idle },
+      { label: "Zoom to Fit", kbd: "Ctrl+0", action: "zoom-fit", disabled: idle },
       "sep",
-      { label: props.treeCollapsed() ? "Expand Signal Tree" : "Collapse Signal Tree", action: "toggle-tree" },
-      { label: props.activeCollapsed() ? "Expand Active Signals" : "Compact Active Signals", action: "toggle-active" },
+      { label: props.treeCollapsed() ? "Expand Signal Tree" : "Collapse Signal Tree", action: "toggle-tree", disabled: idle },
+      { label: props.activeCollapsed() ? "Expand Active Signals" : "Compact Active Signals", action: "toggle-active", disabled: idle },
       "sep",
-      { label: "Grid Snap", checked: props.snapOn(), action: "toggle-snap" },
-      { label: "Align Grid to Clock", checked: props.clockOn(), action: "toggle-clock" },
+      { label: "Grid Snap", checked: props.snapOn(), action: "toggle-snap", disabled: idle },
+      { label: "Align Grid to Clock", checked: props.clockOn(), action: "toggle-clock", disabled: idle },
       "sep",
       { label: "Reset Layout", disabled: true, unimplemented: true },
     ] },
     { name: "Signals", items: [
-      { label: props.signalHidden() ? "Show Signal" : "Hide Signal", action: "signal-hide", disabled: !props.signalSelected() },
-      { label: "Change Color…", action: "signal-color", disabled: !props.signalSelected() },
+      { label: props.signalHidden() ? "Show Signal" : "Hide Signal", action: "signal-hide", disabled: idle || !props.signalSelected() },
+      { label: "Change Color…", action: "signal-color", disabled: idle || !props.signalSelected() },
       "sep",
-      { label: "Move to Top", action: "signal-top", disabled: !props.signalSelected() },
-      { label: "Move to Bottom", action: "signal-bottom", disabled: !props.signalSelected() },
+      { label: "Move to Top", action: "signal-top", disabled: idle || !props.signalSelected() },
+      { label: "Move to Bottom", action: "signal-bottom", disabled: idle || !props.signalSelected() },
       "sep",
-      { label: "Remove from View", action: "signal-remove", disabled: !props.signalSelected() },
+      { label: "Remove from View", action: "signal-remove", disabled: idle || !props.signalSelected() },
     ] },
     { name: "Markers", items: [
-      { label: "Add Marker at Cursor", kbd: "M", action: "marker-add" },
-      { label: "Delete Marker", kbd: "Backspace", action: "marker-delete", disabled: !props.markerSelected() },
-      { label: "Clear All Markers", action: "marker-clear", disabled: props.markerCount() === 0 },
+      { label: "Add Marker at Cursor", kbd: "M", action: "marker-add", disabled: idle },
+      { label: "Delete Marker", kbd: "Backspace", action: "marker-delete", disabled: idle || !props.markerSelected() },
+      { label: "Clear All Markers", action: "marker-clear", disabled: idle || props.markerCount() === 0 },
       "sep",
-      { label: "Next Marker", kbd: "]", action: "marker-next", disabled: props.markerCount() === 0 },
-      { label: "Previous Marker", kbd: "[", action: "marker-prev", disabled: props.markerCount() === 0 },
+      { label: "Next Marker", kbd: "]", action: "marker-next", disabled: idle || props.markerCount() === 0 },
+      { label: "Previous Marker", kbd: "[", action: "marker-prev", disabled: idle || props.markerCount() === 0 },
     ] },
     EDIT_HELP[1], // Help
-  ];
+    ];
+  };
 
   createEffect(() => {
     const o = open();
