@@ -10,6 +10,8 @@
     "build:native:win": "node scripts/gen-win-napi-shim.mjs && cd native && zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-windows && mkdir -p ../dist/native && cp zig-out/bin/riptide.dll ../dist/native/riptide-win.node && cp src/mock.vcd ../dist/native/ && cp -n src/mock.vcd.sidecar.json ../dist/native/",
     "test": "tests/run.sh",
     "test:differential": "node --test tests/differential.test.cjs",
+    "test:visual": "tests/e2e/run-headless.sh",
+    "test:visual:update": "UPDATE_GOLDENS=1 tests/e2e/run-headless.sh",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "build": "pnpm wgsl-check && pnpm build:native && tsc -p tsconfig.json && node scripts/build-ui.mjs",
     "build:prod": "NODE_ENV=production pnpm build",
@@ -28,6 +30,7 @@
   "devDependencies": {
     "@babel/core": "^7.29.7",
     "@babel/preset-typescript": "^7.29.7",
+    "@tailwindcss/postcss": "^4.3.0",
     "@types/node": "^22.0.0",
     "@webgpu/types": "^0.1.50",
     "babel-preset-solid": "^1.9.12",
@@ -35,6 +38,8 @@
     "electron-builder": "^25.1.8",
     "esbuild": "^0.28.0",
     "playwright-core": "^1.60.0",
+    "postcss": "^8.5.15",
+    "tailwindcss": "4",
     "typescript": "^5.6.0"
   },
   "build": {

@@ -53,9 +53,9 @@ export function ActiveSignals(props: {
     startVResize(current ?? DIVIDER_HEIGHT_CSS, DIVIDER_MIN_HEIGHT_CSS, DIVIDER_MAX_HEIGHT_CSS, (h) => s.setDividerHeight(row, h));
   return (
     <div class="col">
-      <div class="col-head" style={{ "padding-right": "3px" }}>
+      <div class="col-head tw:pr-[3px]">
         <h3>Active Signals</h3>
-        <span class="sp" style={{ flex: 1 }} />
+        <span class="sp" />
         {/* Hint held back during the expand slide so a resize won't flicker it. */}
         <Show when={!props.collapsed && !props.sliding}>
           <span class="hint">{s.activeSignals.length} active</span>
@@ -75,7 +75,7 @@ export function ActiveSignals(props: {
         when={props.collapsed}
         fallback={
           <div class="s-head">
-            <span /><span /><span>Name</span><span>Value</span>
+            <span /><span /><span class="h-name">Name</span><span class="h-val">Value</span>
             {(() => {
               const anyDimmed = () => s.activeSignals.some((r) => r.hidden);
               return (
@@ -91,7 +91,7 @@ export function ActiveSignals(props: {
           </div>
         }
       >
-        <div class="s-head"><span style={{ "font-weight": 700 }}>Name</span></div>
+        <div class="s-head"><span class="h-name">Name</span></div>
       </Show>
       <div
         class="signals"

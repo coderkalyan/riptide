@@ -275,9 +275,9 @@ export function App() {
             when={s.panels.treeCollapsed && !treeToggling()}
             fallback={
               <div class="col-inner" style={{ width: `${s.panels.treeWidth}px` }}>
-                <div class="col-head" style={{ "padding-right": "3px" }}>
+                <div class="col-head tw:pr-[3px]">
                   <h3>Signal Tree</h3>
-                  <span class="sp" style={{ flex: 1 }} />
+                  <span class="sp" />
                   <span class="collapse" data-tip="collapse panel" onClick={() => toggleTree(true)}><PanelLeftClose size={14} stroke-width={1.75} /></span>
                 </div>
                 <div class="col-sub"><input class="search" placeholder="filter scope/name" /></div>
@@ -285,7 +285,7 @@ export function App() {
               </div>
             }
           >
-            <div class="col-head" style={{ "justify-content": "center" }}>
+            <div class="col-head tw:justify-center">
               <span class="collapse" data-tip="expand panel" onClick={() => toggleTree(false)}><PanelLeftOpen size={14} stroke-width={1.75} /></span>
             </div>
             <div class="col-vtitle">Signal Tree</div>
@@ -294,7 +294,7 @@ export function App() {
 
         <ActiveSignals enumLabels={enumLabels} collapsed={s.panels.activeCollapsed} sliding={rowSliding()} onToggleCollapse={toggleActive} />
 
-        <div class="col waves" style={{ "grid-column": 3, "grid-row": "1 / 3" }}>
+        <div class="col waves tw:col-start-3 tw:row-start-1 tw:row-end-3">
           <WavesToolbar />
           <MarkersBar />
           <div class="wv-canvas">
@@ -302,7 +302,7 @@ export function App() {
           </div>
         </div>
 
-        <div class="status" style={{ "grid-column": "1 / 3", "grid-row": 2 }}>
+        <div class="status tw:col-start-1 tw:col-end-3 tw:row-start-2">
           <HoverReadout enumLabels={enumLabels} />
         </div>
       </div>

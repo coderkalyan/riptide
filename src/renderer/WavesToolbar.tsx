@@ -64,7 +64,7 @@ export function WavesToolbar() {
         <span class="btn icon" data-tip="previous transition"><ArrowLeftToLine size={14} /></span>
         <span class="btn icon" data-tip="next transition"><ArrowRightToLine size={14} /></span>
       </div>
-      <span class="sp" style={{ flex: 1 }} />
+      <span class="sp" />
       <div class="ts-box">
         <span class="ts-range mono">
           <EditableNum value={s.viewRange.start} format={formatTime} onCommit={(n) => applyRange(n, s.viewRange.end)} />

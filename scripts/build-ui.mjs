@@ -3,6 +3,7 @@ import { copyFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { solidPlugin } from "./esbuild-solid.mjs";
+import { tailwindPlugin } from "./esbuild-tailwind.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DST_DIR = resolve(root, "dist/renderer");
@@ -26,7 +27,7 @@ export const buildOptions = {
   sourcemap: PROD ? false : "linked",
   define: { "process.env.NODE_ENV": JSON.stringify(PROD ? "production" : "development") },
   external: ["../native/riptide.node", "../native/riptide-win.node", "fs", "path", "electron"],
-  plugins: [solidPlugin()],
+  plugins: [solidPlugin(), tailwindPlugin()],
 };
 
 // Run directly (`node scripts/build-ui.mjs`) → one-shot build + copy index.html.

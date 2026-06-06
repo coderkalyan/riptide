@@ -1,0 +1,1137 @@
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme) prefix(tw);
+@import "tailwindcss/utilities.css" layer(utilities) prefix(tw) source(none);
+
+/* prefix(tw): every Tailwind utility/variant is namespaced `tw:` (e.g. tw:flex,
+   tw:items-center) so it can never collide with the app's semantic class names
+   (e.g. .collapse) and so stray bracket text in comments isn't mined into bogus
+   utilities. source(none) + @source scopes class scanning to renderer JSX (build
+   perf); @apply utilities below emit regardless. Preflight is intentionally
+   omitted — the app ships its own reset (below). */
+@source "./**/*.tsx";
+
+/* Design tokens. @theme exposes the palette to Tailwind so utilities like
+   bg-panel / text-accent / border-border generate. These mirror the :root block
+   further down, which keeps the short --panel/--accent names the hand-written
+   CSS + dynamic inline styles already reference. (Unified in a later phase.) */
+@theme {
+    --color-bg: #141517;
+    --color-panel: #1B1D21;
+    --color-panel-2: #22252A;
+    --color-panel-3: #2B2F36;
+    --color-border: #2F333A;
+    --color-border-strong: #40454F;
+    --color-text: #EAEAE7;
+    --color-text-2: #C4C3BB;
+    --color-muted: #989EA8;
+    --color-accent: #a6d189;
+    --color-accent-soft: #2a2e35;
+    --color-on-accent: #0f1a09;
+    --color-hot: #F06B5B;
+    --color-marker: #4FD2BD;
+    --color-ok: #57C88A;
+    --color-warn: #E6B14E;
+    --color-danger: #E86A5A;
+    --color-clk: #72F5DF;
+    --color-bus: #727BF5;
+    --color-bus2: #B48CFF;
+    --color-bool: #72F5B4;
+    --color-enum-idle: #F05A6E;
+    --color-enum-send: #F5C972;
+    --color-enum-recv: #97F572;
+    --color-drv-tag-bg: #4A1E18;
+    --color-drv-tag-fg: #F4A698;
+
+    --font-sans: 'IBM Plex Sans', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+    /* Spacing + radius scales in PX, not Tailwind's default rem. The app sets
+       html{font-size:13px}, so rem-based utilities (gap-1.5, rounded-md, …) would
+       compute off-by-fractions (0.375rem=~4.9px, not 6px) and shift layout. A px
+       base makes every scale utility map to exact design pixels: gap-1.5=6px,
+       p-2=8px, rounded-md=6px, etc. Use arbitrary [Npx] for off-scale values. */
+    --spacing: 4px;
+    --radius-sm: 4px;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+}
+
+/* Shared style helpers reused across components (factored from duplicated
+   declaration sets). Defined as Tailwind utilities so they compose via @apply
+   and read as `tw:`-prefixed names like the rest. */
+@utility focus-ring {
+    /* themed focus: accent border + soft accent ring (replaces the browser default) */
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+@utility hover-raise {
+    /* row/button hover lift used all over the chrome */
+    background: var(--panel-2);
+}
+@utility accent-active {
+    /* selected/active/hovered affordance: solid accent fill */
+    background: var(--accent);
+    color: var(--on-accent);
+}
+
+        :root {
+            --bg:#141517; --panel:#1B1D21; --panel-2:#22252A; --panel-3:#2B2F36;
+            --border:#2F333A; --border-strong:#40454F;
+            --text:#EAEAE7; --text-2:#C4C3BB; --muted:#989EA8;
+            --accent:#a6d189; --accent-soft:#2a2e35; --on-accent:#0f1a09;
+            --hot:#F06B5B; --marker:#4FD2BD; --ok:#57C88A; --warn:#E6B14E; --danger:#E86A5A;
+            --clk:#72F5DF; --bus:#727BF5; --bus2:#B48CFF; --bool:#72F5B4;
+            --enum-idle:#F05A6E; --enum-send:#F5C972; --enum-recv:#97F572;
+            --drv-tag-bg:#4A1E18; --drv-tag-fg:#F4A698;
+            --row-h:28px;
+            --shadow-1: 0 1px 0 rgba(0,0,0,.4), 0 1px 3px rgba(0,0,0,.25);
+        }
+
+        * { box-sizing: border-box; }
+        html, body { margin:0; padding:0; height:100%; background: var(--bg); color: var(--text);
+            font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px;
+            -webkit-font-smoothing: antialiased; overflow: hidden;
+        }
+        .mono {
+            @apply tw:font-mono;
+        }
+        /* Flex spacer — pushes following siblings to the far edge. One global rule
+           replaces the per-context .titlebar/.menubar/.toolbar/.status .sp copies
+           and the inline style={{flex:1}} spacers. */
+        .sp {
+            @apply tw:flex-1;
+        }
+
+        @layer components {
+        .app {
+            @apply tw:flex tw:flex-col tw:bg-panel;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+        }
+
+        .titlebar {
+            @apply tw:flex tw:items-center tw:gap-2.5 tw:bg-panel-2;
+            height: 36px;
+            padding: 0 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        /* Idle (no trace) state: only the menu bar above; this fills the rest with
+           an open-file prompt. */
+        .empty-state {
+            @apply tw:flex-1 tw:flex tw:flex-col tw:items-center tw:justify-center tw:select-none;
+            gap: 13px;
+            padding: 24px;
+            text-align: center;
+            color: var(--muted);
+        }
+        .empty-state .es-icon { color: var(--border-strong); }
+        .empty-state h2 { margin:0; font-size:15px; font-weight:600; color: var(--text-2); }
+        .empty-state p { margin:0; font-size:12.5px; color: var(--muted); }
+        .empty-state .es-open {
+            @apply tw:inline-flex tw:items-center tw:bg-accent tw:text-on-accent;
+            margin-top: 4px;
+            gap: 7px;
+            font: 600 12.5px 'IBM Plex Sans', system-ui, sans-serif;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 16px;
+            cursor: pointer;
+        }
+        .empty-state .es-open:hover { filter: brightness(1.06); }
+        .empty-state .es-hint { font-size:11.5px; color: var(--border-strong); }
+        .empty-state kbd {
+            @apply tw:font-mono;
+            font-size: 11px;
+            padding: 1px 5px;
+            background: var(--panel-3);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-2);
+        }
+        .dots {
+            @apply tw:flex tw:gap-1.5;
+        }
+        .dots i {
+            @apply tw:inline-block tw:rounded-full;
+            width: 11px;
+            height: 11px;
+            background: var(--border-strong);
+        }
+        .dots i.r { background:#E86A5A; } .dots i.y{ background:#E6B14E;} .dots i.g{ background:#57C88A;}
+        .title { font-weight: 600; font-size: 12.5px; letter-spacing:.1px; }
+        .title .sub { color: var(--muted); font-weight: 400; margin-left:6px; }
+        /* Tabs hug the bottom of the titlebar (squared bottom corners sit on the
+           bottom border) so they read as tabs, not floating chips. */
+        .tabs {
+            @apply tw:flex tw:items-end tw:self-stretch tw:gap-0.5;
+        }
+        /* Active tab reads via higher-contrast shading (no accent border);
+           inactive tabs are dimmed, hover-lit. */
+        .tab {
+            @apply tw:inline-flex tw:items-center tw:gap-1.5 tw:font-mono tw:text-muted tw:select-none;
+            height: 26px;
+            padding: 0 7px 0 9px;
+            border-radius: 5px 5px 0 0;
+            font-size: 11px;
+            cursor: default;
+        }
+        .tab:hover {
+            @apply tw:hover-raise tw:text-text-2;
+        }
+        .tab.active {
+            @apply tw:bg-border-strong tw:text-text;
+        }
+        .tab-close {
+            @apply tw:inline-flex tw:items-center tw:justify-center;
+            margin-left: 2px;
+            border-radius: 3px;
+            opacity: 0.5;
+        }
+        .tab-close:hover {
+            @apply tw:bg-panel;
+            opacity: 1;
+        }
+
+        /* Inline menu group inside the titlebar (next to the Riptide wordmark). */
+        .menubar {
+            @apply tw:flex tw:items-center tw:gap-0.5;
+            margin-left: 6px;
+            font-size: 12.5px;
+        }
+        .menubar span.m {
+            @apply tw:text-text-2 tw:select-none;
+            padding: 3px 8px;
+            border-radius: 4px;
+            cursor: default;
+        }
+        .menubar span.m:hover, .menubar span.m.open {
+            @apply tw:bg-panel-3 tw:text-text;
+        }
+        /* Mock dropdown menus (portal-rendered, above the canvas). */
+        .menu-pop {
+            position: fixed; z-index: 1000; transform: translateZ(0);
+            min-width: 196px; padding: 4px;
+            background: var(--panel-2); border: 1px solid var(--border);
+            border-radius: 8px; box-shadow: var(--shadow-1);
+            /* Fade in/out like the tooltip; kept mounted so the exit animates.
+               pointer-events gated so the hidden popup never blocks clicks. */
+            opacity: 0; pointer-events: none; transition: opacity 90ms ease;
+        }
+        .menu-pop.show { opacity: 1; pointer-events: auto; }
+        .menu-item {
+            @apply tw:flex tw:items-center tw:justify-between tw:gap-7 tw:text-text-2;
+            height: 22px;
+            margin: 2px 0;
+            padding: 0 8px;
+            border-radius: 5px;
+            font-size: 12.5px;
+            cursor: default;
+            white-space: nowrap;
+        }
+        .menu-item:hover, .menu-item.active {
+            @apply tw:accent-active;
+        }
+        /* Not-yet-implemented entries: greyed, no hover, no clicks. */
+        .menu-item.disabled {
+            color: var(--muted);
+            pointer-events: none;
+        }
+        /* Unimplemented (vs. merely context-disabled) entries: struck through. */
+        .menu-item.unimplemented { text-decoration: line-through; }
+        .menu-kbd {
+            @apply tw:font-mono;
+            font-size: 11px;
+            color: var(--muted);
+        }
+        .menu-item:hover .menu-kbd, .menu-item.active .menu-kbd { color: var(--on-accent); }
+        .menu-label {
+            @apply tw:inline-flex tw:items-center tw:gap-2;
+            min-width: 0;
+        }
+        .menu-check { display:inline-block; min-width: 12px; text-align:right; color: var(--accent); }
+        .menu-item:hover .menu-check, .menu-item.active .menu-check { color: var(--on-accent); }
+        .menu-arrow { font-size: 14px; line-height: 1; color: var(--muted); }
+        .menu-item:hover .menu-arrow, .menu-item.active .menu-arrow { color: var(--on-accent); }
+        .menu-sep { height: 1px; margin: 4px 6px; background: var(--border); }
+        .menu-end {
+            @apply tw:inline-flex tw:items-center tw:gap-2;
+        }
+        .menu-swatch { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+        .menu-clock-info {
+            @apply tw:inline-flex tw:items-center tw:gap-1 tw:font-mono;
+            font-size: 11px;
+            color: var(--muted);
+        }
+        .menu-item:hover .menu-clock-info, .menu-item.active .menu-clock-info { color: var(--on-accent); }
+        .menu-clock-pol {
+            @apply tw:inline-flex tw:items-center;
+            cursor: pointer;
+            border-radius: 4px;
+            padding: 1px;
+        }
+        .menu-clock-pol:hover { background: color-mix(in srgb, var(--on-accent) 20%, transparent); }
+        .menu-clock-info .num-edit { color: inherit; margin: 0; }
+        .menu-clock-info .num-edit:hover { color: inherit; background: color-mix(in srgb, var(--on-accent) 20%, transparent); border-color: transparent; }
+        .menu-clock-info .num-input { font-size: 11px; height: 18px; min-width: 4ch; text-align: left; margin: 0; }
+        .menu-clock-unit { color: var(--text-2); }
+        .menu-item:hover .menu-clock-unit, .menu-item.active .menu-clock-unit { color: var(--on-accent); }
+        .menu-gear { font-size: 13px; line-height: 1; color: var(--muted); cursor: pointer; padding: 0 2px; border-radius: 4px; }
+        .menu-gear:hover { color: var(--text); background: color-mix(in srgb, var(--on-accent) 18%, transparent); }
+        .menu-item:hover .menu-gear, .menu-item.active .menu-gear { color: var(--on-accent); }
+
+        /* Centered modal dialog (clock settings). */
+        .modal-backdrop {
+            @apply tw:fixed tw:inset-0 tw:flex tw:items-center tw:justify-center;
+            z-index: 1100;
+            background: color-mix(in srgb, #000 42%, transparent);
+        }
+        .modal {
+            @apply tw:bg-panel-2;
+            min-width: 280px;
+            padding: 16px;
+            border: 1px solid var(--border-strong);
+            border-radius: 10px;
+            box-shadow: var(--shadow-1);
+        }
+        .modal-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 14px; }
+        .modal-actions {
+            @apply tw:flex tw:justify-end tw:gap-2;
+            margin-top: 6px;
+        }
+        .modal-actions.between {
+            @apply tw:justify-between;
+        }
+
+        /* Enum table editor — borderless cells inside one ruled table. */
+        .enum-modal { width: 340px; } /* fixed so the dialog doesn't widen on first entry */
+        .enum-table { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 14px; }
+        .enum-row {
+            @apply tw:grid tw:items-center;
+            grid-template-columns: 96px 1fr 30px;
+        }
+        .enum-row > :nth-child(2) { border-left: 1px solid var(--border); } /* value | name divider */
+        .enum-head { font-size: 11px; color: var(--muted); background: var(--panel); border-bottom: 1px solid var(--border); }
+        .enum-head span { padding: 6px 10px; }
+        .enum-body { max-height: 240px; overflow-y: auto; }
+        .enum-body .enum-row + .enum-row { border-top: 1px solid var(--border); } /* row separators */
+        .enum-empty {
+            @apply tw:flex tw:items-center;
+            height: 30px;
+            padding: 0 10px;
+            font-size: 12px;
+            color: var(--muted);
+        }
+        .enum-cell {
+            height: 30px; width: 100%; min-width: 0; border: 0; background: transparent;
+            color: var(--text); font-size: 12.5px; font-family: inherit; padding: 0 10px; outline: none;
+        }
+        .enum-cell:focus { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+        .enum-cell::placeholder { color: var(--muted); }
+        .enum-val {
+            @apply tw:font-mono;
+        }
+        .enum-del {
+            width: 100%; height: 30px; border: 0; background: transparent; color: var(--muted);
+            cursor: pointer; font-size: 11px; padding: 0; opacity: 0; transition: opacity .12s, color .12s;
+        }
+        .enum-row:hover .enum-del { opacity: 1; }
+        .enum-del:hover { color: var(--danger); }
+        .menubar .kbd {
+            @apply tw:font-mono;
+            padding: 3px 8px;
+            border: 1px dashed var(--border);
+            border-radius: 5px;
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        .toolbar {
+            @apply tw:flex tw:items-center tw:gap-1.5 tw:bg-panel;
+            height: 42px;
+            padding: 0 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        .btn {
+            @apply tw:inline-flex tw:items-center tw:gap-0.5 tw:bg-panel tw:text-text;
+            height: 26px;
+            padding: 0 9px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 12.5px;
+            cursor: default;
+            white-space: nowrap;
+        }
+        .btn:hover {
+            @apply tw:hover-raise;
+        }
+        .btn.icon {
+            padding: 0 6px;
+            font-size: 12px;
+        }
+        /* square, sized to seg-button footprint */
+        .toolbar > .btn.icon {
+            width: 24px;
+            height: 24px;
+            min-width: 24px;
+            padding: 0;
+            justify-content: center;
+            font-size: 11.5px;
+        }
+        .btn.primary {
+            background: color-mix(in srgb, var(--accent) 82%, #000);
+            color: var(--on-accent);
+            border-color: transparent;
+        }
+        .btn.primary:hover {
+            background: var(--accent);
+        }
+        .btn.ghost {
+            background: transparent;
+            border-color: transparent;
+            color: var(--text-2);
+        }
+        .btn.ghost:hover {
+            @apply tw:hover-raise tw:text-text;
+        }
+        .btn.sm {
+            @apply tw:font-mono;
+            height: 22px;
+            padding: 0 7px;
+            font-size: 11.5px;
+        }
+        .btn.sm.icon {
+            width: 22px;
+            padding: 0;
+            justify-content: center;
+        }
+        .divider {
+            width: 1px;
+            height: 20px;
+            margin: 0 4px;
+            background: var(--border);
+        }
+        .pill {
+            @apply tw:inline-flex tw:items-center tw:gap-1.5 tw:font-mono tw:bg-panel;
+            height: 24px;
+            padding: 0 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 11px;
+            cursor: default;
+            /* Keep the pill on one line — at narrow widths it otherwise wrapped to
+               two lines (e.g. the cursor "… ns" readout) and broke the toolbar row. */
+            white-space: nowrap;
+        }
+        /* Clickable (jump-to-cursor) — highlight on hover like the toolbar buttons. */
+        .pill:hover {
+            @apply tw:hover-raise;
+        }
+        /* Open-file pill: read-only, so no hover affordance and muted text/icon. */
+        .pill.file {
+            color: var(--text-2);
+        }
+        .pill.file:hover {
+            background: var(--panel);
+        }
+        .pill.file svg {
+            color: var(--muted);
+        }
+        .pill .swatch {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--hot);
+        }
+        .pill.marker .swatch {
+            background: var(--marker);
+        }
+        /* Tooltips render through a portal at <body> (see GlobalTooltip), so
+           they escape every overflow/scroll ancestor and aren't clipped.
+           position:fixed + translateZ(0) composites them above the WebGPU
+           canvas, which Chromium otherwise paints over plain HTML. Styled like
+           the cursor flag: small rounded rect, no border. The element
+           top-center is the anchor; translate lifts the bubble above it. */
+        .tip-pop {
+            @apply tw:inline-flex tw:items-center tw:font-sans tw:bg-panel-3 tw:text-text;
+            position: fixed;
+            transform: translate(-50%, calc(-100% - 6px)) translateZ(0);
+            /* `below`: anchor near the top → drop the bubble under it instead. */
+            will-change: transform, opacity;
+            height: 20px;
+            padding: 0 7px;
+            font-size: 11.5px;
+            border-radius: 4px;
+            /* Above .menu-pop (z 1000) so tips over upper menu rows aren't occluded. */
+            white-space: nowrap;
+            pointer-events: none;
+            z-index: 1001;
+            /* Soft, evenly-spread shadow (no offset, slight blue-grey tint). */
+            box-shadow: 0 0 12px 2px rgba(15, 18, 26, 0.5);
+            opacity: 0;
+            transition: opacity 90ms ease;
+        }
+        .tip-pop.show { opacity: 1; }
+        .tip-pop.below { transform: translate(-50%, 6px) translateZ(0); }
+        .search {
+            @apply tw:text-text;
+            height: 26px;
+            padding: 0 10px 0 26px;
+            min-width: 220px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--panel) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238C8C84' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='7'/><path d='m20 20-3-3'/></svg>") no-repeat 8px center;
+            font-size: 12.5px;
+            font-family: inherit;
+        }
+        .search::placeholder { color: var(--muted); }
+        /* Replace the browser's default (orange) focus outline with a themed
+           accent border + soft ring. */
+        .search:focus, input:focus, textarea:focus { outline: none; }
+        .search:focus {
+            @apply tw:focus-ring;
+        }
+
+        .body {
+            @apply tw:relative tw:grid tw:flex-1 tw:min-h-0;
+            grid-template-rows: minmax(0, 1fr);
+            overflow: hidden;
+        }
+        /* Panel collapse/expand: animate the grid column width (and the resize
+           handles that track it). Always-on so a toggle animates even though it
+           remounts the panel content in the same tick (a transition added in
+           that same tick gets folded into one layout pass and skipped). Live
+           drag-resize adds `.dragging` to switch it off so dragging is 1:1. */
+        .body { transition: grid-template-columns 120ms ease; }
+        .body .col-resize { transition: left 120ms ease; }
+        .body.dragging, .body.dragging .col-resize { transition: none; }
+        .col-resize {
+            @apply tw:absolute tw:inset-y-0 tw:select-none;
+            width: 7px;
+            cursor: col-resize;
+            z-index: 1;
+        }
+        .col .col-head + .col-sub + .tree + .col-head,
+        .col .col-head + .col-sub + .derived-list + .col-head,
+        .col > .col-head:not(:first-child) { border-top: 1px solid var(--border); }
+        .col {
+            @apply tw:flex tw:flex-col tw:min-w-0;
+            border-right: 1px solid var(--border);
+            overflow: hidden;
+        }
+        .col:last-child { border-right: none; }
+        /* Fixed-width wrapper for the expanded panel content: holds its full
+           width during the collapse/expand width animation so the content
+           clips at the column edge instead of reflowing (avoids a content pop). */
+        .col-inner {
+            @apply tw:flex tw:flex-col tw:flex-auto tw:min-h-0;
+        }
+        .col-head {
+            @apply tw:flex tw:items-center tw:justify-between tw:flex-none tw:bg-panel-2;
+            height: 34px;
+            padding: 0 10px;
+            border-bottom: 1px solid var(--border);
+            font-size: 11.5px;
+        }
+        .col-head h3 {
+            @apply tw:uppercase;
+            margin: 0;
+            font-size: 11.5px;
+            font-weight: 600;
+            letter-spacing: .4px;
+            color: var(--text-2);
+            white-space: nowrap;
+        }
+        /* Collapsed-panel title: same type as h3 but stacked vertically,
+           reading bottom-to-top, centered in the narrow column. */
+        .col-vtitle {
+            @apply tw:self-center tw:uppercase tw:select-none;
+            writing-mode: vertical-rl;
+            transform: rotate(180deg);
+            margin-top: 10px;
+            font-size: 11.5px;
+            font-weight: 600;
+            letter-spacing: .4px;
+            color: var(--text-2);
+            white-space: nowrap;
+        }
+        .col-head .hint {
+            @apply tw:font-mono;
+            font-size: 10.5px;
+            color: var(--muted);
+            white-space: nowrap;
+        }
+        /* Inline editable numbers in the range label. Text and input share the
+           same font/size/metrics so swapping causes no layout shift. */
+        .num-edit {
+            /* The -5px horizontal margin intentionally cancels this element's own
+               4px padding + 1px border, so the hover/edit affordance grows outward
+               without reflowing the surrounding range text. (Not a layout hack.) */
+            margin: 0 -5px;
+            padding: 1px 4px;
+            border: 1px solid transparent;
+            border-radius: 3px;
+            vertical-align: middle;
+            cursor: text;
+        }
+        .num-edit:hover {
+            color: var(--text);
+            background: var(--panel-2);
+            border-color: var(--border-strong);
+        }
+        .num-input {
+            @apply tw:font-mono;
+            /* matches .num-edit's negative margin so swapping text→input never shifts layout */
+            margin: 0 -5px;
+            padding: 1px 4px;
+            height: 17px;
+            box-sizing: border-box;
+            border: 1px solid var(--accent);
+            border-radius: 3px;
+            background: var(--panel-2);
+            color: var(--text);
+            font-size: 10.5px;
+            text-align: center;
+            vertical-align: middle;
+            outline: none;
+        }
+        .num-input.err { border-color: var(--hot); }
+        /* Two-line timescale box: editable start–end window on top, timescale info
+           (smaller, right-justified, muted) underneath. */
+        .ts-box {
+            @apply tw:flex tw:flex-col;
+            gap: 0;
+            line-height: 1.25;
+        }
+        .ts-range {
+            @apply tw:font-mono;
+            font-size: 10.5px;
+            color: var(--text);
+            white-space: nowrap;
+        }
+        .ts-info { font-size: 9px; color: var(--muted); text-align: right; white-space: nowrap; }
+        /* Timebase clock selector: standalone dropdown button (current clock +
+           chevron) + the detected period/phase edit block inside the popup.
+           Disabled (greyed, still visible) when clock alignment is off. */
+        .clock-picker {
+            @apply tw:inline-flex;
+        }
+        .clock-trigger {
+            @apply tw:min-w-0;
+            gap: 3px;
+            padding: 0 6px;
+            height: 24px;
+        }
+        .clock-trig-label {
+            @apply tw:truncate;
+            max-width: 96px;
+            font-size: 10.5px;
+            color: var(--text-2);
+        }
+        .clock-chevron {
+            @apply tw:flex-none;
+            color: var(--muted);
+        }
+        .clock-trigger:hover {
+            @apply tw:hover-raise;
+        }
+        .clock-trigger:hover .clock-trig-label { color: var(--text); }
+        .clock-trigger:hover .clock-chevron { color: var(--text); }
+        .clock-trigger.disabled { opacity: .5; cursor: default; }
+        .clock-trigger.disabled:hover { background: var(--panel); }
+        .clock-trigger.disabled:hover .clock-trig-label { color: var(--text-2); }
+        .clock-trigger.disabled:hover .clock-chevron { color: var(--muted); }
+        /* Clock options: leading green ✓ marks the active timebase (radio-list). */
+        .clock-opt {
+            @apply tw:justify-start tw:gap-2;
+        }
+        .clock-tick {
+            @apply tw:inline-block tw:flex-none;
+            width: 12px;
+            text-align: center;
+            color: var(--accent);
+        }
+        .menu-item.clock-opt:hover .clock-tick { color: var(--on-accent); }
+        /* Inline [phase] + [period] ns editor on the Custom option, pushed to the
+           right edge of the row (mirrors the Clock format item's accessory). */
+        .clock-custom {
+            @apply tw:ml-auto;
+        }
+        .clock-custom-op { padding: 0 1px; }
+        .col-head .collapse {
+            @apply tw:inline-flex tw:items-center tw:justify-center tw:text-muted;
+            width: 22px;
+            height: 22px;
+            margin-left: 4px;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: default;
+        }
+        .col-head .collapse:hover {
+            @apply tw:bg-panel tw:text-text;
+        }
+        .col-head.toolbar {
+            @apply tw:justify-start tw:gap-1.5;
+            height: 34px;
+            padding: 0 8px;
+        }
+        .col-head.toolbar .search { min-width: 180px; }
+
+        .col-sub {
+            @apply tw:flex tw:items-center tw:gap-1.5 tw:flex-none tw:bg-panel;
+            height: 34px;
+            padding: 0 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        .col-sub .search {
+            @apply tw:flex-1 tw:min-w-0;
+            height: 26px;
+            font-size: 12.5px;
+        }
+        /* Bare icon that labels the toolbar group it precedes (e.g. markers). */
+        .seg-label {
+            @apply tw:inline-flex tw:items-center tw:text-muted;
+            margin-right: 1px;
+        }
+        /* Uppercase text label for a toolbar group (e.g. MARKERS). */
+        .sub-label {
+            @apply tw:uppercase tw:select-none tw:flex-none;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+        }
+        /* Label + add button stay fixed; the pill list takes the rest and
+           scrolls horizontally when markers overflow. */
+        .col-sub > .btn {
+            @apply tw:flex-none;
+        }
+        /* Marker pills mirror the canvas flags: --mk is the marker's color. */
+        .marker-pills {
+            @apply tw:flex tw:items-center tw:flex-1 tw:min-w-0;
+            gap: 5px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            scrollbar-width: none; /* Firefox */
+        }
+        .marker-pills::-webkit-scrollbar { display: none; } /* Chromium */
+        .marker-pills .marker-pill {
+            @apply tw:flex-none;
+        }
+        .marker-pill {
+            @apply tw:inline-flex tw:items-center tw:gap-1 tw:font-mono tw:select-none;
+            height: 21px;
+            padding: 0 5px 0 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            cursor: pointer;
+            color: var(--mk);
+            background: var(--panel);
+            border: 1px solid var(--mk);
+        }
+        .marker-pill:hover {
+            @apply tw:hover-raise;
+        }
+        /* Selected pill reads solid in its own color, like the selected flag. */
+        .marker-pill.on {
+            background: var(--mk); border-color: var(--mk); color: #141517;
+        }
+        .marker-pill .rm {
+            @apply tw:inline-flex tw:items-center tw:justify-center tw:rounded-full;
+            margin-left: 6px;
+            opacity: 0.55;
+        }
+        .marker-pill .rm:hover { opacity: 1; }
+
+        .tree { padding: 4px 4px 12px; overflow:auto; flex:2; }
+        /* Scope expand/collapse height animation: grid rows 0fr↔1fr animates
+           to/from the children's natural height. inner needs min-height:0 +
+           overflow:hidden so it can collapse and clip during the transition. */
+        .t-children { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 180ms ease; }
+        .t-children.open { grid-template-rows: 1fr; }
+        .t-children-inner { overflow: hidden; min-height: 0; }
+        /* Global scrollbar styling — thin bars, matching the signal tree.
+           NOTE: do NOT set the standard `scrollbar-width`/`scrollbar-color` here.
+           In Chromium (this is always the renderer) those switch the element to
+           the standardized scrollbar and make it IGNORE every ::-webkit-scrollbar
+           rule below — including the button-hiding one — which on Linux brings
+           back the GTK stepper triangles. The webkit pseudo-elements give full
+           control (and no stepper arrows by default). */
+        /* Track widened to 12px so the UNIFORM transparent-border padding has room:
+           the visible thumb is 6px (12 − 2×3px border) — its original width — inset
+           3px on every side. background-clip keeps the fill inside the padding box
+           while the full bordered track stays the hit target (bigger grab zone).
+           Uniform border = symmetric corner radius (an asymmetric border can't). */
+        ::-webkit-scrollbar { width: 12px; height: 12px; }
+        /* Drop the up/down (and left/right) stepper arrows — keep only the thumb. */
+        ::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-strong); border-radius: 6px;
+            border: 3px solid transparent;
+            background-clip: padding-box;
+        }
+        ::-webkit-scrollbar-thumb:hover { background: var(--muted); background-clip: padding-box; }
+        .t-row {
+            @apply tw:flex tw:items-center tw:gap-1 tw:font-mono tw:text-text;
+            height: 22px;
+            padding: 0 6px;
+            font-size: 12px;
+            border-radius: 4px;
+            white-space: nowrap;
+            /* Skip layout/paint for rows scrolled out of the tree viewport (and
+               for collapsed-but-mounted subtrees clipped to 0 height). The
+               browser still keeps the DOM, but defers their rendering cost until
+               they're on-screen. 22px placeholder keeps the scrollbar accurate. */
+            content-visibility: auto;
+            contain-intrinsic-size: auto 22px;
+        }
+        .t-row:hover {
+            @apply tw:hover-raise;
+        }
+        .t-row.sel {
+            @apply tw:bg-accent-soft tw:text-text;
+        }
+        .t-row .chev {
+            @apply tw:inline-flex tw:items-center tw:justify-center tw:text-muted;
+            width: 10px;
+        }
+        .t-row .icon {
+            @apply tw:inline-flex tw:items-center tw:justify-center tw:text-muted;
+            width: 14px;
+        }
+        .t-row .icon.module { color: var(--text-2); }
+        .t-row .icon.clk  { color: var(--clk); }
+        .t-row .icon.bus  { color: var(--bus); }
+        .t-row .icon.bus2 { color: var(--bus2); }
+        .t-row .icon.state { color: var(--warn); }
+        .t-row .icon.drv  { color: var(--drv-tag-fg); }
+        .t-row .lbl {
+            @apply tw:flex-1 tw:truncate;
+        }
+        .t-row .count {
+            @apply tw:inline-flex tw:items-center;
+            height: 14px;
+            padding: 0 4px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 10px;
+            color: var(--muted);
+        }
+        .t-row .count.expr {
+            @apply tw:truncate;
+            max-width: 120px;
+        }
+        .t-row .plus {
+            @apply tw:inline-flex tw:items-center tw:justify-center tw:text-muted;
+            width: 14px;
+            height: 14px;
+            font-size: 14px;
+            line-height: 1;
+            cursor: default;
+            opacity: 0;
+        }
+        .t-row:hover .plus { opacity: 1; }
+        .t-row .plus:hover { color: var(--text); }
+        .tree-section {
+            @apply tw:uppercase;
+            margin-top: 8px;
+            padding: 4px 10px 2px;
+            font-size: 10.5px;
+            color: var(--muted);
+            letter-spacing: .5px;
+            border-top: 1px solid var(--border);
+        }
+
+        .derived-list { overflow: auto; flex: 1; padding: 0 4px 4px; }
+        .d-row {
+            @apply tw:flex tw:flex-col tw:gap-px;
+            padding: 2px 6px;
+        }
+        .d-row:hover {
+            @apply tw:hover-raise;
+        }
+        .d-row-top {
+            @apply tw:flex tw:items-center tw:gap-1;
+            height: 18px;
+        }
+        .d-row-top .icon {
+            @apply tw:inline-flex tw:items-center tw:justify-center tw:shrink-0;
+            width: 14px;
+            color: var(--drv-tag-fg);
+        }
+        .d-row-top .lbl {
+            @apply tw:flex-1 tw:font-mono tw:truncate tw:text-text;
+            font-size: 12px;
+        }
+        .d-row-top .kebab {
+            @apply tw:inline-flex tw:items-center tw:text-muted;
+            opacity: 0;
+            cursor: default;
+        }
+        .d-row:hover .kebab { opacity: 1; }
+        .d-row-top .kebab:hover { color: var(--text); }
+        .d-expr {
+            @apply tw:truncate tw:text-text-2;
+            padding-left: 20px;
+            font-size: 11px;
+            line-height: 1.3;
+        }
+
+        /* y-only scroll: rows ellipsis-truncate, so the list never needs an
+           x-scroll. overflow-x:hidden stops row tooltips (which extend past the
+           panel edge) from widening the scroll area. */
+        .signals {
+            @apply tw:flex-1;
+            overflow-y: auto;
+            overflow-x: hidden;
+        }
+        .s-head {
+            @apply tw:grid tw:items-end tw:gap-1.5 tw:uppercase tw:bg-panel;
+            grid-template-columns: 16px 16px 1fr auto 14px;
+            height: var(--row-h);
+            padding: 0 8px 5px;
+            font-size: 10px;
+            color: var(--muted);
+            letter-spacing: .4px;
+            border-bottom: 1px solid var(--border);
+        }
+        .s-head .h-name { font-weight: 700; }
+        .s-head .h-val { text-align: right; font-weight: 700; }
+        .s-row {
+            @apply tw:relative tw:flex tw:items-center tw:gap-1.5 tw:font-mono;
+            height: var(--row-h);
+            padding: 0 8px;
+            border-bottom: 1px solid var(--border);
+            font-size: 12px;
+        }
+        .s-row .pin, .s-row .s-icon, .s-row .eye {
+            @apply tw:flex-none;
+        }
+        /* Bottom-edge vertical resize handle (drag to size a row, dbl-click reset).
+           Straddles the row border; an accent line fades in on hover/drag. */
+        .s-resize { position: absolute; left: 0; right: 0; bottom: -2px; height: 6px; cursor: ns-resize; z-index: 2; }
+        .s-resize::after {
+            content: ''; position: absolute; left: 0; right: 0; bottom: 2px; height: 2px;
+            background: var(--accent); opacity: 0; transition: opacity 90ms ease;
+        }
+        .s-resize:hover::after { opacity: 0.7; }
+        .s-row:hover {
+            @apply tw:hover-raise;
+        }
+        .s-row.sel {
+            @apply tw:bg-accent-soft;
+        }
+        /* User-inserted separator below a row. Height MUST equal DIVIDER_HEIGHT_CSS
+           (wave/constants.ts) so the canvas gap stays row-aligned. Styled like the
+           menu separator: a centered 1px line inset from both edges. A faint band +
+           continued row border integrate it into the list and keep it visible. */
+        .s-divider {
+            @apply tw:relative tw:flex tw:items-center tw:flex-none tw:bg-panel-2;
+            height: 16px;
+            padding: 0 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        .s-divider::after { content: ''; flex: 1; height: 1px; background: var(--border-strong); }
+        .pin {
+            @apply tw:inline-block tw:shrink-0 tw:rounded-full;
+            width: 8px;
+            height: 8px;
+            cursor: pointer;
+            background: var(--muted);
+        }
+
+        /* hidden anchor input Coloris binds to (positioned at the click/pin point) */
+        } /* end @layer components */
+
+        .clr-anchor { position: fixed; z-index: 1000; width: 1px; height: 1px; padding: 0; margin: 0; border: 0; opacity: 0; pointer-events: none; }
+
+        /* --- vendored Coloris (coloris.js.org) base stylesheet, see ColorPicker.tsx --- */
+        .clr-picker{display:none;flex-wrap:wrap;position:absolute;width:200px;z-index:1000;border-radius:10px;background-color:#fff;justify-content:flex-end;direction:ltr;box-shadow:0 0 5px rgba(0,0,0,.05),0 5px 20px rgba(0,0,0,.1);-moz-user-select:none;-webkit-user-select:none;user-select:none}.clr-picker.clr-open,.clr-picker[data-inline=true]{display:flex}.clr-picker[data-inline=true]{position:relative}.clr-gradient{position:relative;width:100%;height:100px;margin-bottom:15px;border-radius:3px 3px 0 0;background-image:linear-gradient(rgba(0,0,0,0),#000),linear-gradient(90deg,#fff,currentColor);cursor:pointer}.clr-marker{position:absolute;width:12px;height:12px;margin:-6px 0 0 -6px;border:1px solid #fff;border-radius:50%;background-color:currentColor;cursor:pointer}.clr-picker input[type=range]::-webkit-slider-runnable-track{width:100%;height:16px}.clr-picker input[type=range]::-webkit-slider-thumb{width:16px;height:16px;-webkit-appearance:none}.clr-picker input[type=range]::-moz-range-track{width:100%;height:16px;border:0}.clr-picker input[type=range]::-moz-range-thumb{width:16px;height:16px;border:0}.clr-hue{background-image:linear-gradient(to right,red 0,#ff0 16.66%,#0f0 33.33%,#0ff 50%,#00f 66.66%,#f0f 83.33%,red 100%)}.clr-alpha,.clr-hue{position:relative;width:calc(100% - 40px);height:8px;margin:5px 20px;border-radius:4px}.clr-alpha span{display:block;height:100%;width:100%;border-radius:inherit;background-image:linear-gradient(90deg,rgba(0,0,0,0),currentColor)}.clr-alpha input[type=range],.clr-hue input[type=range]{position:absolute;width:calc(100% + 32px);height:16px;left:-16px;top:-4px;margin:0;background-color:transparent;opacity:0;cursor:pointer;appearance:none;-webkit-appearance:none}.clr-alpha div,.clr-hue div{position:absolute;width:16px;height:16px;left:0;top:50%;margin-left:-8px;transform:translateY(-50%);border:2px solid #fff;border-radius:50%;background-color:currentColor;box-shadow:0 0 1px #888;pointer-events:none}.clr-alpha div:before{content:'';position:absolute;height:100%;width:100%;left:0;top:0;border-radius:50%;background-color:currentColor}.clr-format{display:none;order:1;width:calc(100% - 40px);margin:0 20px 20px}.clr-segmented{display:flex;position:relative;width:100%;margin:0;padding:0;border:1px solid #ddd;border-radius:15px;box-sizing:border-box;color:#999;font-size:12px}.clr-segmented input,.clr-segmented legend{position:absolute;width:100%;height:100%;margin:0;padding:0;border:0;left:0;top:0;opacity:0;pointer-events:none}.clr-segmented label{flex-grow:1;margin:0;padding:4px 0;font-size:inherit;font-weight:400;line-height:initial;text-align:center;cursor:pointer}.clr-segmented label:first-of-type{border-radius:10px 0 0 10px}.clr-segmented label:last-of-type{border-radius:0 10px 10px 0}.clr-segmented input:checked+label{color:#fff;background-color:#666}.clr-swatches{order:2;width:calc(100% - 32px);margin:0 16px}.clr-swatches div{display:flex;flex-wrap:wrap;padding-bottom:12px;justify-content:center}.clr-swatches button{position:relative;width:20px;height:20px;margin:0 4px 6px 4px;padding:0;border:0;border-radius:50%;color:inherit;text-indent:-1000px;white-space:nowrap;overflow:hidden;cursor:pointer}.clr-swatches button:after{content:'';display:block;position:absolute;width:100%;height:100%;left:0;top:0;border-radius:inherit;background-color:currentColor;box-shadow:inset 0 0 0 1px rgba(0,0,0,.1)}input.clr-color{order:1;width:calc(100% - 80px);height:32px;margin:15px 20px 20px auto;padding:0 10px;border:1px solid #ddd;border-radius:16px;color:#444;background-color:#fff;font-family:sans-serif;font-size:14px;text-align:center;box-shadow:none}input.clr-color:focus{outline:0;border:1px solid #1e90ff}.clr-clear,.clr-close{display:none;order:2;height:24px;margin:0 20px 20px;padding:0 20px;border:0;border-radius:12px;color:#fff;background-color:#666;font-family:inherit;font-size:12px;font-weight:400;cursor:pointer}.clr-close{display:block;margin:0 20px 20px auto}.clr-preview{position:relative;width:32px;height:32px;margin:15px 0 20px 20px;border-radius:50%;overflow:hidden}.clr-preview:after,.clr-preview:before{content:'';position:absolute;height:100%;width:100%;left:0;top:0;border:1px solid #fff;border-radius:50%}.clr-preview:after{border:0;background-color:currentColor;box-shadow:inset 0 0 0 1px rgba(0,0,0,.1)}.clr-preview button{position:absolute;width:100%;height:100%;z-index:1;margin:0;padding:0;border:0;border-radius:50%;outline-offset:-2px;background-color:transparent;text-indent:-9999px;cursor:pointer;overflow:hidden}.clr-alpha div,.clr-color,.clr-hue div,.clr-marker{box-sizing:border-box}.clr-field{display:inline-block;position:relative;color:transparent}.clr-field input{margin:0;direction:ltr}.clr-field.clr-rtl input{text-align:right}.clr-field button{position:absolute;width:30px;height:100%;right:0;top:50%;transform:translateY(-50%);margin:0;padding:0;border:0;color:inherit;text-indent:-1000px;white-space:nowrap;overflow:hidden;pointer-events:none}.clr-field.clr-rtl button{right:auto;left:0}.clr-field button:after{content:'';display:block;position:absolute;width:100%;height:100%;left:0;top:0;border-radius:inherit;background-color:currentColor;box-shadow:inset 0 0 1px rgba(0,0,0,.5)}.clr-alpha,.clr-alpha div,.clr-field button,.clr-preview:before,.clr-swatches button{background-image:repeating-linear-gradient(45deg,#aaa 25%,transparent 25%,transparent 75%,#aaa 75%,#aaa),repeating-linear-gradient(45deg,#aaa 25%,#fff 25%,#fff 75%,#aaa 75%,#aaa);background-position:0 0,4px 4px;background-size:8px 8px}.clr-marker:focus{outline:0}.clr-keyboard-nav .clr-alpha input:focus+div,.clr-keyboard-nav .clr-hue input:focus+div,.clr-keyboard-nav .clr-marker:focus,.clr-keyboard-nav .clr-segmented input:focus+label{outline:0;box-shadow:0 0 0 2px #1e90ff,0 0 2px 2px #fff}.clr-picker[data-alpha=false] .clr-alpha{display:none}.clr-picker[data-minimal=true]{padding-top:16px}.clr-picker[data-minimal=true] .clr-alpha,.clr-picker[data-minimal=true] .clr-color,.clr-picker[data-minimal=true] .clr-gradient,.clr-picker[data-minimal=true] .clr-hue,.clr-picker[data-minimal=true] .clr-preview{display:none}.clr-dark{background-color:#444}.clr-dark .clr-segmented{border-color:#777}.clr-dark .clr-swatches button:after{box-shadow:inset 0 0 0 1px rgba(255,255,255,.3)}.clr-dark input.clr-color{color:#fff;border-color:#777;background-color:#555}.clr-dark input.clr-color:focus{border-color:#1e90ff}.clr-dark .clr-preview:after{box-shadow:inset 0 0 0 1px rgba(255,255,255,.5)}.clr-dark .clr-alpha,.clr-dark .clr-alpha div,.clr-dark .clr-preview:before,.clr-dark .clr-swatches button{background-image:repeating-linear-gradient(45deg,#666 25%,transparent 25%,transparent 75%,#888 75%,#888),repeating-linear-gradient(45deg,#888 25%,#444 25%,#444 75%,#888 75%,#888)}.clr-picker.clr-polaroid{border-radius:6px;box-shadow:0 0 5px rgba(0,0,0,.1),0 5px 30px rgba(0,0,0,.2)}.clr-picker.clr-polaroid:before{content:'';display:block;position:absolute;width:16px;height:10px;left:20px;top:-10px;border:solid transparent;border-width:0 8px 10px 8px;border-bottom-color:currentColor;box-sizing:border-box;color:#fff;filter:drop-shadow(0 -4px 3px rgba(0,0,0,.1));pointer-events:none}.clr-picker.clr-polaroid.clr-dark:before{color:#444}.clr-picker.clr-polaroid.clr-left:before{left:auto;right:20px}.clr-picker.clr-polaroid.clr-top:before{top:auto;bottom:-10px;transform:rotateZ(180deg)}.clr-polaroid .clr-gradient{width:calc(100% - 20px);height:120px;margin:10px;border-radius:3px}.clr-polaroid .clr-alpha,.clr-polaroid .clr-hue{width:calc(100% - 30px);height:10px;margin:6px 15px;border-radius:5px}.clr-polaroid .clr-alpha div,.clr-polaroid .clr-hue div{box-shadow:0 0 5px rgba(0,0,0,.2)}.clr-polaroid .clr-format{width:calc(100% - 20px);margin:0 10px 15px}.clr-polaroid .clr-swatches{width:calc(100% - 12px);margin:0 6px}.clr-polaroid .clr-swatches div{padding-bottom:10px}.clr-polaroid .clr-swatches button{width:22px;height:22px}.clr-polaroid input.clr-color{width:calc(100% - 60px);margin:10px 10px 15px auto}.clr-polaroid .clr-clear{margin:0 10px 15px 10px}.clr-polaroid .clr-close{margin:0 10px 15px auto}.clr-polaroid .clr-preview{margin:10px 0 15px 10px}.clr-picker.clr-large{width:275px}.clr-large .clr-gradient{height:150px}.clr-large .clr-swatches button{width:22px;height:22px}.clr-picker.clr-pill{width:380px;padding-left:180px;box-sizing:border-box}.clr-pill .clr-gradient{position:absolute;width:180px;height:100%;left:0;top:0;margin-bottom:0;border-radius:3px 0 0 3px}.clr-pill .clr-hue{margin-top:20px}
+        /* --- riptide theme overrides: tie Coloris dark mode to the app palette --- */
+        .clr-picker.clr-dark { background-color: var(--panel-2); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+        .clr-dark input.clr-color { color: var(--text); border-color: var(--border); background-color: var(--panel); }
+        .clr-dark input.clr-color:focus { border-color: var(--accent); }
+        .clr-keyboard-nav .clr-marker:focus, .clr-keyboard-nav .clr-hue input:focus+div { box-shadow: 0 0 0 2px var(--accent), 0 0 2px 2px var(--panel-2); }
+        @layer components {
+        .s-icon {
+            @apply tw:inline-flex tw:items-center tw:justify-center tw:text-text-2;
+        }
+        .s-icon.clock    { color: var(--clk); }
+        .s-icon.reset    { color: var(--hot); }
+        .s-icon.valid    { color: var(--ok); }
+        .s-icon.derived  { color: var(--drv-tag-fg); }
+        .s-icon.signal   { color: var(--text-2); }
+        .s-row .n {
+            @apply tw:flex-auto tw:min-w-0 tw:truncate;
+        }
+        .s-row .n .s-bits { color: var(--muted); }
+        .s-row .v {
+            @apply tw:min-w-0 tw:truncate;
+            flex: 0 100 auto;
+            text-align: right;
+            font-size: 11px;
+            color: var(--muted);
+        }
+        .radix {
+            @apply tw:inline-flex tw:items-center tw:justify-between tw:font-mono;
+            height: 16px;
+            width: 48px;
+            padding: 0 5px;
+            gap: 3px;
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            background: var(--panel);
+            font-size: 10px;
+            cursor: default;
+        }
+        .radix:hover {
+            @apply tw:hover-raise;
+        }
+        /* Visibility toggle. Hidden by default; on row hover it fades in white.
+           Once toggled off (.off → eye-off icon) it stays visible but dim. */
+        .eye {
+            @apply tw:inline-flex tw:items-center tw:justify-center tw:text-muted;
+            cursor: default;
+            opacity: 0;
+        }
+        .s-row:hover .eye { opacity: 1; color: var(--text); }
+        .eye.off { opacity: 1; color: var(--muted); }
+        .s-row:hover .eye.off { color: var(--text); }
+        /* Global dim-all toggle in the Name/Value header — always visible,
+           centered in the full bar (offsetting the header's 5px bottom pad). */
+        /* Dim-all eye: hidden until the header is hovered (or kept visible while
+           any row is dimmed, via .eye.off), aligned to the Name/Value text line
+           (flex-end) rather than centered on the full header height. */
+        .s-head .eye.head { align-self: flex-end; }
+        .s-head:hover .eye.head { opacity: 1; color: var(--text); }
+        .s-head .eye.head:hover { color: var(--text); }
+        .s-row.nested { padding-left: 22px; background: color-mix(in srgb, var(--panel-2) 60%, transparent); }
+        /* Collapse: swatch + icon vanish instantly; the name slides left from
+           where it sat (8px pin + 6 gap + 12 icon + 6 gap = 32px) into place.
+           Expand is the reverse: the name slides right into its expanded slot
+           (120ms), then the swatch + icon (+ value) fade back in (120→240ms). */
+        @keyframes s-name-slide-in  { from { transform: translateX(32px); }  to { transform: translateX(0); } }
+        @keyframes s-name-slide-out { from { transform: translateX(-32px); } to { transform: translateX(0); } }
+        @keyframes s-chrome-fade-in { from { opacity: 0; } to { opacity: 1; } }
+        .s-row.collapsed.sliding .n { animation: s-name-slide-in 120ms ease; }
+        .s-row.sliding:not(.collapsed) .n { animation: s-name-slide-out 120ms ease; }
+        .s-row.sliding:not(.collapsed) .pin,
+        .s-row.sliding:not(.collapsed) .s-icon,
+        .s-row.sliding:not(.collapsed) .v { animation: s-chrome-fade-in 120ms ease 120ms backwards; }
+
+        .waves {
+            @apply tw:relative;
+        }
+        .wv-sub {
+            @apply tw:flex tw:items-center tw:gap-1.5 tw:flex-none tw:bg-panel;
+            height: 30px;
+            padding: 0 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        .seg {
+            @apply tw:inline-flex tw:bg-panel;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        .seg .btn { border: none; border-radius: 0; border-right: 1px solid var(--border); height: 22px; min-width: 22px; padding: 0 6px; font-size: 11.5px;}
+        .seg .btn:last-child { border-right: none; }
+        .seg .btn.on {
+            @apply tw:accent-active;
+        }
+        .btn.on {
+            @apply tw:accent-active;
+            border-color: transparent;
+        }
+
+        .wv-canvas {
+            @apply tw:relative tw:flex tw:flex-col tw:flex-1 tw:min-h-0 tw:bg-panel;
+            overflow: hidden;
+        }
+
+        .ruler {
+            @apply tw:relative tw:flex-none tw:font-mono tw:select-none;
+            height: var(--row-h);
+            border-bottom: 1px solid var(--border);
+            background: var(--panel-2);
+            font-size: 10.5px;
+            color: var(--text-2);
+        }
+        .ruler .tk { position:absolute; top: 50%; bottom: 0; width: 1px; background: var(--border-strong); }
+        .ruler .tk.major { top: calc(50% - 4px); }
+        .ruler .lb { position:absolute; top: 50%; transform: translateX(3px); padding-top: 2px; font-size: 10px; }
+
+        .gpu-host {
+            @apply tw:relative tw:flex-1 tw:min-h-0;
+            cursor: crosshair;
+        }
+        #gpu {
+            @apply tw:block tw:bg-panel;
+            width: 100%;
+            height: 100%;
+        }
+
+        .cursor, .marker {
+            position: absolute; top: 0; width: 0; height: 100vh; z-index: 5; pointer-events:none;
+        }
+        .cursor { border-left: 2.5px solid var(--hot); }
+        .marker { border-left: 2.5px dashed var(--marker); z-index: 4; }
+        .flag {
+            @apply tw:inline-flex tw:items-center tw:font-mono;
+            position: absolute;
+            top: 0px;
+            transform: translateX(-50%);
+            height: 16px;
+            padding: 0 5px;
+            background: var(--hot);
+            color: var(--on-accent);
+            border-radius: 3px;
+            font-size: 10px;
+            white-space: nowrap;
+        }
+        .marker .flag { background: var(--marker); color: var(--on-accent); }
+
+        .status {
+            @apply tw:flex tw:items-center tw:gap-3.5 tw:flex-none tw:font-mono tw:bg-panel-2;
+            height: 24px;
+            padding: 0 12px;
+            border-top: 1px solid var(--border);
+            border-right: 1px solid var(--border);
+            font-size: 11px;
+            color: var(--text-2);
+            /* Query against the bar's own width so it can degrade to a compact
+               readout when the left columns (esp. a compact Active Signals
+               pane) leave too little room. overflow:hidden + the ellipsis on
+               .st-val guarantee it never spills regardless of value length. */
+            container-type: inline-size;
+            overflow: hidden;
+        }
+        .status b { color: var(--text); font-weight: 600; }
+        .status .st-item { white-space: nowrap; }
+        .status .st-val {
+            @apply tw:min-w-0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .status .dotted {
+            @apply tw:inline-flex tw:items-center;
+            gap: 5px;
+        }
+        .status .dot {
+            @apply tw:rounded-full;
+            width: 7px;
+            height: 7px;
+            background: var(--ok);
+        }
+        .status .muted { color: var(--muted); }
+        .status .sep { color: var(--muted); }
+        /* Tight: drop the "time" / "ns" / "name =" titles, tighten the gap
+           around the interpunct, so just the time number and value remain.
+           The value still ellipsises below this too. */
+        @container (max-width: 360px) {
+            .status { gap: 6px; font-size: 10px; }
+            .status .lbl-t, .status .unit, .status .lbl-v { display: none; }
+        }
+        } /* end @layer components */
