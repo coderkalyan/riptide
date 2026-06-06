@@ -89,18 +89,45 @@ interface NativeModule {
 stamp("native:require");
 const native = require("../native/riptide.node") as NativeModule;
 
+// Whether a trace has been loaded into the native db. False at boot when the
+// window opened with no ?vcd= (idle app). While false every query function below
+// short-circuits — the native db panics on a query with nothing loaded, and we
+// want the backend to do nothing until the user opens a file.
+let traceLoaded = false;
+export function hasTrace(): boolean { return traceLoaded; }
+
 // Swap the loaded trace at runtime (in-app "Open VCD…" — no window reload).
 // getHierarchy/getMockSegments/getValueAt all query the current db after this.
 export function loadVcd(path: string): void {
   native.loadVcd(path);
+  traceLoaded = true;
 }
 
 // Load the initial trace named in the window URL before anything queries it
-// (scene.ts builds SCENE at module load, which calls getHierarchy). Later "Open
-// VCD…" picks call loadVcd() again via scene.ts swapTrace to swap the db in place.
+// (scene.ts builds SCENE at module load, which calls getHierarchy). With no
+// ?vcd= the app boots idle and this is skipped — nothing touches the addon until
+// an in-app "Open VCD…" calls loadVcd() via scene.ts swapTrace.
 stamp("native:start");
-if (VCD_PATH) native.loadVcd(VCD_PATH);
+if (VCD_PATH) loadVcd(VCD_PATH);
 stamp("native:end");
+
+// An empty pack result (no segments / rows / pools) for the no-trace idle state,
+// so the GPU layer builds empty buffers and draws nothing without querying.
+function emptyMockSegments(): NativeMockSegments {
+  return {
+    multi: new Uint32Array(0),
+    multiCount: 0,
+    single: new Uint32Array(0),
+    singleCount: 0,
+    rowInfo: new ArrayBuffer(0),
+    rowCount: 0,
+    x0Pool: new ArrayBuffer(0),
+    x1Pool: new ArrayBuffer(0),
+    labelBytes: new Uint8Array(0),
+    labelOffsets: new Uint32Array(1), // multiCount+1 prefix offsets = [0]
+    endTicks: 0,
+  };
+}
 
 export interface NativeMockSegments {
   // 3×u32 PackedSegment records (t_start, t_end, row_flags) — values stripped
@@ -133,6 +160,7 @@ export function getMockSegments(
   qStart: number,
   qEnd: number,
 ): NativeMockSegments {
+  if (!traceLoaded) return emptyMockSegments();
   const r = native.getMockSegments(specs, qStart, qEnd);
   return {
     multi: new Uint32Array(r.multi),
@@ -154,6 +182,7 @@ export function getMockSegments(
 // (one word per 32 bits of declared width), so signals wider than 32 bits are
 // carried in full. Returns null off the end of the trace.
 export function getValueAt(handle: string, tick: number): { lsb: number[]; msb: number[] } | null {
+  if (!traceLoaded) return null;
   return native.getValueAt(handle, tick);
 }
 
@@ -169,6 +198,7 @@ export interface NativeEdges {
   count: number;
 }
 export function getEdges(handle: string, startTick: number, count: number): NativeEdges | null {
+  if (!traceLoaded) return null;
   const r = native.getEdges(handle, startTick, count);
   if (!r) return null;
   return {

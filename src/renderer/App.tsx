@@ -1,5 +1,5 @@
 import { For, Show, createSignal, createMemo, onMount, onCleanup } from "solid-js";
-import { X, PanelLeftClose, PanelLeftOpen, FileText } from "lucide-solid";
+import { X, PanelLeftClose, PanelLeftOpen, FileText, FolderOpen } from "lucide-solid";
 import { useAppStore, selectExportSidecarText } from "./store/store";
 import { WaveCanvas } from "./wave/WaveCanvas";
 import { ActiveSignals } from "./ActiveSignals";
@@ -15,7 +15,7 @@ import { GlobalTooltip } from "./GlobalTooltip";
 import { PerfOverlay } from "./PerfOverlay";
 import { buildEnumLabels } from "./wave/value";
 import { getSignal } from "./hier/hierarchy";
-import { SCENE, swapTrace, currentVcdPath } from "./hier/scene";
+import { SCENE, swapTrace, currentVcdPath, hasTrace } from "./hier/scene";
 import { view } from "./wave/viewport";
 import { ZOOM_STEP } from "./wave/constants";
 import * as perf from "./perf";
@@ -165,6 +165,10 @@ export function App() {
   // currentVcdPath() is the real source of truth (set by swapTrace); traceNonce makes
   // this re-read on an in-app Open. basename only — full path lives in the tooltip.
   const openFile = createMemo(() => { s.traceNonce; return currentVcdPath().split(/[\\/]/).pop() || "untitled"; });
+  // Whether a trace is loaded — gates the whole working UI. When idle (no file)
+  // only the menu bar + an open-file prompt show. traceNonce makes this re-read
+  // after an in-app Open (swapTrace sets currentVcdPath, resetForTrace bumps it).
+  const traceOpen = createMemo(() => { s.traceNonce; return hasTrace(); });
   const onSignalColor = () => {
     const r = selSignal();
     if (!r) return;
@@ -179,8 +183,10 @@ export function App() {
       if (!e.ctrlKey || e.altKey) return;
       const k = e.key.toLowerCase();
       if (!e.shiftKey && k === "o") { e.preventDefault(); handleOpenVcd(); }
-      // Ctrl+= / Ctrl++ zoom in, Ctrl+- zoom out, Ctrl+0 fit. "=" is the unshifted
-      // "+" key, so accept both; the numpad sends "Add"/"Subtract".
+      // Zoom shortcuts only matter with a trace open (the canvas is unmounted when
+      // idle). Ctrl+= / Ctrl++ zoom in, Ctrl+- zoom out, Ctrl+0 fit. "=" is the
+      // unshifted "+" key, so accept both; the numpad sends "Add"/"Subtract".
+      else if (!traceOpen()) return;
       else if (k === "=" || k === "+") { e.preventDefault(); zoomIn(); }
       else if (k === "-" || k === "_") { e.preventDefault(); zoomOut(); }
       else if (k === "0") { e.preventDefault(); zoomFit(); }
@@ -195,6 +201,7 @@ export function App() {
         <div class="dots"><i class="r" /><i class="y" /><i class="g" /></div>
         <div class="title">Riptide</div>
         <MenuBar
+          idle={() => !traceOpen()}
           onOpenVcd={handleOpenVcd} onOpenRecent={handleOpenRecent} onExportSidecar={handleExportSidecar} getRecent={getRecent} onCloseWindow={closeWindow}
           onZoomIn={zoomIn} onZoomOut={zoomOut} onZoomFit={zoomFit}
           treeCollapsed={() => s.panels.treeCollapsed} onToggleTree={toggleTree}
@@ -226,14 +233,29 @@ export function App() {
             )}</For>
           </div>
         </Show>
-        {/* Non-interactive pill noting the open file, in place of the (hidden) tabs. */}
-        <span class="pill file" data-tip={currentVcdPath()}>
-          <FileText size={12} />
-          <span class="mono">{openFile()}</span>
-        </span>
+        {/* Non-interactive pill noting the open file, in place of the (hidden) tabs.
+            Hidden while idle (no trace) — nothing to name. */}
+        <Show when={traceOpen()}>
+          <span class="pill file" data-tip={currentVcdPath()}>
+            <FileText size={12} />
+            <span class="mono">{openFile()}</span>
+          </span>
+        </Show>
         <div class="sp" />
       </div>
 
+      <Show
+        when={traceOpen()}
+        fallback={
+          <div class="empty-state">
+            <FileText size={46} stroke-width={1} class="es-icon" />
+            <h2>No waveform open</h2>
+            <p>Open a VCD file to view its signals.</p>
+            <button class="es-open" onClick={handleOpenVcd}><FolderOpen size={15} /> Open VCD…</button>
+            <span class="es-hint">or press <kbd>Ctrl</kbd>+<kbd>O</kbd></span>
+          </div>
+        }
+      >
       <div
         class={`body${dragging() ? " dragging" : ""}`}
         style={{ "grid-template-columns": `${treeColW()}px ${activeColW()}px 1fr`, "grid-template-rows": "minmax(0, 1fr) auto" }}
@@ -374,6 +396,7 @@ export function App() {
       <Show when={s.enumDialog}>{(d) => (
         <EnumDialog row={d().row} onClose={() => s.setEnumDialog(null)} />
       )}</Show>
+      </Show>
       <GlobalTooltip />
       <PerfOverlay />
     </div>

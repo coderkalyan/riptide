@@ -15,6 +15,7 @@
     "dist": "pnpm build:prod && electron-builder",
     "dist:dir": "pnpm build:prod && electron-builder --dir",
     "dev": "pnpm build && electron .",
+    "dev:blank": "pnpm build && RIPTIDE_NO_TRACE=1 electron .",
     "dev:ui": "pnpm wgsl-check && pnpm build:native && node scripts/dev-ui.mjs",
     "canvas-test": "node scripts/canvas-test/build.mjs && deno run --allow-all scripts/canvas-test/harness.bundle.mjs",
     "canvas-test:update": "node scripts/canvas-test/build.mjs && deno run --allow-all scripts/canvas-test/harness.bundle.mjs --update",
@@ -40,6 +41,8 @@
     },
     "files": [
       "dist/**/*",
+      "!dist/native/mock.vcd",
+      "!dist/native/mock.vcd.sidecar.json",
       "package.json"
     ],
     "asarUnpack": [
