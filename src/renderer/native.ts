@@ -13,6 +13,7 @@ import { VCD_PATH } from "./runtime";
 import { stamp } from "./perf";
 
 declare const require: (m: string) => unknown;
+declare const process: { platform: string } | undefined;
 
 interface RawScopeNode {
   id: number;
@@ -87,7 +88,16 @@ interface NativeModule {
 }
 
 stamp("native:require");
-const native = require("../native/riptide.node") as NativeModule;
+// The addon ships as one binary per platform under dist/native (both are bundled;
+// only the host-matching one is ever require()d). Windows is a cross-compiled DLL
+// (riptide-win.node, see scripts/gen-win-napi-shim.mjs); every other OS uses the
+// native .so/.dylib (riptide.node). Two static specifiers so esbuild keeps both
+// external (see build-ui.mjs); the ternary only evaluates the matching one.
+const native = (
+  (typeof process !== "undefined" && process.platform === "win32")
+    ? require("../native/riptide-win.node")
+    : require("../native/riptide.node")
+) as NativeModule;
 
 // Swap the loaded trace at runtime (in-app "Open VCD…" — no window reload).
 // getHierarchy/getMockSegments/getValueAt all query the current db after this.
