@@ -66,12 +66,14 @@
         "clock": {
           "polarity": "both",
           "period": 10
-        }
+        },
+        "mute": "top.keysched.waves.in_valid"
       },
       {
         "path": "top.keysched.waves.in_addr[15:0]",
         "radix": "hex",
-        "color": "#F4A698"
+        "color": "#F4A698",
+        "mute": "top.keysched.waves.in_valid"
       },
       {
         "path": "top.keysched.waves.out_valid",
@@ -82,7 +84,8 @@
       {
         "path": "top.keysched.waves.out_data[31:0]",
         "radix": "hex",
-        "color": "#57C88A"
+        "color": "#57C88A",
+        "mute": "top.keysched.waves.out_valid"
       },
       {
         "path": "top.keysched.waves.fifo_level[3:0]",

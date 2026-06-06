@@ -46,7 +46,14 @@ function ClockAccessory(props: { row: number }) {
 // target is 1-bit, Signed Decimal if any is multi-bit (the action then applies only
 // to the rows it fits). `anySingleBit`/`anyMultiBit` carry that across the selection.
 // `dividerOn` toggles the Insert/Remove Divider label for the (single) target row.
-export function activeSignalMenu(opts: { anyMultiBit: boolean; anySingleBit: boolean; clockRow: number; color?: string; currentFormat?: string; dividerOn?: boolean }): MenuItem[] {
+export function activeSignalMenu(opts: {
+  anyMultiBit: boolean; anySingleBit: boolean; clockRow: number; color?: string;
+  currentFormat?: string; dividerOn?: boolean;
+  // Mute picker: 1-bit signals offered as the enable, the uniformly-set mute (if
+  // any), whether every target is unmuted (ticks "None"), and whether any target
+  // can be muted at all (clocks can't).
+  muteOptions: { path: string; name: string }[]; currentMute?: string; muteNone: boolean; anyMutable: boolean;
+}): MenuItem[] {
   // Tick the one format whose action matches the row's current radix/role.
   const fmt = (it: Exclude<MenuItem, "sep">): MenuItem => ({ ...it, checked: it.action === opts.currentFormat });
   return [
@@ -62,6 +69,14 @@ export function activeSignalMenu(opts: { anyMultiBit: boolean; anySingleBit: boo
     ] },
     // No swatch when the target colors are non-uniform (opts.color undefined).
     { label: "Change Color…", accessory: opts.color ? <span class="menu-swatch" style={{ background: opts.color }} /> : undefined },
+    // Mute (enable): mute the row wherever the chosen 1-bit signal isn't logic-1.
+    { label: "Mute On…", disabled: !opts.anyMutable, submenu: [
+      { label: "None", action: "set-mute", checked: opts.muteNone },
+      ...(opts.muteOptions.length ? (["sep"] as MenuItem[]) : []),
+      ...opts.muteOptions.map((g): MenuItem => ({
+        label: g.name, action: "set-mute", path: g.path, checked: g.path === opts.currentMute,
+      })),
+    ] },
     "sep",
     { label: "Group with Selected", disabled: true, unimplemented: true },
     { label: opts.dividerOn ? "Remove Divider" : "Insert Divider", action: "toggle-divider" },
@@ -146,11 +161,11 @@ export function ContextMenu(props: {
     ? <div class="menu-sep" />
     : (
       <div
-        class={`menu-item${it.disabled ? " disabled" : ""}${it.unimplemented ? " unimplemented" : ""}${!isSub && it.submenu && sub() ? " active" : ""}`}
+        class={`menu-item${it.disabled ? " disabled" : ""}${it.unimplemented ? " unimplemented" : ""}${!isSub && it.submenu && sub()?.items === it.submenu ? " active" : ""}`}
         onClick={() => select(it)}
         onMouseEnter={(e) => {
           if (isSub) return;
-          if (it.submenu) {
+          if (it.submenu && !it.disabled) {
             const rect = e.currentTarget.getBoundingClientRect();
             setSub({ rect, items: it.submenu });
             setSubPos({ left: rect.right - 4, top: rect.top - 6 }); // initial guess; effect refines

@@ -54,6 +54,7 @@ export interface ActiveSignalRef {
   dividerBelow?: boolean;     // render a thin separator below this row (DOM + canvas gap)
   dividerHeight?: number;     // resized divider height (CSS px); default DIVIDER_HEIGHT_CSS
   derivedExpr?: string;
+  mute?: string;             // path of a 1-bit enable signal that mutes this row while it isn't logic-1
 }
 
 export interface Scene {
@@ -78,7 +79,6 @@ interface RowConfig {
   role?: ActiveRole;
   clock?: ClockConfig;
   derivedExpr?: string;
-  gatePath?: string;         // mute this row when the gate signal isn't logic-1
   enumTypeId?: number;       // overlay onto the signal node (tide lacks enums)
 }
 
@@ -89,10 +89,10 @@ const ROWS: (RowConfig & { path: string })[] = [
   { row: 2,  radix: "enum", selected: true, enumTypeId: 1,              color: "#B48CFF", path: `${W}.state[1:0]`,       vcdType: "reg" },
   { row: 3,  radix: "dec",                                              color: "#B48CFF", path: `${W}.cycle_count[7:0]`, vcdType: "reg" },
   { row: 4,  radix: "bin", role: "valid",                               color: "#F4A698", path: `${W}.in_valid`,         vcdType: "reg" },
-  { row: 5,  radix: "hex", gatePath: `${W}.in_valid`,                   color: "#F4A698", path: `${W}.in_data[7:0]`,     vcdType: "reg" },
-  { row: 6,  radix: "hex", gatePath: `${W}.in_valid`,                   color: "#F4A698", path: `${W}.in_addr[15:0]`,    vcdType: "reg" },
+  { row: 5,  radix: "hex",                                              color: "#F4A698", path: `${W}.in_data[7:0]`,     vcdType: "reg" },
+  { row: 6,  radix: "hex",                                              color: "#F4A698", path: `${W}.in_addr[15:0]`,    vcdType: "reg" },
   { row: 7,  radix: "bin", role: "valid",                               color: "#57C88A", path: `${W}.out_valid`,        vcdType: "reg" },
-  { row: 8,  radix: "hex", gatePath: `${W}.out_valid`,                  color: "#57C88A", path: `${W}.out_data[31:0]`,   vcdType: "reg" },
+  { row: 8,  radix: "hex",                                              color: "#57C88A", path: `${W}.out_data[31:0]`,   vcdType: "reg" },
   { row: 9,  radix: "dec",                                              color: "#E6B14E", path: `${W}.fifo_level[3:0]`,  vcdType: "reg" },
   { row: 10, radix: "bin",                                              color: "#E6B14E", path: `${W}.fifo_empty`,       vcdType: "net" },
   { row: 11, radix: "hex",                                              color: "#4FD2BD", path: `${W}.dbus[7:0]`,        vcdType: "net" },
@@ -118,6 +118,17 @@ function signalAt(h: Hierarchy, path: string): Signal {
   const node = h.nodes.get(lookupByPath(h, path));
   if (!node || node.kind !== "signal") throw new Error(`Not a signal: ${path}`);
   return node;
+}
+
+// Resolve a signal path to its handle against an explicit hierarchy, or null if
+// it doesn't resolve. Unlike handleForPath (which targets the live SCENE), this
+// is safe to call inside buildScene, before SCENE is reassigned.
+function handleIn(h: Hierarchy, path: string): string | null {
+  try {
+    return signalAt(h, path).handle;
+  } catch {
+    return null;
+  }
 }
 
 // Resolve a signal path to its native handle against the current SCENE, or null
@@ -151,12 +162,6 @@ function lookupByPath(h: Hierarchy, path: string): NodeId {
   return found!;
 }
 
-// Gate signal path keyed by the gated signal's path. Trace semantics (mute a
-// row while its gate isn't logic-1), applied whether active signals come from a
-// sidecar or the curated default — so the sidecar never has to carry gate info.
-const GATE_BY_PATH = new Map<string, string>();
-for (const r of ROWS) if (r.gatePath) GATE_BY_PATH.set(r.path, r.gatePath);
-
 // Per-row enum int→label table for the native label formatter (label.zig). Built
 // from the signal's overlaid enumTypeId (see buildScene); empty for non-enum rows.
 // value = parseInt(member.raw, 2), matching the old JS buildEnumLabels key.
@@ -175,22 +180,21 @@ export function enumTableForRef(ref: ActiveSignalRef): EnumEntry[] {
 }
 
 // Native pack specs from the active signal list — what tide should query + how
-// to pack each row. kind/shade from role; gate is path-keyed, handle resolved
-// from the loaded hierarchy. radix + enums drive the native value-label format.
+// to pack each row. kind/shade from role; the mute signal (a 1-bit enable that
+// mutes the row while low) is the row's sidecar-persisted `mute` path, handle
+// resolved from the loaded hierarchy (null if absent from this trace). radix +
+// enums drive the native value-label format.
 function specsFromActive(h: Hierarchy, active: ActiveSignalRef[]): NativePackSpec[] {
-  return active.map((s) => {
-    const gatePath = GATE_BY_PATH.get(s.path);
-    return {
-      row: s.row,
-      handle: signalAt(h, s.path).handle,
-      kind: s.role === "clock" ? "clk" : "data",
-      polarity: s.clock?.polarity ?? DEFAULT_CLOCK_CONFIG.polarity,
-      shaded: s.role !== "clock",
-      gateHandle: gatePath ? signalAt(h, gatePath).handle : null,
-      radix: s.radix,
-      enums: s.enumTable ?? enumsForSignal(h, s.signalId),
-    };
-  });
+  return active.map((s) => ({
+    row: s.row,
+    handle: signalAt(h, s.path).handle,
+    kind: s.role === "clock" ? "clk" : "data",
+    polarity: s.clock?.polarity ?? DEFAULT_CLOCK_CONFIG.polarity,
+    shaded: s.role !== "clock",
+    muteHandle: s.mute ? handleIn(h, s.mute) : null,
+    radix: s.radix,
+    enums: s.enumTable ?? enumsForSignal(h, s.signalId),
+  }));
 }
 
 // Computed in buildScene from the active signal list; returned to App.tsx, which

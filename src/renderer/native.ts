@@ -54,7 +54,9 @@ export interface NativePackSpec {
   // "rising" on the renderer side when a row has no clock config yet.
   polarity: "rising" | "falling" | "both";
   shaded: boolean;
-  gateHandle: string | null;
+  // Handle of a 1-bit enable signal that mutes this row while it isn't logic-1
+  // (null = no muting). Resolved from the row's sidecar `mute` path.
+  muteHandle: string | null;
   // Multi-bit rows: how the native side formats the pill value label (label.zig).
   radix: "bin" | "hex" | "dec" | "sdec" | "enum";
   // Per-row enum int→label table (empty for non-enum rows). value = the integer

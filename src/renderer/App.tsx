@@ -343,10 +343,20 @@ export function App() {
           items={(() => {
             if (m().kind === "divider") return dividerMenu();
             const t = menuTargets();
-            const ref = s.activeSignals.find((r) => r.row === t.primary);
+            const active = s.activeSignals;
+            const ref = active.find((r) => r.row === t.primary);
             const widths = t.rows.map((r) => bitWidthOf(r));
             // Swatch only when every target shares one color; non-uniform → omit it.
-            const colors = new Set(t.rows.map((r) => s.activeSignals.find((x) => x.row === r)?.color));
+            const colors = new Set(t.rows.map((r) => active.find((x) => x.row === r)?.color));
+            // Mute candidates: every 1-bit active signal except the target rows
+            // (a row can't mute itself). The mute is uniform only if all targets
+            // share it; clocks can't be muted (native ignores it for clk kind).
+            const targetRows = new Set(t.rows);
+            const muteOptions = active
+              .filter((x) => !targetRows.has(x.row) && getSignal(SCENE.hierarchy, x.signalId).bitWidth === 1)
+              .map((x) => ({ path: x.path, name: getSignal(SCENE.hierarchy, x.signalId).name }));
+            const mutes = t.rows.map((r) => active.find((x) => x.row === r)?.mute);
+            const uniqMutes = new Set(mutes);
             return activeSignalMenu({
               anyMultiBit: widths.some((w) => w > 1),
               anySingleBit: widths.some((w) => w === 1),
@@ -358,6 +368,10 @@ export function App() {
                   : `radix-${ref.radix}`
                 : undefined,
               dividerOn: ref?.dividerBelow ?? false,
+              muteOptions,
+              currentMute: uniqMutes.size === 1 ? [...uniqMutes][0] : undefined,
+              muteNone: mutes.every((m) => !m),
+              anyMutable: t.rows.some((r) => active.find((x) => x.row === r)?.role !== "clock"),
             });
           })()}
           onClose={() => s.setCtxMenu(null)}
@@ -378,6 +392,11 @@ export function App() {
             else if (it.action === "radix-enum") rows.forEach((r) => s.setFormat(r, "enum", undefined));
             else if (it.action === "format-clock") rows.forEach((r) => s.setFormat(r, "bin", "clock"));
             else if (it.action === "format-reset") rows.forEach((r) => s.setFormat(r, "bin", "reset"));
+            // Mute applies only to non-clock targets (it.path undefined = clear).
+            else if (it.action === "set-mute") {
+              const a = useAppStore.getState().activeSignals;
+              s.setMute(rows.filter((r) => a.find((x) => x.row === r)?.role !== "clock"), it.path);
+            }
             else if (it.label === "Dim") rows.forEach((r) => s.toggleHidden(r));
             else if (it.label === "Dim Others") s.hideExcept(rows);
             else if (it.label === "Remove from View") s.removeSignals(rows);

@@ -159,9 +159,9 @@
           "type": "string",
           "description": "Reserved: enum table name for value labels. Currently trace-side; not emitted."
         },
-        "gate": {
+        "mute": {
           "type": "string",
-          "description": "Reserved: path of a gate signal to mute this row when the gate is not logic-1. Currently trace-side; not emitted."
+          "description": "Dotted path of a 1-bit enable signal; this row is muted (dimmed, no value pill) wherever that signal is not logic-1. Set via the row's \"Mute\" context-menu submenu."
         }
       }
     },

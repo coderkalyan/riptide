@@ -1,17 +1,18 @@
-// Timebase detection — derive a clock's period/phase and a reset's held window
-// from the START of the signal's waveform, reading only a cheap prefix of
-// transitions (native getEdges → tide queryNext) rather than scanning the whole
-// trace. The detected ClockGrid drives all cycle math + the dashed grid; the
-// reset band drives the bottom-ruler crosshatch. Both replace the old hardcoded
-// MOCK_CLOCK_TICK_NS / RESET_HELD_TICKS shims.
-import { getEdges } from "../native";
+// Timebase detection — derive a clock's period/phase from the START of the
+// signal's waveform, reading only a cheap prefix of transitions (native getEdges
+// → tide queryNext) rather than scanning the whole trace. The detected ClockGrid
+// drives all cycle math + the dashed grid, replacing the old hardcoded
+// MOCK_CLOCK_TICK_NS shim. The bottom-ruler reset crosshatch is built per frame
+// from resetHighSpans over the visible window (see WaveCanvas).
+import { getEdges, getValueAt } from "../native";
 import type { ClockGrid } from "./format";
 import type { ClockPolarity } from "../hier/scene";
 
 // Transitions to sample. A clock toggles twice per cycle, so 32 transitions give
 // ~16 cycles — plenty for a stable median while staying a tiny prefix read.
 const CLOCK_SAMPLE = 32;
-const RESET_SAMPLE = 8;
+// Transitions to pull per getEdges call while walking a reset's visible window.
+const RESET_CHUNK = 64;
 
 function median(xs: number[]): number {
   const s = [...xs].sort((a, b) => a - b);
@@ -49,17 +50,47 @@ export function detectClockGrid(handle: string, polarity: ClockPolarity = "risin
   return { phase: edges[0], period: period > 0 ? period : 1, valid };
 }
 
-// Detect the held interval of a reset: [firstTick, first tick at which the level
-// leaves its initial state]. Polarity-agnostic — whatever value reset holds at
-// the trace start, the band runs until it first changes. null if it never
-// changes within the sampled prefix (or there are no transitions).
-export function detectResetBand(handle: string): { tStart: number; tEnd: number } | null {
-  const e = getEdges(handle, 0, RESET_SAMPLE);
-  if (!e || e.count < 1) return null;
-  const tStart = e.ticks[0];
-  const lsb0 = e.lsb[0], msb0 = e.msb[0];
-  for (let i = 1; i < e.count; i++) {
-    if (e.lsb[i] !== lsb0 || e.msb[i] !== msb0) return { tStart, tEnd: e.ticks[i] };
+// A 1-bit signal is "high" when its decoded logic level is 1: lsb set, msb clear
+// (msb set means x/z — never counted as high).
+function isHigh(lsb: number, msb: number): boolean {
+  return msb === 0 && lsb !== 0;
+}
+
+// Every interval within [winStart, winEnd] where a reset signal is held HIGH,
+// clamped to the window. Drives the bottom-ruler crosshatch: each band marks a
+// timespan the reset is asserted-high. Cost is O(visible transitions) — one
+// getValueAt for the level at the window's left edge, then paginated getEdges
+// across the window — not a whole-trace scan. An active-low reset simply yields
+// no high spans here. Empty when the handle is unknown or the window is empty.
+export function resetHighSpans(
+  handle: string,
+  winStart: number,
+  winEnd: number,
+): { tStart: number; tEnd: number }[] {
+  if (winEnd <= winStart) return [];
+  const spans: { tStart: number; tEnd: number }[] = [];
+  // Level entering the window: getValueAt reflects any transition exactly at
+  // winStart, so the matching edge below is skipped (hi === high), no double count.
+  const v0 = getValueAt(handle, winStart);
+  let high = v0 ? isHigh(v0.lsb[0] ?? 0, v0.msb[0] ?? 0) : false;
+  let open = high ? winStart : -1;
+  let cursor = winStart;
+  for (;;) {
+    const e = getEdges(handle, cursor, RESET_CHUNK);
+    if (!e || e.count === 0) break;
+    let past = false;
+    for (let i = 0; i < e.count; i++) {
+      const t = e.ticks[i];
+      if (t > winEnd) { past = true; break; }
+      const hi = isHigh(e.lsb[i], e.msb[i]);
+      if (hi === high) continue; // not a level change (or the edge at winStart)
+      high = hi;
+      if (hi) open = t;
+      else if (open >= 0) { spans.push({ tStart: open, tEnd: t }); open = -1; }
+    }
+    if (past || e.count < RESET_CHUNK) break;
+    cursor = e.ticks[e.count - 1] + 1; // ticks are distinct integers — no re-read
   }
-  return null;
+  if (open >= 0) spans.push({ tStart: open, tEnd: winEnd }); // still high at window end
+  return spans;
 }

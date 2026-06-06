@@ -21,7 +21,7 @@ import { create } from "solid-zustand/store";
 import { SCENE, INITIAL, makeActiveRef, handleForPath, type ActiveSignalRef, type Radix, type ActiveRole, type ClockConfig, type EnumEntry } from "../hier/scene";
 import type { NodeId } from "../hier/types";
 import type { ClockGrid } from "../wave/format";
-import { detectClockGrid, detectResetBand } from "../wave/clock";
+import { detectClockGrid } from "../wave/clock";
 import { MAX_ROWS } from "../gpu/colors";
 import {
   serializeSidecar,
@@ -67,9 +67,9 @@ export interface DocState {
   timebaseClock: string | null;
   timebaseOverride: { period: number; phase: number } | null;
   // Derived (NOT serialized — recomputed on load / selection from the timebase
-  // clock + the first reset signal): the detected cycle grid + reset-held band.
+  // clock): the detected cycle grid. The reset crosshatch is built per frame in
+  // the canvas from the active reset rows' visible high spans, not stored here.
   clockGrid: ClockGrid | null;
-  resetBand: { tStart: number; tEnd: number } | null;
   expandedScopes: NodeId[]; // array (not Set) so reconcile/serialization stay simple
   panels: PanelState;
   tabs: { open: string[]; active: number };
@@ -112,6 +112,10 @@ export interface Actions {
   setFormat: (row: number, radix: Radix, role: ActiveRole | undefined) => void;
   setClockConfig: (row: number, clock: ClockConfig) => void;
   setEnumTable: (row: number, enumTable: EnumEntry[]) => void;
+  // Set (or clear, with undefined) the mute signal — a 1-bit enable, by path —
+  // that mutes these rows wherever it isn't logic-1. Triggers a repack (native
+  // splits segments on its edges); persisted in the sidecar per row.
+  setMute: (rows: number[], mute: string | undefined) => void;
   // Per-row vertical size (CSS px). undefined resets to the default ROW_HEIGHT_CSS.
   setRowHeight: (row: number, height: number | undefined) => void;
   // Toggle a thin separator below `row` (DOM list + canvas gap).
@@ -182,32 +186,19 @@ let selectionAnchor = -1; // last single/ctrl-selected row; shift-range pivots h
 
 const withRowId = (r: ActiveSignalRef): Row => ({ ...r, id: rowSeq++ });
 
-// Detect the cycle grid (from the timebase clock, unless overridden) and the
-// reset-held band (from the first role:"reset" row). Pure read of the prefix of
-// each signal via native getEdges. Returns nulls when nothing resolves.
+// Detect the cycle grid from the timebase clock (unless overridden). Pure read
+// of the clock signal's prefix via native getEdges. null when nothing resolves.
 function computeTimebase(
   active: readonly ActiveSignalRef[],
   clockPath: string | null,
   override: { period: number; phase: number } | null,
-): { clockGrid: ClockGrid | null; resetBand: { tStart: number; tEnd: number } | null } {
-  let clockGrid: ClockGrid | null = null;
-  if (clockPath != null) {
-    const handle = handleForPath(clockPath);
-    if (handle != null) {
-      if (override) clockGrid = { period: override.period, phase: override.phase, valid: true };
-      else {
-        const polarity = active.find((r) => r.path === clockPath)?.clock?.polarity ?? "rising";
-        clockGrid = detectClockGrid(handle, polarity);
-      }
-    }
-  }
-  let resetBand: { tStart: number; tEnd: number } | null = null;
-  const resetRow = active.find((r) => r.role === "reset");
-  if (resetRow) {
-    const h = handleForPath(resetRow.path);
-    if (h != null) resetBand = detectResetBand(h);
-  }
-  return { clockGrid, resetBand };
+): ClockGrid | null {
+  if (clockPath == null) return null;
+  const handle = handleForPath(clockPath);
+  if (handle == null) return null;
+  if (override) return { period: override.period, phase: override.phase, valid: true };
+  const polarity = active.find((r) => r.path === clockPath)?.clock?.polarity ?? "rising";
+  return detectClockGrid(handle, polarity);
 }
 
 // ---- hydration ----------------------------------------------------------
@@ -230,7 +221,7 @@ function hydrateDoc(): DocState {
     if (firstClock) timebaseClock = firstClock.path;
   }
   const timebaseOverride = INITIAL.timebase.override ?? null;
-  const { clockGrid, resetBand } = computeTimebase(active, timebaseClock, timebaseOverride);
+  const clockGrid = computeTimebase(active, timebaseClock, timebaseOverride);
   // A saved/auto clock absent from this trace → fall back to absolute time.
   if (timebaseClock != null && clockGrid == null) { timebaseClock = null; clockAnchor = false; }
 
@@ -245,7 +236,6 @@ function hydrateDoc(): DocState {
     timebaseClock,
     timebaseOverride,
     clockGrid,
-    resetBand,
     expandedScopes: [...SCENE.initialExpanded],
     panels: { ...INITIAL.panels },
     tabs: { open: [...INITIAL.tabs.open], active: INITIAL.tabs.active },
@@ -324,13 +314,17 @@ const vanilla = createVanilla<AppState>()(
       // If the edited row is the timebase clock (and not manually overridden), a
       // polarity change re-detects the grid.
       if (changed && changed.path === s.timebaseClock && s.timebaseOverride == null) {
-        return { activeSignals, clockGrid: computeTimebase(activeSignals, s.timebaseClock, null).clockGrid };
+        return { activeSignals, clockGrid: computeTimebase(activeSignals, s.timebaseClock, null) };
       }
       return { activeSignals };
     }),
     setEnumTable: (row, enumTable) => set((s) => ({
       activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, enumTable } : r)),
     })),
+    setMute: (rows, mute) => set((s) => {
+      const tgt = new Set(rows);
+      return { activeSignals: s.activeSignals.map((r) => (tgt.has(r.row) ? { ...r, mute } : r)) };
+    }),
     setRowHeight: (row, height) => set((s) => ({
       activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, height } : r)),
     })),
@@ -418,14 +412,14 @@ const vanilla = createVanilla<AppState>()(
       if (s.timebaseClock != null && s.clockGrid != null) return { clockAnchor: true };
       const fc = s.activeSignals.find((r) => r.role === "clock");
       if (!fc) return s; // nothing to anchor to
-      return { clockAnchor: true, timebaseClock: fc.path, timebaseOverride: null, clockGrid: computeTimebase(s.activeSignals, fc.path, null).clockGrid };
+      return { clockAnchor: true, timebaseClock: fc.path, timebaseOverride: null, clockGrid: computeTimebase(s.activeSignals, fc.path, null) };
     }),
     // Select which clock drives the timebase (the on/off lives in clockAnchor,
     // toggled separately). Recomputes the grid; leaves clockAnchor untouched.
     setTimebaseClock: (path) => set((s) => ({
       timebaseClock: path,
       timebaseOverride: null,
-      clockGrid: computeTimebase(s.activeSignals, path, null).clockGrid,
+      clockGrid: computeTimebase(s.activeSignals, path, null),
     })),
     setTimebaseOverride: (period, phase) => set((s) => {
       if (s.timebaseClock == null) return s;

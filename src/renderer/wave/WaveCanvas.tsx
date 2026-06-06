@@ -8,8 +8,10 @@ import { createLabelRenderer } from "../gpu/labels";
 import { createLineRenderer } from "../gpu/lines";
 import { createRectRenderer } from "../gpu/rect";
 import { createGpuTimer } from "../gpu/timing";
-import { TRACE_END, buildPackSpecs, packSpecsFor, type ActiveSignalRef } from "../hier/scene";
+import { TRACE_END, buildPackSpecs, packSpecsFor, handleForPath, type ActiveSignalRef } from "../hier/scene";
 import { getMockSegments, hasTrace } from "../native";
+import { hexToPacked } from "../hier/sidecar";
+import { resetHighSpans } from "./clock";
 import * as perf from "../perf";
 import { useAppStore } from "../store/store";
 import { view } from "./viewport";
@@ -24,6 +26,20 @@ import { dynamicRulerTicks, clockRulerTicks, rulerSpacing, formatTime, formatClo
 
 type RectMut = { x: number; y: number; w: number; h: number; color: number; crosshatch?: boolean; rounded?: boolean; caret?: boolean; caretRight?: boolean; squareBottomLeft?: boolean; squareBottomRight?: boolean };
 type LineMut = { x: number; color: number; dashed?: boolean; fullHeight?: boolean };
+
+// Alpha for reset crosshatch bands — translucent so the ruler notches + dashed
+// grid read through.
+const RESET_BAND_ALPHA = 0x60;
+// Blend the colors of the reset signals covering one sub-interval into a single
+// translucent packed rgba (0xAABBGGRR). One signal → its own color; several
+// overlapping → their average, so a merged band reads as a mix, not a glitch.
+function resetBandColor(cols: number[]): number {
+  let r = 0, g = 0, b = 0;
+  for (const c of cols) { r += c & 0xff; g += (c >> 8) & 0xff; b += (c >> 16) & 0xff; }
+  const n = cols.length;
+  r = (r / n) | 0; g = (g / n) | 0; b = (b / n) | 0;
+  return ((RESET_BAND_ALPHA << 24) | (b << 16) | (g << 8) | r) >>> 0;
+}
 
 // The waveform canvas. Owns the imperative WebGPU pipeline + the rAF render
 // loop. Reads document state synchronously via useAppStore.getState() (cursor,
@@ -342,7 +358,6 @@ export function WaveCanvas() {
         // Clock-aligned mode is on only when a valid detected/overridden grid
         // exists; otherwise everything falls back to absolute time.
         const grid = st.clockGrid;
-        const resetBand = st.resetBand;
         const clockMode = st.clockAnchor && grid != null && grid.valid;
         const xForTick = (tick: number) => (tick - startTicks) / ticksPerPixel;
         vp.ticks_per_pixel = ticksPerPixel;
@@ -445,22 +460,74 @@ export function WaveCanvas() {
             }
           };
 
-          if (resetBand) {
-            const rx0 = xForTick(resetBand.tStart);
-            const rx1 = xForTick(resetBand.tEnd);
-            const rc = getRect(rectsBgScratch, bgRectN++);
-            rc.x = rx0; rc.y = bottomRulerTop; rc.w = rx1 - rx0; rc.h = bottomRulerH;
-            rc.color = P.RESET_RED; rc.crosshatch = true;
-            const cellSm = textRenderer.cellSm;
-            const label = "RESET";
-            const textW = label.length * cellSm.widthPx;
-            if (rx1 - rx0 > textW + 4) {
-              rulerArrowLabels.push({
-                x: Math.round((rx0 + rx1) * 0.5 - textW * 0.5),
-                y: Math.round(arrowY - cellSm.midlinePx),
-                text: label,
-                color: P.RESET_TEXT,
-              });
+          // Reset bands — rebuilt every frame from every active signal in reset
+          // format. Each signal contributes a band over each visible interval it
+          // is held HIGH, in its own color. To stay glitch-free when resets
+          // overlap, all spans are merged on a boundary sweep into DISJOINT
+          // sub-intervals: each screen column draws exactly one crosshatch rect
+          // (no translucent stacking, no moiré). A sub-interval covered by one
+          // signal takes its color; where several overlap, their colors average.
+          // RESET labels are coalesced to one per contiguous covered run, so a
+          // pile-up of overlapping resets shows a single label, not a stack.
+          {
+            const winStart = Math.max(0, Math.floor(startTicks));
+            const winEnd = Math.min(TRACE_END, Math.ceil(viewEnd));
+            type ResetEv = { t: number; d: number; color: number };
+            const events: ResetEv[] = [];
+            for (const r of st.activeSignals) {
+              if (r.role !== "reset") continue;
+              const h = handleForPath(r.path);
+              if (h == null) continue;
+              const col = hexToPacked(r.color);
+              for (const s of resetHighSpans(h, winStart, winEnd)) {
+                if (s.tEnd <= s.tStart) continue;
+                events.push({ t: s.tStart, d: 1, color: col });
+                events.push({ t: s.tEnd, d: -1, color: col });
+              }
+            }
+            if (events.length) {
+              // Process starts before ends at the same tick so abutting spans of
+              // the same signal merge into one cluster rather than blinking off.
+              events.sort((a, b) => a.t - b.t || b.d - a.d);
+              const activeCols: number[] = []; // colors currently held high (multiset)
+              const clusters: { x0: number; x1: number }[] = [];
+              let runStart = -1, runEnd = -1; // contiguous covered run, in ticks
+              const flushRun = () => {
+                if (runStart >= 0) { clusters.push({ x0: xForTick(runStart), x1: xForTick(runEnd) }); runStart = -1; }
+              };
+              let prevT = events[0].t;
+              let i = 0;
+              while (i < events.length) {
+                const t = events[i].t;
+                if (activeCols.length && t > prevT) {
+                  const x0 = xForTick(prevT), x1 = xForTick(t);
+                  const rc = getRect(rectsBgScratch, bgRectN++);
+                  rc.x = x0; rc.y = bottomRulerTop; rc.w = x1 - x0; rc.h = bottomRulerH;
+                  rc.color = resetBandColor(activeCols); rc.crosshatch = true;
+                  if (runStart < 0) runStart = prevT;
+                  else if (prevT !== runEnd) { flushRun(); runStart = prevT; }
+                  runEnd = t;
+                }
+                while (i < events.length && events[i].t === t) {
+                  const ev = events[i++];
+                  if (ev.d === 1) activeCols.push(ev.color);
+                  else { const idx = activeCols.indexOf(ev.color); if (idx >= 0) activeCols.splice(idx, 1); }
+                }
+                prevT = t;
+              }
+              flushRun();
+              const cellSm = textRenderer.cellSm;
+              const label = "RESET";
+              const textW = label.length * cellSm.widthPx;
+              const labelY = Math.round(arrowY - cellSm.midlinePx);
+              for (const c of clusters) {
+                if (c.x1 - c.x0 > textW + 4) {
+                  rulerArrowLabels.push({
+                    x: Math.round((c.x0 + c.x1) * 0.5 - textW * 0.5),
+                    y: labelY, text: label, color: P.RESET_TEXT,
+                  });
+                }
+              }
             }
           }
 
@@ -727,13 +794,14 @@ export function WaveCanvas() {
       // B (structural): membership or format change → flag a repack. The key must
       // cover everything that changes the native pack: signal/row, radix (single vs
       // multi pipeline + label format), role (clk kind/shade, e.g. bin↔clock keeps
-      // radix bin), clock polarity (which edges get a chevron), and the enum table
-      // (multi pill label content). The frame loop is the single packer, so it
-      // repacks at the live viewport window (markAddRebuilt fires there once the
-      // new buffers present).
+      // radix bin), clock polarity (which edges get a chevron), the enum table
+      // (multi pill label content), and the mute signal (which enable mutes this
+      // row, so its edges add segment boundaries). The frame loop is the single
+      // packer, so it repacks at the live viewport window (markAddRebuilt fires
+      // there once the new buffers present).
       const unsubStructural = useAppStore.subscribe(
         (s) => s.activeSignals.map((r) =>
-          `${r.signalId}:${r.row}:${r.radix}:${r.role ?? ""}:${r.clock?.polarity ?? ""}:${r.enumTable?.map((e) => `${e.value}=${e.label}`).join(",") ?? ""}`,
+          `${r.signalId}:${r.row}:${r.radix}:${r.role ?? ""}:${r.clock?.polarity ?? ""}:${r.enumTable?.map((e) => `${e.value}=${e.label}`).join(",") ?? ""}:${r.mute ?? ""}`,
         ).join("|"),
         () => {
           perf.addMark("solid render + commit + paint");

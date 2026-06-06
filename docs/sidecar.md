@@ -79,6 +79,7 @@ Per-signal fields:
 | `pinned`   | no       | Sticky header row.                                          |
 | `role`     | no       | `clock` \| `reset` \| `valid` — styling / ruler behavior.   |
 | `derived`  | no       | `{ "expr": "..." }` — marks a user-derived signal.          |
+| `mute`     | no       | Dotted path of a 1-bit enable; this row is muted (dimmed, no value pill) wherever that signal isn't logic-1. Set via the row's "Mute" context-menu submenu. Resolved like `path`; an unresolved mute just disables muting. |
 
 **Tolerance.** When a sidecar is loaded against a trace, each `path` is resolved
 against the live hierarchy. Paths that resolve are shown; paths that don't are
@@ -86,8 +87,8 @@ against the live hierarchy. Paths that resolve are shown; paths that don't are
 bit-range suffix (`[7:0]`) is part of the name, so a width change reads as a
 "signal not found". A merge/port tool to remap stale paths is future work.
 
-`enumType` and `gate` are reserved in the schema for forward-compatibility but
-are currently trace-side and not emitted.
+`mute` is set per row from the "Mute" context-menu submenu. `enumType` is reserved
+in the schema for forward-compatibility but is currently trace-side and not emitted.
 
 ## Markers
 

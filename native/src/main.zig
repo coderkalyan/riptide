@@ -204,7 +204,7 @@ const PackSpec = struct {
     kind: pack.PackKind,
     polarity: pack.ClockPolarity,
     shaded: bool,
-    gate: ?tide.Signal.Id,
+    mute: ?tide.Signal.Id,
     radix: label.Radix,
     enums: []const label.EnumEntry,
 };
@@ -255,12 +255,12 @@ fn parseSpec(env: c.napi_env, v: c.napi_value, arena: std.mem.Allocator) ?PackSp
     var handle_v: c.napi_value = undefined;
     var kind_v: c.napi_value = undefined;
     var shaded_v: c.napi_value = undefined;
-    var gate_v: c.napi_value = undefined;
+    var mute_v: c.napi_value = undefined;
     if (c.napi_get_named_property(env, v, "row", &row_v) != c.napi_ok) return null;
     if (c.napi_get_named_property(env, v, "handle", &handle_v) != c.napi_ok) return null;
     if (c.napi_get_named_property(env, v, "kind", &kind_v) != c.napi_ok) return null;
     if (c.napi_get_named_property(env, v, "shaded", &shaded_v) != c.napi_ok) return null;
-    if (c.napi_get_named_property(env, v, "gateHandle", &gate_v) != c.napi_ok) return null;
+    if (c.napi_get_named_property(env, v, "muteHandle", &mute_v) != c.napi_ok) return null;
 
     var row: u32 = 0;
     if (c.napi_get_value_uint32(env, row_v, &row) != c.napi_ok) return null;
@@ -288,9 +288,9 @@ fn parseSpec(env: c.napi_env, v: c.napi_value, arena: std.mem.Allocator) ?PackSp
     var shaded: bool = false;
     if (c.napi_get_value_bool(env, shaded_v, &shaded) != c.napi_ok) return null;
 
-    var gate_type: c.napi_valuetype = undefined;
-    _ = c.napi_typeof(env, gate_v, &gate_type);
-    const gate: ?tide.Signal.Id = if (gate_type == c.napi_string) parseHandle(env, gate_v) else null;
+    var mute_type: c.napi_valuetype = undefined;
+    _ = c.napi_typeof(env, mute_v, &mute_type);
+    const mute: ?tide.Signal.Id = if (mute_type == c.napi_string) parseHandle(env, mute_v) else null;
 
     // radix: optional string, defaults to bin (matches makeActiveRef scalars).
     var radix: label.Radix = .bin;
@@ -304,7 +304,7 @@ fn parseSpec(env: c.napi_env, v: c.napi_value, arena: std.mem.Allocator) ?PackSp
         }
     }
 
-    return .{ .row = row, .handle = handle, .kind = kind, .polarity = polarity, .shaded = shaded, .gate = gate, .radix = radix, .enums = parseEnums(env, v, arena) };
+    return .{ .row = row, .handle = handle, .kind = kind, .polarity = polarity, .shaded = shaded, .mute = mute, .radix = radix, .enums = parseEnums(env, v, arena) };
 }
 
 // getMockSegments(specs, qStart, qEnd): pack each active signal over the tick
@@ -357,7 +357,9 @@ fn getMockSegments(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.n
             .end_t = end_t,
             .kind = s.kind,
             .polarity = s.polarity,
-            .gate_id = s.gate,
+            .mute_id = s.mute,
+            .q_start = q_start,
+            .q_end = q_end,
             .radix = s.radix,
             .enums = s.enums,
         }) catch @panic("packSignal failed");

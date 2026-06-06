@@ -56,10 +56,5 @@ Each item is binned by *why* it's still mocked:
 - [ ] **Derived signals.** No expression engine — the VCD precomputes `busy`/`done`
   under a `derived` scope and `scene.ts` tags a cosmetic `derivedExpr`. → when a
   live derivation layer computes them from inputs.
-- [ ] **Row gating is a hardcoded fixture map.** `GATE_BY_PATH` (`scene.ts`, built
-  from `ROWS[].gatePath`) mutes a row while its gate signal isn't logic-1, but the
-  signal→gate mapping is hardcoded to the mock's paths (`in_data`/`in_addr`←`in_valid`,
-  `out_data`←`out_valid`) and deliberately kept out of the sidecar. → make the gate
-  a user-selectable, sidecar-persisted per-row field.
 - [ ] **Packaged-build trace path.** Default `app.getAppPath()/native/src/mock.vcd`
   works under `electron .`; a packaged build needs the fixture shipped + path fixed.

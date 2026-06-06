@@ -50,10 +50,12 @@ export interface SidecarSignal {
   dividerBelow?: boolean;   // thin separator rendered below this row
   dividerHeight?: number;   // resized divider height (CSS px)
   derived?: { expr: string };
-  // Reserved for forward-compat / scripting; not emitted by this build (enums
-  // and muting are trace-side here). Documented in docs/sidecar.md.
+  // Path of a 1-bit enable signal that mutes this row while it isn't logic-1.
+  // Set via the row's "Mute" context-menu submenu. Documented in docs/sidecar.md.
+  mute?: string;
+  // Reserved for forward-compat / scripting; not emitted by this build (enum
+  // tables are trace-side here). Documented in docs/sidecar.md.
   enumType?: string;
-  gate?: string;
 }
 
 export interface SidecarMarker {
@@ -242,6 +244,7 @@ export function resolveView(
       ...(s.dividerBelow ? { dividerBelow: true } : {}),
       ...(s.dividerHeight ? { dividerHeight: s.dividerHeight } : {}),
       ...(s.derived ? { derivedExpr: s.derived.expr } : {}),
+      ...(s.mute ? { mute: s.mute } : {}),
     });
   }
   return { activeSignals, misses };
@@ -289,6 +292,7 @@ export function serializeSidecar(snap: SidecarSnapshot): Sidecar {
     ...(r.dividerBelow ? { dividerBelow: true } : {}),
     ...(r.dividerHeight ? { dividerHeight: r.dividerHeight } : {}),
     ...(r.derivedExpr ? { derived: { expr: r.derivedExpr } } : {}),
+    ...(r.mute ? { mute: r.mute } : {}),
   }));
 
   const markers: SidecarMarker[] = snap.markers.map((m) => ({
