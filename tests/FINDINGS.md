@@ -26,11 +26,19 @@ classified out so they don't mask real value errors (see §Divergences).
 
 ## Bugs
 
-### B1 — u32 time cap → hard crash on parse
-The napi boundary takes ticks as `uint32` (`getValueAt` tick, `getMockSegments`
-`qStart`/`qEnd`, `endTicks`). Any VCD whose timestamps exceed 2³² panics **at
-load** — `mem.zig:3329 "integer does not fit in destination type"` in
-`mock_db.load` — and `abort()`s the process rather than erroring.
+### B1 — u32 time cap → hard crash on parse  *(FIXED)*
+**Fixed:** the napi/GPU tick path is now u64. `end_t`/`PackOpts.end_t` are u64,
+`getMockSegments`/`getValueAt`/`getEdges` read ticks via `napi_get_value_int64`
+and return `endTicks`/edge ticks as JS numbers (f64, exact to 2⁵³), and
+`pack.packSignal` carries the LOW 32 bits of each timestamp into the GPU segment
+buffer (the shader works in deltas relative to start_ticks, also a low-32 word, so
+i32 wraparound yields the correct on-screen offset). `time_long_sparse` and
+`time_u64_extreme` now pass `native`/`format`/`differential`.
+
+Original report: the napi boundary took ticks as `uint32` (`getValueAt` tick,
+`getMockSegments` `qStart`/`qEnd`, `endTicks`). Any VCD whose timestamps exceeded
+2³² panicked **at load** — `mem.zig:3329 "integer does not fit in destination
+type"` in `mock_db.load` — and `abort()`d the process rather than erroring.
 
 - Hits `time_long_sparse` (span 1e12) and `time_u64_extreme` (span 2⁶³).
 - The Zig core is actually u64-clean (`pack.valueAt(db, id, t: u64)`); the cap is

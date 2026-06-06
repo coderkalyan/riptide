@@ -163,7 +163,8 @@ export function getValueAt(handle: string, tick: number): { lsb: number[]; msb: 
 // period/phase and a reset's held interval (see wave/clock.ts). Null if the
 // handle is unknown.
 export interface NativeEdges {
-  ticks: Uint32Array<ArrayBuffer>;
+  // f64 ticks (full u64 range, exact to 2^53) — see getEdges in native/src/main.zig.
+  ticks: Float64Array<ArrayBuffer>;
   lsb: Uint8Array<ArrayBuffer>;
   msb: Uint8Array<ArrayBuffer>;
   count: number;
@@ -172,7 +173,7 @@ export function getEdges(handle: string, startTick: number, count: number): Nati
   const r = native.getEdges(handle, startTick, count);
   if (!r) return null;
   return {
-    ticks: new Uint32Array(r.ticks),
+    ticks: new Float64Array(r.ticks),
     lsb: new Uint8Array(r.lsb),
     msb: new Uint8Array(r.msb),
     count: r.count,

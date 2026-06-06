@@ -13,7 +13,7 @@ pub const ClockPolarity = enum { rising, falling, both };
 pub const PackOpts = struct {
     width: u32,
     shaded: bool,
-    end_t: u32,
+    end_t: u64,
     kind: PackKind = .data,
     polarity: ClockPolarity = .rising,
     gate_id: ?tide.Signal.Id = null,
@@ -81,15 +81,17 @@ pub fn packSignal(
     const len: usize = @intCast(query.len);
     var i: usize = 0;
     while (i < len) : (i += 1) {
-        // Tick path is u32 at the GPU boundary; @intCast panics (ReleaseSafe) on
-        // overflow rather than wrapping. Traces exceeding 2^32 ticks need a u64
-        // widening — see TIDE_INTEGRATION.md §3.10.
-        std.debug.assert(query.timestamps[i] <= std.math.maxInt(u32));
-        const t_start: u32 = @intCast(query.timestamps[i]);
+        // GPU segment ticks carry only the LOW 32 bits of tide's u64 timestamp.
+        // The shader works in deltas relative to start_ticks (carried in the
+        // viewport uniform as its own low 32 bits + frac), and i32 subtraction
+        // wraps mod 2^32, so the wrapped low word yields the correct on-screen
+        // offset for any window whose span fits i32 — full absolute precision
+        // (endTicks, cursor, query window) stays u64 on the JS/Zig side.
+        const t_start: u32 = @truncate(query.timestamps[i]);
         const t_end: u32 = if (i + 1 < len)
-            @intCast(query.timestamps[i + 1]) // same u32 tick ceiling as t_start
+            @truncate(query.timestamps[i + 1])
         else
-            opts.end_t;
+            @truncate(opts.end_t);
 
         const has_next = i + 1 < len;
 

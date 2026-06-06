@@ -74,6 +74,24 @@ fn jsU32(env: c.napi_env, n: u32) c.napi_value {
     return v;
 }
 
+// A JS number from a u64 tick. Ticks are tide-native u64; JS numbers are exact
+// to 2^53, which covers every realistic timestamp. Used for endTicks (the
+// renderer's fit window / clamps) — must NOT be narrowed to u32 (the old cap).
+fn jsTick(env: c.napi_env, n: u64) c.napi_value {
+    var v: c.napi_value = undefined;
+    _ = c.napi_create_double(env, @floatFromInt(n), &v);
+    return v;
+}
+
+// Read a JS number as a u64 tick (clamped non-negative). napi_get_value_int64
+// preserves the full 53-bit-exact integer range — unlike napi_get_value_uint32,
+// whose 2^32 cap was the old GPU/napi tick ceiling.
+fn readTick(env: c.napi_env, v: c.napi_value) u64 {
+    var n: i64 = 0;
+    if (c.napi_get_value_int64(env, v, &n) != c.napi_ok) return 0;
+    return if (n < 0) 0 else @intCast(n);
+}
+
 // A JS array of `words` u32s read little-endian from `bytes` (tide's per-sample
 // byte run), zero-padded when shorter. The CPU value path (getValueAt) keeps this
 // word-array shape for formatSegmentValue; it's independent of the GPU pools, which
@@ -308,12 +326,10 @@ fn getMockSegments(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.n
 
     const loaded = getLoaded();
     const db = &loaded.db;
-    const end_t: u32 = loaded.end_t;
+    const end_t: u64 = loaded.end_t;
 
-    var q_start: u32 = 0;
-    var q_end: u32 = end_t;
-    _ = c.napi_get_value_uint32(env, argv[1], &q_start);
-    _ = c.napi_get_value_uint32(env, argv[2], &q_end);
+    var q_start: u64 = readTick(env, argv[1]);
+    var q_end: u64 = readTick(env, argv[2]);
     if (q_end > end_t) q_end = end_t;
     if (q_start > q_end) q_start = q_end;
 
@@ -373,7 +389,7 @@ fn getMockSegments(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.n
     setProp(env, obj, "labelOffsets", makeArrayBufferFromU32s(env, scene.multi_label_offsets.items));
     // The trace's true end tick (last ingested timestamp). The renderer needs the
     // real end for viewport clamps / the zoom-out dead-zone, not a hardcoded mock.
-    setProp(env, obj, "endTicks", jsU32(env, end_t));
+    setProp(env, obj, "endTicks", jsTick(env, end_t));
     return obj;
 }
 
@@ -387,10 +403,9 @@ fn getValueAt(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.napi_v
 
     const id = parseHandle(env, argv[0]) orelse return jsNull(env);
 
-    var tick_u32: u32 = 0;
-    if (c.napi_get_value_uint32(env, argv[1], &tick_u32) != c.napi_ok) return jsNull(env);
+    const tick = readTick(env, argv[1]);
 
-    const v = pack.valueAt(getDb(), id, tick_u32) orelse return jsNull(env);
+    const v = pack.valueAt(getDb(), id, tick) orelse return jsNull(env);
 
     const words = seg.wordsPerSample(v.width);
     const o = jsObj(env);
@@ -413,8 +428,7 @@ fn getEdges(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.napi_val
 
     const id = parseHandle(env, argv[0]) orelse return jsNull(env);
 
-    var start_tick: u32 = 0;
-    if (c.napi_get_value_uint32(env, argv[1], &start_tick) != c.napi_ok) return jsNull(env);
+    const start_tick = readTick(env, argv[1]);
     var count: u32 = 0;
     if (c.napi_get_value_uint32(env, argv[2], &count) != c.napi_ok) return jsNull(env);
 
@@ -422,10 +436,11 @@ fn getEdges(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.napi_val
     const n: usize = @intCast(q.len);
     const bps = q.type.bytes();
 
-    // ticks (u32 each) + lsb/msb (one byte per transition: the sample's low byte).
+    // ticks (f64 each — full u64 range, exact to 2^53) + lsb/msb (one byte per
+    // transition: the sample's low byte).
     var ticks: c.napi_value = undefined;
     var ticks_data: ?*anyopaque = null;
-    _ = c.napi_create_arraybuffer(env, n * @sizeOf(u32), &ticks_data, &ticks);
+    _ = c.napi_create_arraybuffer(env, n * @sizeOf(f64), &ticks_data, &ticks);
     var lsb: c.napi_value = undefined;
     var lsb_data: ?*anyopaque = null;
     _ = c.napi_create_arraybuffer(env, n, &lsb_data, &lsb);
@@ -433,12 +448,12 @@ fn getEdges(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.napi_val
     var msb_data: ?*anyopaque = null;
     _ = c.napi_create_arraybuffer(env, n, &msb_data, &msb);
     if (n > 0) {
-        const tdst = @as([*]u32, @ptrCast(@alignCast(ticks_data.?)))[0..n];
+        const tdst = @as([*]f64, @ptrCast(@alignCast(ticks_data.?)))[0..n];
         const ldst = @as([*]u8, @ptrCast(lsb_data.?))[0..n];
         const mdst = @as([*]u8, @ptrCast(msb_data.?))[0..n];
         var i: usize = 0;
         while (i < n) : (i += 1) {
-            tdst[i] = @intCast(q.timestamps[i]);
+            tdst[i] = @floatFromInt(q.timestamps[i]);
             ldst[i] = q.x0s[i * bps];
             mdst[i] = q.x1s[i * bps];
         }
@@ -542,7 +557,7 @@ fn getHierarchy(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.napi
     // Trace's true end tick (last ingested timestamp) — the renderer's source of
     // truth for the fit window / clamps / zoom-out dead-zone (replaces the old
     // hardcoded mock end). Resolved once at scene build, before any frame.
-    setProp(env, root, "endTicks", jsU32(env, getLoaded().end_t));
+    setProp(env, root, "endTicks", jsTick(env, getLoaded().end_t));
 
     return root;
 }

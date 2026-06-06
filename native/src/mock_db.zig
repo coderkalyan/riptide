@@ -42,8 +42,9 @@ pub const Loaded = struct {
     db: tide.Database,
     hierarchy: hier.Hierarchy,
     /// Right boundary of the trace (last timestamp in the event stream). The
-    /// last segment of every signal extends to here.
-    end_t: u32,
+    /// last segment of every signal extends to here. u64 = tide's native tick
+    /// width; the renderer carries it as a JS number (exact to 2^53).
+    end_t: u64,
     /// Viewer timescale parsed from the VCD `$timescale` declaration.
     timescale: Timescale,
 
@@ -247,8 +248,7 @@ pub fn load(gpa: Allocator, path: []const u8) !Loaded {
     return .{
         .db = db,
         .hierarchy = hierarchy,
-        // u32 tick ceiling (panics in ReleaseSafe past 2^32) — see TIDE_INTEGRATION.md §3.10.
-        .end_t = @intCast(if (cur_t == 0) 1 else cur_t),
+        .end_t = if (cur_t == 0) 1 else cur_t,
         .timescale = mapTimescale(p.header.timescale),
     };
 }

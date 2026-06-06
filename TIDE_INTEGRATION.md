@@ -53,11 +53,6 @@ Each item is binned by *why* it's still mocked:
   away.* → widen `mapVarType` to thread the full type through.
 ## Riptide-internal (independent of the VCD)
 
-- [ ] **u32 tick ceiling.** GPU/napi path narrows tide's u64 ticks to u32
-  (`pack.zig` `t_start`/`t_end` + `assert(ts <= maxInt(u32))`, `main.zig`/`mock_db.zig`
-  `end_t`). Checked `@intCast` under ReleaseSafe → **panics** past 2³², not silent
-  wrap. → widen the GPU tick path to u64 (or rebase ticks to the view window).
-  *(= tests/FINDINGS.md B1; blocks large ps/fs traces.)*
 - [ ] **Derived signals.** No expression engine — the VCD precomputes `busy`/`done`
   under a `derived` scope and `scene.ts` tags a cosmetic `derivedExpr`. → when a
   live derivation layer computes them from inputs.
