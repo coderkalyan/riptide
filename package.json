@@ -12,6 +12,7 @@
     "test:differential": "node --test tests/differential.test.cjs",
     "test:visual": "tests/e2e/run-headless.sh",
     "test:visual:update": "UPDATE_GOLDENS=1 tests/e2e/run-headless.sh",
+    "screenshot": "node scripts/screenshot.cjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "build": "pnpm wgsl-check && pnpm build:native && tsc -p tsconfig.json && node scripts/build-ui.mjs",
     "build:prod": "NODE_ENV=production pnpm build",
