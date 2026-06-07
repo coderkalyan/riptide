@@ -28,7 +28,7 @@ echo 1 > "$RC_FILE" # default-fail until the inner command reports success
 # record its exit code, then tear sway down.
 cat > "$CFG_FILE" <<EOF
 output HEADLESS-1 resolution 1920x1200
-exec "env -u DISPLAY ELECTRON_OZONE_PLATFORM_HINT=wayland node --test ${TEST_ARGS:-} tests/e2e/visual.test.cjs >$LOG_FILE 2>&1; echo \$? > $RC_FILE; swaymsg exit"
+exec "env -u DISPLAY ELECTRON_OZONE_PLATFORM_HINT=wayland node --test ${TEST_ARGS:-} ${TARGET:-tests/e2e/visual.test.cjs} >$LOG_FILE 2>&1; echo \$? > $RC_FILE; swaymsg exit"
 EOF
 
 WLR_BACKENDS=headless \

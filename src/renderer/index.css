@@ -85,11 +85,19 @@
             --drv-tag-bg:#4A1E18; --drv-tag-fg:#F4A698;
             --row-h:28px;
             --shadow-1: 0 1px 0 rgba(0,0,0,.4), 0 1px 3px rgba(0,0,0,.25);
+            /* Type scale — 5 steps. Plain :root vars (not @theme) so they're used
+               as font-size: var(--text-*) without Tailwind's line-height injection.
+               Icon glyph sizes (14px) are intentionally outside this scale. */
+            --text-2xs: 10px;
+            --text-xs:  11px;
+            --text-sm:  12px;
+            --text-base: 13px;
+            --text-lg:  15px;
         }
 
         * { box-sizing: border-box; }
         html, body { margin:0; padding:0; height:100%; background: var(--bg); color: var(--text);
-            font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 13px;
+            font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: var(--text-base);
             -webkit-font-smoothing: antialiased; overflow: hidden;
         }
         .mono {
@@ -127,23 +135,23 @@
             color: var(--muted);
         }
         .empty-state .es-icon { color: var(--border-strong); }
-        .empty-state h2 { margin:0; font-size:15px; font-weight:600; color: var(--text-2); }
-        .empty-state p { margin:0; font-size:12.5px; color: var(--muted); }
+        .empty-state h2 { margin:0; font-size: var(--text-lg); font-weight:600; color: var(--text-2); }
+        .empty-state p { margin:0; font-size: var(--text-sm); color: var(--muted); }
         .empty-state .es-open {
             @apply tw:inline-flex tw:items-center tw:bg-accent tw:text-on-accent;
             margin-top: 4px;
             gap: 7px;
-            font: 600 12.5px 'IBM Plex Sans', system-ui, sans-serif;
+            font: 600 var(--text-sm) 'IBM Plex Sans', system-ui, sans-serif;
             border: none;
             border-radius: 6px;
             padding: 8px 16px;
             cursor: pointer;
         }
         .empty-state .es-open:hover { filter: brightness(1.06); }
-        .empty-state .es-hint { font-size:11.5px; color: var(--border-strong); }
+        .empty-state .es-hint { font-size: var(--text-sm); color: var(--border-strong); }
         .empty-state kbd {
             @apply tw:font-mono;
-            font-size: 11px;
+            font-size: var(--text-xs);
             padding: 1px 5px;
             background: var(--panel-3);
             border: 1px solid var(--border);
@@ -160,7 +168,7 @@
             background: var(--border-strong);
         }
         .dots i.r { background:#E86A5A; } .dots i.y{ background:#E6B14E;} .dots i.g{ background:#57C88A;}
-        .title { font-weight: 600; font-size: 12.5px; letter-spacing:.1px; }
+        .title { font-weight: 600; font-size: var(--text-sm); letter-spacing:.1px; }
         .title .sub { color: var(--muted); font-weight: 400; margin-left:6px; }
         /* Tabs hug the bottom of the titlebar (squared bottom corners sit on the
            bottom border) so they read as tabs, not floating chips. */
@@ -174,7 +182,7 @@
             height: 26px;
             padding: 0 7px 0 9px;
             border-radius: 5px 5px 0 0;
-            font-size: 11px;
+            font-size: var(--text-xs);
             cursor: default;
         }
         .tab:hover {
@@ -198,7 +206,7 @@
         .menubar {
             @apply tw:flex tw:items-center tw:gap-0.5;
             margin-left: 6px;
-            font-size: 12.5px;
+            font-size: var(--text-sm);
         }
         .menubar span.m {
             @apply tw:text-text-2 tw:select-none;
@@ -226,7 +234,7 @@
             margin: 2px 0;
             padding: 0 8px;
             border-radius: 5px;
-            font-size: 12.5px;
+            font-size: var(--text-sm);
             cursor: default;
             white-space: nowrap;
         }
@@ -242,7 +250,7 @@
         .menu-item.unimplemented { text-decoration: line-through; }
         .menu-kbd {
             @apply tw:font-mono;
-            font-size: 11px;
+            font-size: var(--text-xs);
             color: var(--muted);
         }
         .menu-item:hover .menu-kbd, .menu-item.active .menu-kbd { color: var(--on-accent); }
@@ -261,7 +269,7 @@
         .menu-swatch { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
         .menu-clock-info {
             @apply tw:inline-flex tw:items-center tw:gap-1 tw:font-mono;
-            font-size: 11px;
+            font-size: var(--text-xs);
             color: var(--muted);
         }
         .menu-item:hover .menu-clock-info, .menu-item.active .menu-clock-info { color: var(--on-accent); }
@@ -274,10 +282,10 @@
         .menu-clock-pol:hover { background: color-mix(in srgb, var(--on-accent) 20%, transparent); }
         .menu-clock-info .num-edit { color: inherit; margin: 0; }
         .menu-clock-info .num-edit:hover { color: inherit; background: color-mix(in srgb, var(--on-accent) 20%, transparent); border-color: transparent; }
-        .menu-clock-info .num-input { font-size: 11px; height: 18px; min-width: 4ch; text-align: left; margin: 0; }
+        .menu-clock-info .num-input { font-size: var(--text-xs); height: 18px; min-width: 4ch; text-align: left; margin: 0; }
         .menu-clock-unit { color: var(--text-2); }
         .menu-item:hover .menu-clock-unit, .menu-item.active .menu-clock-unit { color: var(--on-accent); }
-        .menu-gear { font-size: 13px; line-height: 1; color: var(--muted); cursor: pointer; padding: 0 2px; border-radius: 4px; }
+        .menu-gear { font-size: var(--text-base); line-height: 1; color: var(--muted); cursor: pointer; padding: 0 2px; border-radius: 4px; }
         .menu-gear:hover { color: var(--text); background: color-mix(in srgb, var(--on-accent) 18%, transparent); }
         .menu-item:hover .menu-gear, .menu-item.active .menu-gear { color: var(--on-accent); }
 
@@ -295,7 +303,7 @@
             border-radius: 10px;
             box-shadow: var(--shadow-1);
         }
-        .modal-title { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 14px; }
+        .modal-title { font-size: var(--text-base); font-weight: 600; color: var(--text); margin-bottom: 14px; }
         .modal-actions {
             @apply tw:flex tw:justify-end tw:gap-2;
             margin-top: 6px;
@@ -312,7 +320,7 @@
             grid-template-columns: 96px 1fr 30px;
         }
         .enum-row > :nth-child(2) { border-left: 1px solid var(--border); } /* value | name divider */
-        .enum-head { font-size: 11px; color: var(--muted); background: var(--panel); border-bottom: 1px solid var(--border); }
+        .enum-head { font-size: var(--text-xs); color: var(--muted); background: var(--panel); border-bottom: 1px solid var(--border); }
         .enum-head span { padding: 6px 10px; }
         .enum-body { max-height: 240px; overflow-y: auto; }
         .enum-body .enum-row + .enum-row { border-top: 1px solid var(--border); } /* row separators */
@@ -320,12 +328,12 @@
             @apply tw:flex tw:items-center;
             height: 30px;
             padding: 0 10px;
-            font-size: 12px;
+            font-size: var(--text-sm);
             color: var(--muted);
         }
         .enum-cell {
             height: 30px; width: 100%; min-width: 0; border: 0; background: transparent;
-            color: var(--text); font-size: 12.5px; font-family: inherit; padding: 0 10px; outline: none;
+            color: var(--text); font-size: var(--text-sm); font-family: inherit; padding: 0 10px; outline: none;
         }
         .enum-cell:focus { background: color-mix(in srgb, var(--accent) 14%, transparent); }
         .enum-cell::placeholder { color: var(--muted); }
@@ -334,7 +342,7 @@
         }
         .enum-del {
             width: 100%; height: 30px; border: 0; background: transparent; color: var(--muted);
-            cursor: pointer; font-size: 11px; padding: 0; opacity: 0; transition: opacity .12s, color .12s;
+            cursor: pointer; font-size: var(--text-xs); padding: 0; opacity: 0; transition: opacity .12s, color .12s;
         }
         .enum-row:hover .enum-del { opacity: 1; }
         .enum-del:hover { color: var(--danger); }
@@ -343,7 +351,7 @@
             padding: 3px 8px;
             border: 1px dashed var(--border);
             border-radius: 5px;
-            font-size: 11px;
+            font-size: var(--text-xs);
             color: var(--muted);
         }
 
@@ -359,7 +367,7 @@
             padding: 0 9px;
             border: 1px solid var(--border);
             border-radius: 6px;
-            font-size: 12.5px;
+            font-size: var(--text-sm);
             cursor: default;
             white-space: nowrap;
         }
@@ -368,7 +376,7 @@
         }
         .btn.icon {
             padding: 0 6px;
-            font-size: 12px;
+            font-size: var(--text-sm);
         }
         /* square, sized to seg-button footprint */
         .toolbar > .btn.icon {
@@ -377,7 +385,7 @@
             min-width: 24px;
             padding: 0;
             justify-content: center;
-            font-size: 11.5px;
+            font-size: var(--text-sm);
         }
         .btn.primary {
             background: color-mix(in srgb, var(--accent) 82%, #000);
@@ -399,7 +407,7 @@
             @apply tw:font-mono;
             height: 22px;
             padding: 0 7px;
-            font-size: 11.5px;
+            font-size: var(--text-sm);
         }
         .btn.sm.icon {
             width: 22px;
@@ -418,7 +426,7 @@
             padding: 0 10px;
             border: 1px solid var(--border);
             border-radius: 6px;
-            font-size: 11px;
+            font-size: var(--text-xs);
             cursor: default;
             /* Keep the pill on one line — at narrow widths it otherwise wrapped to
                two lines (e.g. the cursor "… ns" readout) and broke the toolbar row. */
@@ -461,7 +469,7 @@
             will-change: transform, opacity;
             height: 20px;
             padding: 0 7px;
-            font-size: 11.5px;
+            font-size: var(--text-sm);
             border-radius: 4px;
             /* Above .menu-pop (z 1000) so tips over upper menu rows aren't occluded. */
             white-space: nowrap;
@@ -482,7 +490,7 @@
             border: 1px solid var(--border);
             border-radius: 6px;
             background: var(--panel) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238C8C84' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='7'/><path d='m20 20-3-3'/></svg>") no-repeat 8px center;
-            font-size: 12.5px;
+            font-size: var(--text-sm);
             font-family: inherit;
         }
         .search::placeholder { color: var(--muted); }
@@ -513,7 +521,6 @@
             z-index: 1;
         }
         .col .col-head + .col-sub + .tree + .col-head,
-        .col .col-head + .col-sub + .derived-list + .col-head,
         .col > .col-head:not(:first-child) { border-top: 1px solid var(--border); }
         .col {
             @apply tw:flex tw:flex-col tw:min-w-0;
@@ -532,12 +539,12 @@
             height: 34px;
             padding: 0 10px;
             border-bottom: 1px solid var(--border);
-            font-size: 11.5px;
+            font-size: var(--text-sm);
         }
         .col-head h3 {
             @apply tw:uppercase;
             margin: 0;
-            font-size: 11.5px;
+            font-size: var(--text-sm);
             font-weight: 600;
             letter-spacing: .4px;
             color: var(--text-2);
@@ -550,7 +557,7 @@
             writing-mode: vertical-rl;
             transform: rotate(180deg);
             margin-top: 10px;
-            font-size: 11.5px;
+            font-size: var(--text-sm);
             font-weight: 600;
             letter-spacing: .4px;
             color: var(--text-2);
@@ -558,7 +565,7 @@
         }
         .col-head .hint {
             @apply tw:font-mono;
-            font-size: 10.5px;
+            font-size: var(--text-xs);
             color: var(--muted);
             white-space: nowrap;
         }
@@ -591,7 +598,7 @@
             border-radius: 3px;
             background: var(--panel-2);
             color: var(--text);
-            font-size: 10.5px;
+            font-size: var(--text-xs);
             text-align: center;
             vertical-align: middle;
             outline: none;
@@ -606,11 +613,11 @@
         }
         .ts-range {
             @apply tw:font-mono;
-            font-size: 10.5px;
+            font-size: var(--text-xs);
             color: var(--text);
             white-space: nowrap;
         }
-        .ts-info { font-size: 9px; color: var(--muted); text-align: right; white-space: nowrap; }
+        .ts-info { font-size: var(--text-2xs); color: var(--muted); text-align: right; white-space: nowrap; }
         /* Timebase clock selector: standalone dropdown button (current clock +
            chevron) + the detected period/phase edit block inside the popup.
            Disabled (greyed, still visible) when clock alignment is off. */
@@ -626,7 +633,7 @@
         .clock-trig-label {
             @apply tw:truncate;
             max-width: 96px;
-            font-size: 10.5px;
+            font-size: var(--text-xs);
             color: var(--text-2);
         }
         .clock-chevron {
@@ -687,17 +694,11 @@
         .col-sub .search {
             @apply tw:flex-1 tw:min-w-0;
             height: 26px;
-            font-size: 12.5px;
-        }
-        /* Bare icon that labels the toolbar group it precedes (e.g. markers). */
-        .seg-label {
-            @apply tw:inline-flex tw:items-center tw:text-muted;
-            margin-right: 1px;
-        }
-        /* Uppercase text label for a toolbar group (e.g. MARKERS). */
+            font-size: var(--text-sm);
+        }        /* Uppercase text label for a toolbar group (e.g. MARKERS). */
         .sub-label {
             @apply tw:uppercase tw:select-none tw:flex-none;
-            font-size: 10px;
+            font-size: var(--text-xs);
             font-weight: 600;
             letter-spacing: 0.08em;
             color: var(--muted);
@@ -724,7 +725,7 @@
             height: 21px;
             padding: 0 5px 0 8px;
             border-radius: 4px;
-            font-size: 11px;
+            font-size: var(--text-xs);
             cursor: pointer;
             color: var(--mk);
             background: var(--panel);
@@ -744,14 +745,7 @@
         }
         .marker-pill .rm:hover { opacity: 1; }
 
-        .tree { padding: 4px 4px 12px; overflow:auto; flex:2; }
-        /* Scope expand/collapse height animation: grid rows 0fr↔1fr animates
-           to/from the children's natural height. inner needs min-height:0 +
-           overflow:hidden so it can collapse and clip during the transition. */
-        .t-children { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 180ms ease; }
-        .t-children.open { grid-template-rows: 1fr; }
-        .t-children-inner { overflow: hidden; min-height: 0; }
-        /* Global scrollbar styling — thin bars, matching the signal tree.
+        .tree { padding: 4px 4px 12px; overflow:auto; flex:2; }/* Global scrollbar styling — thin bars, matching the signal tree.
            NOTE: do NOT set the standard `scrollbar-width`/`scrollbar-color` here.
            In Chromium (this is always the renderer) those switch the element to
            the standardized scrollbar and make it IGNORE every ::-webkit-scrollbar
@@ -777,7 +771,7 @@
             @apply tw:flex tw:items-center tw:gap-1 tw:font-mono tw:text-text;
             height: 22px;
             padding: 0 6px;
-            font-size: 12px;
+            font-size: var(--text-sm);
             border-radius: 4px;
             white-space: nowrap;
             /* Skip layout/paint for rows scrolled out of the tree viewport (and
@@ -801,29 +795,9 @@
             @apply tw:inline-flex tw:items-center tw:justify-center tw:text-muted;
             width: 14px;
         }
-        .t-row .icon.module { color: var(--text-2); }
-        .t-row .icon.clk  { color: var(--clk); }
-        .t-row .icon.bus  { color: var(--bus); }
-        .t-row .icon.bus2 { color: var(--bus2); }
-        .t-row .icon.state { color: var(--warn); }
-        .t-row .icon.drv  { color: var(--drv-tag-fg); }
-        .t-row .lbl {
+        .t-row .icon.module { color: var(--text-2); }        .t-row .icon.bus  { color: var(--bus); }.t-row .lbl {
             @apply tw:flex-1 tw:truncate;
-        }
-        .t-row .count {
-            @apply tw:inline-flex tw:items-center;
-            height: 14px;
-            padding: 0 4px;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            font-size: 10px;
-            color: var(--muted);
-        }
-        .t-row .count.expr {
-            @apply tw:truncate;
-            max-width: 120px;
-        }
-        .t-row .plus {
+        }.t-row .plus {
             @apply tw:inline-flex tw:items-center tw:justify-center tw:text-muted;
             width: 14px;
             height: 14px;
@@ -833,53 +807,7 @@
             opacity: 0;
         }
         .t-row:hover .plus { opacity: 1; }
-        .t-row .plus:hover { color: var(--text); }
-        .tree-section {
-            @apply tw:uppercase;
-            margin-top: 8px;
-            padding: 4px 10px 2px;
-            font-size: 10.5px;
-            color: var(--muted);
-            letter-spacing: .5px;
-            border-top: 1px solid var(--border);
-        }
-
-        .derived-list { overflow: auto; flex: 1; padding: 0 4px 4px; }
-        .d-row {
-            @apply tw:flex tw:flex-col tw:gap-px;
-            padding: 2px 6px;
-        }
-        .d-row:hover {
-            @apply tw:hover-raise;
-        }
-        .d-row-top {
-            @apply tw:flex tw:items-center tw:gap-1;
-            height: 18px;
-        }
-        .d-row-top .icon {
-            @apply tw:inline-flex tw:items-center tw:justify-center tw:shrink-0;
-            width: 14px;
-            color: var(--drv-tag-fg);
-        }
-        .d-row-top .lbl {
-            @apply tw:flex-1 tw:font-mono tw:truncate tw:text-text;
-            font-size: 12px;
-        }
-        .d-row-top .kebab {
-            @apply tw:inline-flex tw:items-center tw:text-muted;
-            opacity: 0;
-            cursor: default;
-        }
-        .d-row:hover .kebab { opacity: 1; }
-        .d-row-top .kebab:hover { color: var(--text); }
-        .d-expr {
-            @apply tw:truncate tw:text-text-2;
-            padding-left: 20px;
-            font-size: 11px;
-            line-height: 1.3;
-        }
-
-        /* y-only scroll: rows ellipsis-truncate, so the list never needs an
+        .t-row .plus:hover { color: var(--text); }/* y-only scroll: rows ellipsis-truncate, so the list never needs an
            x-scroll. overflow-x:hidden stops row tooltips (which extend past the
            panel edge) from widening the scroll area. */
         .signals {
@@ -889,10 +817,12 @@
         }
         .s-head {
             @apply tw:grid tw:items-end tw:gap-1.5 tw:uppercase tw:bg-panel;
-            grid-template-columns: 16px 16px 1fr auto 14px;
+            /* Columns match the row's flex layout (pin 8 + icon 12) so the NAME
+               header lines up exactly over the signal-name column. */
+            grid-template-columns: 8px 12px 1fr auto 14px;
             height: var(--row-h);
             padding: 0 8px 5px;
-            font-size: 10px;
+            font-size: var(--text-xs);
             color: var(--muted);
             letter-spacing: .4px;
             border-bottom: 1px solid var(--border);
@@ -904,7 +834,7 @@
             height: var(--row-h);
             padding: 0 8px;
             border-bottom: 1px solid var(--border);
-            font-size: 12px;
+            font-size: var(--text-sm);
         }
         .s-row .pin, .s-row .s-icon, .s-row .eye {
             @apply tw:flex-none;
@@ -948,7 +878,7 @@
         .clr-anchor { position: fixed; z-index: 1000; width: 1px; height: 1px; padding: 0; margin: 0; border: 0; opacity: 0; pointer-events: none; }
 
         /* --- vendored Coloris (coloris.js.org) base stylesheet, see ColorPicker.tsx --- */
-        .clr-picker{display:none;flex-wrap:wrap;position:absolute;width:200px;z-index:1000;border-radius:10px;background-color:#fff;justify-content:flex-end;direction:ltr;box-shadow:0 0 5px rgba(0,0,0,.05),0 5px 20px rgba(0,0,0,.1);-moz-user-select:none;-webkit-user-select:none;user-select:none}.clr-picker.clr-open,.clr-picker[data-inline=true]{display:flex}.clr-picker[data-inline=true]{position:relative}.clr-gradient{position:relative;width:100%;height:100px;margin-bottom:15px;border-radius:3px 3px 0 0;background-image:linear-gradient(rgba(0,0,0,0),#000),linear-gradient(90deg,#fff,currentColor);cursor:pointer}.clr-marker{position:absolute;width:12px;height:12px;margin:-6px 0 0 -6px;border:1px solid #fff;border-radius:50%;background-color:currentColor;cursor:pointer}.clr-picker input[type=range]::-webkit-slider-runnable-track{width:100%;height:16px}.clr-picker input[type=range]::-webkit-slider-thumb{width:16px;height:16px;-webkit-appearance:none}.clr-picker input[type=range]::-moz-range-track{width:100%;height:16px;border:0}.clr-picker input[type=range]::-moz-range-thumb{width:16px;height:16px;border:0}.clr-hue{background-image:linear-gradient(to right,red 0,#ff0 16.66%,#0f0 33.33%,#0ff 50%,#00f 66.66%,#f0f 83.33%,red 100%)}.clr-alpha,.clr-hue{position:relative;width:calc(100% - 40px);height:8px;margin:5px 20px;border-radius:4px}.clr-alpha span{display:block;height:100%;width:100%;border-radius:inherit;background-image:linear-gradient(90deg,rgba(0,0,0,0),currentColor)}.clr-alpha input[type=range],.clr-hue input[type=range]{position:absolute;width:calc(100% + 32px);height:16px;left:-16px;top:-4px;margin:0;background-color:transparent;opacity:0;cursor:pointer;appearance:none;-webkit-appearance:none}.clr-alpha div,.clr-hue div{position:absolute;width:16px;height:16px;left:0;top:50%;margin-left:-8px;transform:translateY(-50%);border:2px solid #fff;border-radius:50%;background-color:currentColor;box-shadow:0 0 1px #888;pointer-events:none}.clr-alpha div:before{content:'';position:absolute;height:100%;width:100%;left:0;top:0;border-radius:50%;background-color:currentColor}.clr-format{display:none;order:1;width:calc(100% - 40px);margin:0 20px 20px}.clr-segmented{display:flex;position:relative;width:100%;margin:0;padding:0;border:1px solid #ddd;border-radius:15px;box-sizing:border-box;color:#999;font-size:12px}.clr-segmented input,.clr-segmented legend{position:absolute;width:100%;height:100%;margin:0;padding:0;border:0;left:0;top:0;opacity:0;pointer-events:none}.clr-segmented label{flex-grow:1;margin:0;padding:4px 0;font-size:inherit;font-weight:400;line-height:initial;text-align:center;cursor:pointer}.clr-segmented label:first-of-type{border-radius:10px 0 0 10px}.clr-segmented label:last-of-type{border-radius:0 10px 10px 0}.clr-segmented input:checked+label{color:#fff;background-color:#666}.clr-swatches{order:2;width:calc(100% - 32px);margin:0 16px}.clr-swatches div{display:flex;flex-wrap:wrap;padding-bottom:12px;justify-content:center}.clr-swatches button{position:relative;width:20px;height:20px;margin:0 4px 6px 4px;padding:0;border:0;border-radius:50%;color:inherit;text-indent:-1000px;white-space:nowrap;overflow:hidden;cursor:pointer}.clr-swatches button:after{content:'';display:block;position:absolute;width:100%;height:100%;left:0;top:0;border-radius:inherit;background-color:currentColor;box-shadow:inset 0 0 0 1px rgba(0,0,0,.1)}input.clr-color{order:1;width:calc(100% - 80px);height:32px;margin:15px 20px 20px auto;padding:0 10px;border:1px solid #ddd;border-radius:16px;color:#444;background-color:#fff;font-family:sans-serif;font-size:14px;text-align:center;box-shadow:none}input.clr-color:focus{outline:0;border:1px solid #1e90ff}.clr-clear,.clr-close{display:none;order:2;height:24px;margin:0 20px 20px;padding:0 20px;border:0;border-radius:12px;color:#fff;background-color:#666;font-family:inherit;font-size:12px;font-weight:400;cursor:pointer}.clr-close{display:block;margin:0 20px 20px auto}.clr-preview{position:relative;width:32px;height:32px;margin:15px 0 20px 20px;border-radius:50%;overflow:hidden}.clr-preview:after,.clr-preview:before{content:'';position:absolute;height:100%;width:100%;left:0;top:0;border:1px solid #fff;border-radius:50%}.clr-preview:after{border:0;background-color:currentColor;box-shadow:inset 0 0 0 1px rgba(0,0,0,.1)}.clr-preview button{position:absolute;width:100%;height:100%;z-index:1;margin:0;padding:0;border:0;border-radius:50%;outline-offset:-2px;background-color:transparent;text-indent:-9999px;cursor:pointer;overflow:hidden}.clr-alpha div,.clr-color,.clr-hue div,.clr-marker{box-sizing:border-box}.clr-field{display:inline-block;position:relative;color:transparent}.clr-field input{margin:0;direction:ltr}.clr-field.clr-rtl input{text-align:right}.clr-field button{position:absolute;width:30px;height:100%;right:0;top:50%;transform:translateY(-50%);margin:0;padding:0;border:0;color:inherit;text-indent:-1000px;white-space:nowrap;overflow:hidden;pointer-events:none}.clr-field.clr-rtl button{right:auto;left:0}.clr-field button:after{content:'';display:block;position:absolute;width:100%;height:100%;left:0;top:0;border-radius:inherit;background-color:currentColor;box-shadow:inset 0 0 1px rgba(0,0,0,.5)}.clr-alpha,.clr-alpha div,.clr-field button,.clr-preview:before,.clr-swatches button{background-image:repeating-linear-gradient(45deg,#aaa 25%,transparent 25%,transparent 75%,#aaa 75%,#aaa),repeating-linear-gradient(45deg,#aaa 25%,#fff 25%,#fff 75%,#aaa 75%,#aaa);background-position:0 0,4px 4px;background-size:8px 8px}.clr-marker:focus{outline:0}.clr-keyboard-nav .clr-alpha input:focus+div,.clr-keyboard-nav .clr-hue input:focus+div,.clr-keyboard-nav .clr-marker:focus,.clr-keyboard-nav .clr-segmented input:focus+label{outline:0;box-shadow:0 0 0 2px #1e90ff,0 0 2px 2px #fff}.clr-picker[data-alpha=false] .clr-alpha{display:none}.clr-picker[data-minimal=true]{padding-top:16px}.clr-picker[data-minimal=true] .clr-alpha,.clr-picker[data-minimal=true] .clr-color,.clr-picker[data-minimal=true] .clr-gradient,.clr-picker[data-minimal=true] .clr-hue,.clr-picker[data-minimal=true] .clr-preview{display:none}.clr-dark{background-color:#444}.clr-dark .clr-segmented{border-color:#777}.clr-dark .clr-swatches button:after{box-shadow:inset 0 0 0 1px rgba(255,255,255,.3)}.clr-dark input.clr-color{color:#fff;border-color:#777;background-color:#555}.clr-dark input.clr-color:focus{border-color:#1e90ff}.clr-dark .clr-preview:after{box-shadow:inset 0 0 0 1px rgba(255,255,255,.5)}.clr-dark .clr-alpha,.clr-dark .clr-alpha div,.clr-dark .clr-preview:before,.clr-dark .clr-swatches button{background-image:repeating-linear-gradient(45deg,#666 25%,transparent 25%,transparent 75%,#888 75%,#888),repeating-linear-gradient(45deg,#888 25%,#444 25%,#444 75%,#888 75%,#888)}.clr-picker.clr-polaroid{border-radius:6px;box-shadow:0 0 5px rgba(0,0,0,.1),0 5px 30px rgba(0,0,0,.2)}.clr-picker.clr-polaroid:before{content:'';display:block;position:absolute;width:16px;height:10px;left:20px;top:-10px;border:solid transparent;border-width:0 8px 10px 8px;border-bottom-color:currentColor;box-sizing:border-box;color:#fff;filter:drop-shadow(0 -4px 3px rgba(0,0,0,.1));pointer-events:none}.clr-picker.clr-polaroid.clr-dark:before{color:#444}.clr-picker.clr-polaroid.clr-left:before{left:auto;right:20px}.clr-picker.clr-polaroid.clr-top:before{top:auto;bottom:-10px;transform:rotateZ(180deg)}.clr-polaroid .clr-gradient{width:calc(100% - 20px);height:120px;margin:10px;border-radius:3px}.clr-polaroid .clr-alpha,.clr-polaroid .clr-hue{width:calc(100% - 30px);height:10px;margin:6px 15px;border-radius:5px}.clr-polaroid .clr-alpha div,.clr-polaroid .clr-hue div{box-shadow:0 0 5px rgba(0,0,0,.2)}.clr-polaroid .clr-format{width:calc(100% - 20px);margin:0 10px 15px}.clr-polaroid .clr-swatches{width:calc(100% - 12px);margin:0 6px}.clr-polaroid .clr-swatches div{padding-bottom:10px}.clr-polaroid .clr-swatches button{width:22px;height:22px}.clr-polaroid input.clr-color{width:calc(100% - 60px);margin:10px 10px 15px auto}.clr-polaroid .clr-clear{margin:0 10px 15px 10px}.clr-polaroid .clr-close{margin:0 10px 15px auto}.clr-polaroid .clr-preview{margin:10px 0 15px 10px}.clr-picker.clr-large{width:275px}.clr-large .clr-gradient{height:150px}.clr-large .clr-swatches button{width:22px;height:22px}.clr-picker.clr-pill{width:380px;padding-left:180px;box-sizing:border-box}.clr-pill .clr-gradient{position:absolute;width:180px;height:100%;left:0;top:0;margin-bottom:0;border-radius:3px 0 0 3px}.clr-pill .clr-hue{margin-top:20px}
+        .clr-picker{display:none;flex-wrap:wrap;position:absolute;width:200px;z-index:1000;border-radius:10px;background-color:#fff;justify-content:flex-end;direction:ltr;box-shadow:0 0 5px rgba(0,0,0,.05),0 5px 20px rgba(0,0,0,.1);-moz-user-select:none;-webkit-user-select:none;user-select:none}.clr-picker.clr-open,.clr-picker[data-inline=true]{display:flex}.clr-picker[data-inline=true]{position:relative}.clr-gradient{position:relative;width:100%;height:100px;margin-bottom:15px;border-radius:3px 3px 0 0;background-image:linear-gradient(rgba(0,0,0,0),#000),linear-gradient(90deg,#fff,currentColor);cursor:pointer}.clr-marker{position:absolute;width:12px;height:12px;margin:-6px 0 0 -6px;border:1px solid #fff;border-radius:50%;background-color:currentColor;cursor:pointer}.clr-picker input[type=range]::-webkit-slider-runnable-track{width:100%;height:16px}.clr-picker input[type=range]::-webkit-slider-thumb{width:16px;height:16px;-webkit-appearance:none}.clr-picker input[type=range]::-moz-range-track{width:100%;height:16px;border:0}.clr-picker input[type=range]::-moz-range-thumb{width:16px;height:16px;border:0}.clr-hue{background-image:linear-gradient(to right,red 0,#ff0 16.66%,#0f0 33.33%,#0ff 50%,#00f 66.66%,#f0f 83.33%,red 100%)}.clr-alpha,.clr-hue{position:relative;width:calc(100% - 40px);height:8px;margin:5px 20px;border-radius:4px}.clr-alpha span{display:block;height:100%;width:100%;border-radius:inherit;background-image:linear-gradient(90deg,rgba(0,0,0,0),currentColor)}.clr-alpha input[type=range],.clr-hue input[type=range]{position:absolute;width:calc(100% + 32px);height:16px;left:-16px;top:-4px;margin:0;background-color:transparent;opacity:0;cursor:pointer;appearance:none;-webkit-appearance:none}.clr-alpha div,.clr-hue div{position:absolute;width:16px;height:16px;left:0;top:50%;margin-left:-8px;transform:translateY(-50%);border:2px solid #fff;border-radius:50%;background-color:currentColor;box-shadow:0 0 1px #888;pointer-events:none}.clr-alpha div:before{content:'';position:absolute;height:100%;width:100%;left:0;top:0;border-radius:50%;background-color:currentColor}.clr-format{display:none;order:1;width:calc(100% - 40px);margin:0 20px 20px}.clr-segmented{display:flex;position:relative;width:100%;margin:0;padding:0;border:1px solid #ddd;border-radius:15px;box-sizing:border-box;color:#999;font-size: var(--text-sm)}.clr-segmented input,.clr-segmented legend{position:absolute;width:100%;height:100%;margin:0;padding:0;border:0;left:0;top:0;opacity:0;pointer-events:none}.clr-segmented label{flex-grow:1;margin:0;padding:4px 0;font-size:inherit;font-weight:400;line-height:initial;text-align:center;cursor:pointer}.clr-segmented label:first-of-type{border-radius:10px 0 0 10px}.clr-segmented label:last-of-type{border-radius:0 10px 10px 0}.clr-segmented input:checked+label{color:#fff;background-color:#666}.clr-swatches{order:2;width:calc(100% - 32px);margin:0 16px}.clr-swatches div{display:flex;flex-wrap:wrap;padding-bottom:12px;justify-content:center}.clr-swatches button{position:relative;width:20px;height:20px;margin:0 4px 6px 4px;padding:0;border:0;border-radius:50%;color:inherit;text-indent:-1000px;white-space:nowrap;overflow:hidden;cursor:pointer}.clr-swatches button:after{content:'';display:block;position:absolute;width:100%;height:100%;left:0;top:0;border-radius:inherit;background-color:currentColor;box-shadow:inset 0 0 0 1px rgba(0,0,0,.1)}input.clr-color{order:1;width:calc(100% - 80px);height:32px;margin:15px 20px 20px auto;padding:0 10px;border:1px solid #ddd;border-radius:16px;color:#444;background-color:#fff;font-family:sans-serif;font-size:14px;text-align:center;box-shadow:none}input.clr-color:focus{outline:0;border:1px solid #1e90ff}.clr-clear,.clr-close{display:none;order:2;height:24px;margin:0 20px 20px;padding:0 20px;border:0;border-radius:12px;color:#fff;background-color:#666;font-family:inherit;font-size: var(--text-sm);font-weight:400;cursor:pointer}.clr-close{display:block;margin:0 20px 20px auto}.clr-preview{position:relative;width:32px;height:32px;margin:15px 0 20px 20px;border-radius:50%;overflow:hidden}.clr-preview:after,.clr-preview:before{content:'';position:absolute;height:100%;width:100%;left:0;top:0;border:1px solid #fff;border-radius:50%}.clr-preview:after{border:0;background-color:currentColor;box-shadow:inset 0 0 0 1px rgba(0,0,0,.1)}.clr-preview button{position:absolute;width:100%;height:100%;z-index:1;margin:0;padding:0;border:0;border-radius:50%;outline-offset:-2px;background-color:transparent;text-indent:-9999px;cursor:pointer;overflow:hidden}.clr-alpha div,.clr-color,.clr-hue div,.clr-marker{box-sizing:border-box}.clr-field{display:inline-block;position:relative;color:transparent}.clr-field input{margin:0;direction:ltr}.clr-field.clr-rtl input{text-align:right}.clr-field button{position:absolute;width:30px;height:100%;right:0;top:50%;transform:translateY(-50%);margin:0;padding:0;border:0;color:inherit;text-indent:-1000px;white-space:nowrap;overflow:hidden;pointer-events:none}.clr-field.clr-rtl button{right:auto;left:0}.clr-field button:after{content:'';display:block;position:absolute;width:100%;height:100%;left:0;top:0;border-radius:inherit;background-color:currentColor;box-shadow:inset 0 0 1px rgba(0,0,0,.5)}.clr-alpha,.clr-alpha div,.clr-field button,.clr-preview:before,.clr-swatches button{background-image:repeating-linear-gradient(45deg,#aaa 25%,transparent 25%,transparent 75%,#aaa 75%,#aaa),repeating-linear-gradient(45deg,#aaa 25%,#fff 25%,#fff 75%,#aaa 75%,#aaa);background-position:0 0,4px 4px;background-size:8px 8px}.clr-marker:focus{outline:0}.clr-keyboard-nav .clr-alpha input:focus+div,.clr-keyboard-nav .clr-hue input:focus+div,.clr-keyboard-nav .clr-marker:focus,.clr-keyboard-nav .clr-segmented input:focus+label{outline:0;box-shadow:0 0 0 2px #1e90ff,0 0 2px 2px #fff}.clr-picker[data-alpha=false] .clr-alpha{display:none}.clr-picker[data-minimal=true]{padding-top:16px}.clr-picker[data-minimal=true] .clr-alpha,.clr-picker[data-minimal=true] .clr-color,.clr-picker[data-minimal=true] .clr-gradient,.clr-picker[data-minimal=true] .clr-hue,.clr-picker[data-minimal=true] .clr-preview{display:none}.clr-dark{background-color:#444}.clr-dark .clr-segmented{border-color:#777}.clr-dark .clr-swatches button:after{box-shadow:inset 0 0 0 1px rgba(255,255,255,.3)}.clr-dark input.clr-color{color:#fff;border-color:#777;background-color:#555}.clr-dark input.clr-color:focus{border-color:#1e90ff}.clr-dark .clr-preview:after{box-shadow:inset 0 0 0 1px rgba(255,255,255,.5)}.clr-dark .clr-alpha,.clr-dark .clr-alpha div,.clr-dark .clr-preview:before,.clr-dark .clr-swatches button{background-image:repeating-linear-gradient(45deg,#666 25%,transparent 25%,transparent 75%,#888 75%,#888),repeating-linear-gradient(45deg,#888 25%,#444 25%,#444 75%,#888 75%,#888)}.clr-picker.clr-polaroid{border-radius:6px;box-shadow:0 0 5px rgba(0,0,0,.1),0 5px 30px rgba(0,0,0,.2)}.clr-picker.clr-polaroid:before{content:'';display:block;position:absolute;width:16px;height:10px;left:20px;top:-10px;border:solid transparent;border-width:0 8px 10px 8px;border-bottom-color:currentColor;box-sizing:border-box;color:#fff;filter:drop-shadow(0 -4px 3px rgba(0,0,0,.1));pointer-events:none}.clr-picker.clr-polaroid.clr-dark:before{color:#444}.clr-picker.clr-polaroid.clr-left:before{left:auto;right:20px}.clr-picker.clr-polaroid.clr-top:before{top:auto;bottom:-10px;transform:rotateZ(180deg)}.clr-polaroid .clr-gradient{width:calc(100% - 20px);height:120px;margin:10px;border-radius:3px}.clr-polaroid .clr-alpha,.clr-polaroid .clr-hue{width:calc(100% - 30px);height:10px;margin:6px 15px;border-radius:5px}.clr-polaroid .clr-alpha div,.clr-polaroid .clr-hue div{box-shadow:0 0 5px rgba(0,0,0,.2)}.clr-polaroid .clr-format{width:calc(100% - 20px);margin:0 10px 15px}.clr-polaroid .clr-swatches{width:calc(100% - 12px);margin:0 6px}.clr-polaroid .clr-swatches div{padding-bottom:10px}.clr-polaroid .clr-swatches button{width:22px;height:22px}.clr-polaroid input.clr-color{width:calc(100% - 60px);margin:10px 10px 15px auto}.clr-polaroid .clr-clear{margin:0 10px 15px 10px}.clr-polaroid .clr-close{margin:0 10px 15px auto}.clr-polaroid .clr-preview{margin:10px 0 15px 10px}.clr-picker.clr-large{width:275px}.clr-large .clr-gradient{height:150px}.clr-large .clr-swatches button{width:22px;height:22px}.clr-picker.clr-pill{width:380px;padding-left:180px;box-sizing:border-box}.clr-pill .clr-gradient{position:absolute;width:180px;height:100%;left:0;top:0;margin-bottom:0;border-radius:3px 0 0 3px}.clr-pill .clr-hue{margin-top:20px}
         /* --- riptide theme overrides: tie Coloris dark mode to the app palette --- */
         .clr-picker.clr-dark { background-color: var(--panel-2); box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
         .clr-dark input.clr-color { color: var(--text); border-color: var(--border); background-color: var(--panel); }
@@ -971,25 +901,9 @@
             @apply tw:min-w-0 tw:truncate;
             flex: 0 100 auto;
             text-align: right;
-            font-size: 11px;
+            font-size: var(--text-xs);
             color: var(--muted);
-        }
-        .radix {
-            @apply tw:inline-flex tw:items-center tw:justify-between tw:font-mono;
-            height: 16px;
-            width: 48px;
-            padding: 0 5px;
-            gap: 3px;
-            border: 1px solid var(--border);
-            border-radius: 3px;
-            background: var(--panel);
-            font-size: 10px;
-            cursor: default;
-        }
-        .radix:hover {
-            @apply tw:hover-raise;
-        }
-        /* Visibility toggle. Hidden by default; on row hover it fades in white.
+        }/* Visibility toggle. Hidden by default; on row hover it fades in white.
            Once toggled off (.off → eye-off icon) it stays visible but dim. */
         .eye {
             @apply tw:inline-flex tw:items-center tw:justify-center tw:text-muted;
@@ -1006,9 +920,7 @@
            (flex-end) rather than centered on the full header height. */
         .s-head .eye.head { align-self: flex-end; }
         .s-head:hover .eye.head { opacity: 1; color: var(--text); }
-        .s-head .eye.head:hover { color: var(--text); }
-        .s-row.nested { padding-left: 22px; background: color-mix(in srgb, var(--panel-2) 60%, transparent); }
-        /* Collapse: swatch + icon vanish instantly; the name slides left from
+        .s-head .eye.head:hover { color: var(--text); }        /* Collapse: swatch + icon vanish instantly; the name slides left from
            where it sat (8px pin + 6 gap + 12 icon + 6 gap = 32px) into place.
            Expand is the reverse: the name slides right into its expanded slot
            (120ms), then the swatch + icon (+ value) fade back in (120→240ms). */
@@ -1023,20 +935,13 @@
 
         .waves {
             @apply tw:relative;
-        }
-        .wv-sub {
-            @apply tw:flex tw:items-center tw:gap-1.5 tw:flex-none tw:bg-panel;
-            height: 30px;
-            padding: 0 8px;
-            border-bottom: 1px solid var(--border);
-        }
-        .seg {
+        }        .seg {
             @apply tw:inline-flex tw:bg-panel;
             border: 1px solid var(--border);
             border-radius: 6px;
             overflow: hidden;
         }
-        .seg .btn { border: none; border-radius: 0; border-right: 1px solid var(--border); height: 22px; min-width: 22px; padding: 0 6px; font-size: 11.5px;}
+        .seg .btn { border: none; border-radius: 0; border-right: 1px solid var(--border); height: 22px; min-width: 22px; padding: 0 6px; font-size: var(--text-sm);}
         .seg .btn:last-child { border-right: none; }
         .seg .btn.on {
             @apply tw:accent-active;
@@ -1049,21 +954,7 @@
         .wv-canvas {
             @apply tw:relative tw:flex tw:flex-col tw:flex-1 tw:min-h-0 tw:bg-panel;
             overflow: hidden;
-        }
-
-        .ruler {
-            @apply tw:relative tw:flex-none tw:font-mono tw:select-none;
-            height: var(--row-h);
-            border-bottom: 1px solid var(--border);
-            background: var(--panel-2);
-            font-size: 10.5px;
-            color: var(--text-2);
-        }
-        .ruler .tk { position:absolute; top: 50%; bottom: 0; width: 1px; background: var(--border-strong); }
-        .ruler .tk.major { top: calc(50% - 4px); }
-        .ruler .lb { position:absolute; top: 50%; transform: translateX(3px); padding-top: 2px; font-size: 10px; }
-
-        .gpu-host {
+        }.gpu-host {
             @apply tw:relative tw:flex-1 tw:min-h-0;
             cursor: crosshair;
         }
@@ -1071,35 +962,13 @@
             @apply tw:block tw:bg-panel;
             width: 100%;
             height: 100%;
-        }
-
-        .cursor, .marker {
-            position: absolute; top: 0; width: 0; height: 100vh; z-index: 5; pointer-events:none;
-        }
-        .cursor { border-left: 2.5px solid var(--hot); }
-        .marker { border-left: 2.5px dashed var(--marker); z-index: 4; }
-        .flag {
-            @apply tw:inline-flex tw:items-center tw:font-mono;
-            position: absolute;
-            top: 0px;
-            transform: translateX(-50%);
-            height: 16px;
-            padding: 0 5px;
-            background: var(--hot);
-            color: var(--on-accent);
-            border-radius: 3px;
-            font-size: 10px;
-            white-space: nowrap;
-        }
-        .marker .flag { background: var(--marker); color: var(--on-accent); }
-
-        .status {
+        }.status {
             @apply tw:flex tw:items-center tw:gap-3.5 tw:flex-none tw:font-mono tw:bg-panel-2;
             height: 24px;
             padding: 0 12px;
             border-top: 1px solid var(--border);
             border-right: 1px solid var(--border);
-            font-size: 11px;
+            font-size: var(--text-xs);
             color: var(--text-2);
             /* Query against the bar's own width so it can degrade to a compact
                readout when the left columns (esp. a compact Active Signals
@@ -1114,24 +983,13 @@
             @apply tw:min-w-0;
             overflow: hidden;
             text-overflow: ellipsis;
-        }
-        .status .dotted {
-            @apply tw:inline-flex tw:items-center;
-            gap: 5px;
-        }
-        .status .dot {
-            @apply tw:rounded-full;
-            width: 7px;
-            height: 7px;
-            background: var(--ok);
-        }
-        .status .muted { color: var(--muted); }
+        }.status .muted { color: var(--muted); }
         .status .sep { color: var(--muted); }
         /* Tight: drop the "time" / "ns" / "name =" titles, tighten the gap
            around the interpunct, so just the time number and value remain.
            The value still ellipsises below this too. */
         @container (max-width: 360px) {
-            .status { gap: 6px; font-size: 10px; }
+            .status { gap: 6px; font-size: var(--text-2xs); }
             .status .lbl-t, .status .unit, .status .lbl-v { display: none; }
         }
         } /* end @layer components */
