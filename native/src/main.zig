@@ -300,7 +300,7 @@ fn parseSpec(env: c.napi_env, v: c.napi_value, arena: std.mem.Allocator) ?PackSp
         var rlen: usize = 0;
         if (c.napi_get_value_string_utf8(env, radix_v, &rbuf, rbuf.len, &rlen) == c.napi_ok) {
             const rs = rbuf[0..rlen];
-            radix = if (std.mem.eql(u8, rs, "hex")) .hex else if (std.mem.eql(u8, rs, "dec")) .dec else if (std.mem.eql(u8, rs, "sdec")) .sdec else if (std.mem.eql(u8, rs, "enum")) .@"enum" else .bin;
+            radix = if (std.mem.eql(u8, rs, "hex")) .hex else if (std.mem.eql(u8, rs, "dec")) .dec else if (std.mem.eql(u8, rs, "sdec")) .sdec else if (std.mem.eql(u8, rs, "enum")) .@"enum" else if (std.mem.eql(u8, rs, "boolean")) .boolean else .bin;
         }
     }
 
@@ -389,6 +389,10 @@ fn getMockSegments(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.n
     // Native value labels, aligned with `multi` (label i = bytes[off[i]..off[i+1]]).
     setProp(env, obj, "labelBytes", makeArrayBufferFromU8s(env, scene.multi_label_bytes.items));
     setProp(env, obj, "labelOffsets", makeArrayBufferFromU32s(env, scene.multi_label_offsets.items));
+    // Single-pipeline value labels, aligned with `single` (boolean rows carry
+    // "true"/"false"/"x"; bin/clock/reset rows carry empty labels).
+    setProp(env, obj, "singleLabelBytes", makeArrayBufferFromU8s(env, scene.single_label_bytes.items));
+    setProp(env, obj, "singleLabelOffsets", makeArrayBufferFromU32s(env, scene.single_label_offsets.items));
     // The trace's true end tick (last ingested timestamp). The renderer needs the
     // real end for viewport clamps / the zoom-out dead-zone, not a hardcoded mock.
     setProp(env, obj, "endTicks", jsTick(env, end_t));

@@ -186,6 +186,9 @@
       "snapCursor": false,
       "clockAnchor": true
     },
+    "timebase": {
+      "clockPath": "top.keysched.waves.clk"
+    },
     "tabs": {
       "open": [
         "keysched.vcd"

@@ -6,7 +6,10 @@ const Allocator = std.mem.Allocator;
 // `@"enum"` formats via the per-row enum table (value→label), falling back to
 // hex for unmatched values and X/Z bits. `dec` is unsigned, `sdec` two's-complement
 // signed (both share the divmod path; sdec negates the magnitude first).
-pub const Radix = enum { bin, hex, dec, sdec, @"enum" };
+// `boolean` renders any-width signal as a high/low line (single pipeline) but
+// still carries a value label: "true" (value ≠ 0), "false" (0), "x" (any unknown
+// bit). Byte-for-byte sibling of value.ts formatSegmentValue's boolean branch.
+pub const Radix = enum { bin, hex, dec, sdec, @"enum", boolean };
 pub const EnumEntry = struct { value: u32, label: []const u8 };
 
 const HEX_UPPER = "0123456789ABCDEF";
@@ -175,6 +178,30 @@ pub fn formatValue(
                 const unk_char = @as(u8, 'X') + (@as(u8, 'Z' - 'X') & isz);
                 out.appendAssumeCapacity((hex_char & ~unknown) | (unk_char & unknown));
             }
+            return;
+        },
+        .boolean => {
+            // Any unknown bit → "x"; else any defined-1 bit → "true"; else "false".
+            // Whole-plane OR (padding bits above width are zero — tide zero-pads).
+            var unknown = false;
+            for (x1s) |b| {
+                if (b != 0) {
+                    unknown = true;
+                    break;
+                }
+            }
+            if (unknown) {
+                try out.appendSlice(gpa, "x");
+                return;
+            }
+            var one = false;
+            for (x0s) |b| {
+                if (b != 0) {
+                    one = true;
+                    break;
+                }
+            }
+            try out.appendSlice(gpa, if (one) "true" else "false");
             return;
         },
         else => {}, // dec, enum

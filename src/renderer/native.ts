@@ -57,8 +57,9 @@ export interface NativePackSpec {
   // Handle of a 1-bit enable signal that mutes this row while it isn't logic-1
   // (null = no muting). Resolved from the row's sidecar `mute` path.
   muteHandle: string | null;
-  // Multi-bit rows: how the native side formats the pill value label (label.zig).
-  radix: "bin" | "hex" | "dec" | "sdec" | "enum";
+  // How the native side formats the value label (label.zig). bin = no label
+  // (single line); boolean = single line + true/false label; the rest are pills.
+  radix: "bin" | "hex" | "dec" | "sdec" | "enum" | "boolean";
   // Per-row enum int→label table (empty for non-enum rows). value = the integer
   // key the formatter matches against the low word of the sample.
   enums: { value: number; label: string }[];
@@ -77,6 +78,8 @@ interface NativeModule {
     x1Pool: ArrayBuffer;
     labelBytes: ArrayBuffer;
     labelOffsets: ArrayBuffer;
+    singleLabelBytes: ArrayBuffer;
+    singleLabelOffsets: ArrayBuffer;
     endTicks: number;
   };
   getHierarchy(): RawHierarchy;
@@ -137,6 +140,8 @@ function emptyMockSegments(): NativeMockSegments {
     x1Pool: new ArrayBuffer(0),
     labelBytes: new Uint8Array(0),
     labelOffsets: new Uint32Array(1), // multiCount+1 prefix offsets = [0]
+    singleLabelBytes: new Uint8Array(0),
+    singleLabelOffsets: new Uint32Array(1), // singleCount+1 prefix offsets = [0]
     endTicks: 0,
   };
 }
@@ -159,6 +164,11 @@ export interface NativeMockSegments {
   // multiCount+1 prefix offsets aligned with `multi` (label i = bytes[off[i]..off[i+1]]).
   labelBytes: Uint8Array<ArrayBuffer>;
   labelOffsets: Uint32Array<ArrayBuffer>;
+  // Native value labels for the single pipeline: same layout, aligned with
+  // `single`. Only boolean rows carry text ("true"/"false"/"x"); bin/clock/reset
+  // segments carry empty labels (so label i still aligns with single segment i).
+  singleLabelBytes: Uint8Array<ArrayBuffer>;
+  singleLabelOffsets: Uint32Array<ArrayBuffer>;
   // The trace's true end tick (native loaded.end_t) — used for viewport clamps
   // and the zoom-out dead-zone instead of a hardcoded mock end.
   endTicks: number;
@@ -185,6 +195,8 @@ export function getMockSegments(
     x1Pool: r.x1Pool,
     labelBytes: new Uint8Array(r.labelBytes),
     labelOffsets: new Uint32Array(r.labelOffsets),
+    singleLabelBytes: new Uint8Array(r.singleLabelBytes),
+    singleLabelOffsets: new Uint32Array(r.singleLabelOffsets),
     endTicks: r.endTicks,
   };
 }

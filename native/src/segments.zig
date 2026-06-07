@@ -147,6 +147,13 @@ pub const Scene = struct {
     // offsets aligned with `multi` (label i = bytes[off[i]..off[i+1]]).
     multi_label_bytes: std.ArrayList(u8) = .empty,
     multi_label_offsets: std.ArrayList(u32) = .empty,
+    // Per single-bit segment value label — only `boolean` rows emit text ("true"/
+    // "false"/"x"); bin/clock/reset rows emit an EMPTY label so every single
+    // segment has an offset entry and label i stays aligned with `single` segment i
+    // (the label batch indexes labels by segment index). Same layout as the multi
+    // pair (singleCount+1 prefix offsets, label i = bytes[off[i]..off[i+1]]).
+    single_label_bytes: std.ArrayList(u8) = .empty,
+    single_label_offsets: std.ArrayList(u32) = .empty,
     rows: [MAX_ROWS]RowAccum = [_]RowAccum{.{}} ** MAX_ROWS,
 
     pub fn init(gpa: Allocator) Scene {
@@ -158,6 +165,8 @@ pub const Scene = struct {
         self.single.deinit(self.gpa);
         self.multi_label_bytes.deinit(self.gpa);
         self.multi_label_offsets.deinit(self.gpa);
+        self.single_label_bytes.deinit(self.gpa);
+        self.single_label_offsets.deinit(self.gpa);
         for (&self.rows) |*r| r.deinit(self.gpa);
     }
 
@@ -191,14 +200,21 @@ pub const Scene = struct {
         ra.count += @intCast(ps.segments.items.len);
         std.debug.assert(ra.lsbs.items.len == ra.count * bps); // guards double-copy / stride drift
 
-        if (ps.is_multi) {
-            if (self.multi_label_offsets.items.len == 0) try self.multi_label_offsets.append(self.gpa, 0);
-            for (0..ps.segments.items.len) |i| {
+        // Route value labels to the stream matching the signal's pipeline. The
+        // single stream must carry an entry for EVERY single segment (empty for
+        // unlabeled bin/clock/reset) so label i aligns with segment i; multi rows
+        // always carry real labels. has_labels is false only for bin (no pushLabel).
+        const has_labels = ps.label_offsets.items.len > 0;
+        const lbytes = if (ps.is_multi) &self.multi_label_bytes else &self.single_label_bytes;
+        const loffs = if (ps.is_multi) &self.multi_label_offsets else &self.single_label_offsets;
+        if (loffs.items.len == 0) try loffs.append(self.gpa, 0);
+        for (0..ps.segments.items.len) |i| {
+            if (has_labels) {
                 const lo = ps.label_offsets.items[i];
                 const hi = ps.label_offsets.items[i + 1];
-                try self.multi_label_bytes.appendSlice(self.gpa, ps.label_bytes.items[lo..hi]);
-                try self.multi_label_offsets.append(self.gpa, @intCast(self.multi_label_bytes.items.len));
+                try lbytes.appendSlice(self.gpa, ps.label_bytes.items[lo..hi]);
             }
+            try loffs.append(self.gpa, @intCast(lbytes.items.len));
         }
     }
 };

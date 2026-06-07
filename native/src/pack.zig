@@ -89,8 +89,10 @@ pub fn packSignal(
     }
 
     // Pipeline routing is format-driven, not width-driven: bin (binary / reset /
-    // clock) renders on the single pipeline; hex/dec/enum render multi-bit pills.
-    var ps = seg.PackedSignal{ .is_multi = opts.radix != .bin, .bit_width = opts.width };
+    // clock) and boolean render high/low lines on the single pipeline;
+    // hex/dec/sdec/enum render multi-bit pills. boolean additionally carries a
+    // true/false value label (labeled = radix != .bin, see the pushLabel below).
+    var ps = seg.PackedSignal{ .is_multi = opts.radix != .bin and opts.radix != .boolean, .bit_width = opts.width };
     errdefer ps.deinit(gpa);
 
     const bps = query.type.bytes();
@@ -164,9 +166,10 @@ pub fn packSignal(
 
         try ps.pushSegment(gpa, t_start, t_end, flags);
 
-        // Multi-bit rows render a value pill; format its label here (native) in
-        // lockstep with the segment push so labels stay aligned.
-        if (ps.is_multi) {
+        // Labeled rows (multi-bit pills + boolean lines) format a value label here
+        // (native) in lockstep with the segment push so labels stay aligned. bin
+        // (binary / clock / reset) is the only unlabeled format.
+        if (opts.radix != .bin) {
             try ps.pushLabel(gpa, x0, x1, opts.radix, opts.enums, false);
         }
     }
@@ -192,7 +195,10 @@ fn packMutedData(
     opts: PackOpts,
 ) !seg.PackedSignal {
     _ = db;
-    var ps = seg.PackedSignal{ .is_multi = opts.radix != .bin, .bit_width = opts.width };
+    // Pipeline routing: bin and boolean render high/low lines on the single
+    // pipeline; hex/dec/sdec/enum render multi-bit pills. boolean additionally
+    // carries a true/false value label (labeled = radix != .bin, see pushLabel).
+    var ps = seg.PackedSignal{ .is_multi = opts.radix != .bin and opts.radix != .boolean, .bit_width = opts.width };
     errdefer ps.deinit(gpa);
 
     const bps = data_q.type.bytes();
@@ -334,5 +340,5 @@ fn pushMutedSegment(
     try ps.pushSegment(gpa, t_start, t_end, flags);
     try ps.lsbs.appendSlice(gpa, x0);
     try ps.msbs.appendSlice(gpa, x1);
-    if (ps.is_multi) try ps.pushLabel(gpa, x0, x1, opts.radix, opts.enums, muted);
+    if (opts.radix != .bin) try ps.pushLabel(gpa, x0, x1, opts.radix, opts.enums, muted);
 }

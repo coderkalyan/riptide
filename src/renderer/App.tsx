@@ -386,12 +386,14 @@ export function App() {
             const single = rows.filter((r) => bitWidthOf(r) === 1);
             const multi = rows.filter((r) => bitWidthOf(r) > 1);
             if (it.action === "radix-bin") single.forEach((r) => s.setFormat(r, "bin", undefined));
+            else if (it.action === "radix-boolean") rows.forEach((r) => s.setFormat(r, "boolean", undefined));
             else if (it.action === "radix-dec") rows.forEach((r) => s.setFormat(r, "dec", undefined));
             else if (it.action === "radix-sdec") multi.forEach((r) => s.setFormat(r, "sdec", undefined));
             else if (it.action === "radix-hex") rows.forEach((r) => s.setFormat(r, "hex", undefined));
             else if (it.action === "radix-enum") rows.forEach((r) => s.setFormat(r, "enum", undefined));
-            else if (it.action === "format-clock") rows.forEach((r) => s.setFormat(r, "bin", "clock"));
-            else if (it.action === "format-reset") rows.forEach((r) => s.setFormat(r, "bin", "reset"));
+            // Clock/Reset are 1-bit roles — apply only to the single-bit subset.
+            else if (it.action === "format-clock") single.forEach((r) => s.setFormat(r, "bin", "clock"));
+            else if (it.action === "format-reset") single.forEach((r) => s.setFormat(r, "bin", "reset"));
             // Mute applies only to non-clock targets (it.path undefined = clear).
             else if (it.action === "set-mute") {
               const a = useAppStore.getState().activeSignals;

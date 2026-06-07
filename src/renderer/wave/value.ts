@@ -23,6 +23,17 @@ export function formatSegmentValue(
   enumLabels?: Map<number, string>,
 ): string {
   if (!value) return "-";
+  // Boolean: any defined-1 bit → "true", all-zero → "false", any unknown → "x".
+  // Mirrors the single shader's whole-sample non-zeroness decode (high = value ≠ 0).
+  if (radix === "boolean") {
+    let lsbAny = false, msbAny = false;
+    for (let w = 0; w < value.lsb.length; w++) {
+      if (value.lsb[w] >>> 0) lsbAny = true;
+      if ((value.msb[w] ?? 0) >>> 0) msbAny = true;
+    }
+    if (msbAny) return "x";
+    return lsbAny ? "true" : "false";
+  }
   let hasX = false, hasZ = false;
   for (let w = 0; w < value.msb.length; w++) {
     const m = value.msb[w] >>> 0, l = value.lsb[w] >>> 0;

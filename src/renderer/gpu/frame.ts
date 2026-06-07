@@ -21,6 +21,9 @@ export interface FrameLayers {
   // Multi-bit value labels — instanced, GPU-positioned + culled. Drawn on top of
   // the digital pipelines (inside the pills).
   labels: LabelBatch;
+  // Single-pipeline value labels — the boolean format's true/false text, drawn
+  // over the high/low line (same renderer, separate instance buffer + segments).
+  labelsSingle: LabelBatch;
   linesFg: LineBatch;
   textBody: TextBatch;
   // All pills (markers + cursor) share one rect buffer + one text buffer (filled
@@ -91,6 +94,8 @@ export function renderFrame(
 
   // Value labels sit inside the multi-bit pills → draw after the digital pass.
   drawLabels(pass, layers.labels);
+  // Boolean true/false labels over the single-bit lines.
+  drawLabels(pass, layers.labelsSingle);
 
   drawText(pass, layers.textBody);
   drawLines(pass, layers.linesFg);

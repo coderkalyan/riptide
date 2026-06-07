@@ -17,7 +17,10 @@ import {
   type Sidecar,
 } from "./sidecar";
 
-export type Radix = "bin" | "hex" | "dec" | "sdec" | "enum";
+// "boolean" renders any-width signal as a 1-bit high/low line (high = value ≠ 0)
+// on the single pipeline, but with a true/false value label drawn on the wave
+// (native single-label stream) + true/false in the value readout (value.ts).
+export type Radix = "bin" | "hex" | "dec" | "sdec" | "enum" | "boolean";
 export type ActiveRole = "clock" | "reset" | "valid";
 
 // Clock-format config. A row formatted as a clock renders an idealized clock of

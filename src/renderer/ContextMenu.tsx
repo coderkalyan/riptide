@@ -59,8 +59,11 @@ export function activeSignalMenu(opts: {
   return [
     { label: "Format", submenu: [
       fmt({ label: "Binary", action: "radix-bin", disabled: !opts.anySingleBit }),
-      fmt({ label: "Clock", action: "format-clock", accessory: <ClockAccessory row={opts.clockRow} /> }),
-      fmt({ label: "Reset", action: "format-reset" }),
+      // Boolean renders any width as a high/low line (true/false) — always enabled.
+      fmt({ label: "Boolean", action: "radix-boolean" }),
+      // Clock/Reset are 1-bit roles only — disabled when no target is single-bit.
+      fmt({ label: "Clock", action: "format-clock", disabled: !opts.anySingleBit, accessory: <ClockAccessory row={opts.clockRow} /> }),
+      fmt({ label: "Reset", action: "format-reset", disabled: !opts.anySingleBit }),
       "sep",
       fmt({ label: "Signed Decimal", action: "radix-sdec", disabled: !opts.anyMultiBit }),
       fmt({ label: "Unsigned Decimal", action: "radix-dec" }),

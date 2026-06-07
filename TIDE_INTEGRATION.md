@@ -51,10 +51,9 @@ Each item is binned by *why* it's still mocked:
   `vcd_wire`/`vcd_reg`, so the renderer's richer `VarType` enum + `scene.ts`
   `vcdTypeOf` switch can never see the other cases. *Cause: riptide throws it
   away.* → widen `mapVarType` to thread the full type through.
+
 ## Riptide-internal (independent of the VCD)
 
 - [ ] **Derived signals.** No expression engine — the VCD precomputes `busy`/`done`
   under a `derived` scope and `scene.ts` tags a cosmetic `derivedExpr`. → when a
   live derivation layer computes them from inputs.
-- [ ] **Packaged-build trace path.** Default `app.getAppPath()/native/src/mock.vcd`
-  works under `electron .`; a packaged build needs the fixture shipped + path fixed.

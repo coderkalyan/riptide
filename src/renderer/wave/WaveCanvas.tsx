@@ -99,6 +99,10 @@ export function WaveCanvas() {
       if (disposed) return;
       const labelBatch = labelRenderer.createBatch();
       labelBatch.setLabels(NATIVE.multi, NATIVE.multiCount, NATIVE.labelBytes, NATIVE.labelOffsets, scene.rowInfo, false);
+      // Boolean true/false labels over the single-bit lines — same label renderer,
+      // its own instance buffer, fed the single segment buffer + single-label blob.
+      const singleLabelBatch = labelRenderer.createBatch();
+      singleLabelBatch.setLabels(NATIVE.single, NATIVE.singleCount, NATIVE.singleLabelBytes, NATIVE.singleLabelOffsets, scene.rowInfo, false);
       // The active list the label buffer currently reflects — lets a pure-append
       // add (new rows at the end) upload only the new glyphs (setLabels reusePrefix).
       let lastLabelActive: ActiveSignalRef[] = useAppStore.getState().activeSignals;
@@ -164,6 +168,9 @@ export function WaveCanvas() {
             return n != null && n.signalId === r.signalId && n.row === r.row && n.radix === r.radix && n.role === r.role;
           });
         labelBatch.setLabels(packed.multi, packed.multiCount, packed.labelBytes, packed.labelOffsets, scene.rowInfo, isAppend);
+        // Single labels (boolean): full rebuild each repack — the append fast path
+        // is keyed to the multi label set; single's blob is tiny so this is cheap.
+        singleLabelBatch.setLabels(packed.single, packed.singleCount, packed.singleLabelBytes, packed.singleLabelOffsets, scene.rowInfo, false);
         lastLabelActive = active;
         perf.addMark("rebuild value labels");
         applyDim(); // fresh rowInfo starts with flags=0 — re-apply the dim set
@@ -291,7 +298,7 @@ export function WaveCanvas() {
           vp.width = canvasW; vp.height = canvasH; vp.row_height = rowHeightCSS;
           vp.dpr = dpr; vp.selected_row = -1; vp.wave_y_offset = rulerHeightCSS;
           const encStart = performance.now();
-          renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, labels: labelBatch, linesFg, textBody, pillRects, pillText, pillRanges, pillRangeCount: 0 }, vp, gpuTimer);
+          renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, labels: labelBatch, labelsSingle: singleLabelBatch, linesFg, textBody, pillRects, pillText, pillRanges, pillRangeCount: 0 }, vp, gpuTimer);
           drainCaptures(canvasEl);
           const done = performance.now();
           perf.frameEnd(done - encStart, done - cpuStart);
@@ -644,7 +651,7 @@ export function WaveCanvas() {
         pillText.setGlyphs(pillGlyphN);
 
         const encodeStart = performance.now();
-        renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, labels: labelBatch, linesFg, textBody, pillRects, pillText, pillRanges, pillRangeCount: pillRangeN }, vp, gpuTimer);
+        renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, labels: labelBatch, labelsSingle: singleLabelBatch, linesFg, textBody, pillRects, pillText, pillRanges, pillRangeCount: pillRangeN }, vp, gpuTimer);
         drainCaptures(canvasEl); // snapshot requests, while the front buffer holds this frame
         const frameDone = performance.now();
         perf.frameEnd(frameDone - encodeStart, frameDone - cpuStart);
