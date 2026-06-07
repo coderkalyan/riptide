@@ -918,7 +918,10 @@
         /* Dim-all eye: hidden until the header is hovered (or kept visible while
            any row is dimmed, via .eye.off), aligned to the Name/Value text line
            (flex-end) rather than centered on the full header height. */
-        .s-head .eye.head { align-self: flex-end; }
+        /* Optical nudge: the header text is uppercase (no descenders) and
+           bottom-aligned, so its cap-center sits ~1.5px above where the 12px eye
+           icon centers in its own box. Lift the eye to match the caps. */
+        .s-head .eye.head { align-self: flex-end; transform: translateY(-1.5px); }
         .s-head:hover .eye.head { opacity: 1; color: var(--text); }
         .s-head .eye.head:hover { color: var(--text); }        /* Collapse: swatch + icon vanish instantly; the name slides left from
            where it sat (8px pin + 6 gap + 12 icon + 6 gap = 32px) into place.
