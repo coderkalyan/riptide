@@ -60,9 +60,12 @@ export function formatSegmentValue(
     }
     if (radix === "hex") {
       const digits: string[] = [];
-      for (let hi = bitWidth - 1; hi >= 0; hi -= 4) {
+      // Nibbles aligned to the LSB: the top nibble carries the leftover
+      // bitWidth%4 bits, not the bottom one (e.g. 7-bit 0x7B → "7B", not "F3").
+      for (let ni = Math.floor((bitWidth - 1) / 4); ni >= 0; ni--) {
+        const lo = ni * 4, hi = Math.min(lo + 3, bitWidth - 1);
         let nib = 0, nibX = false, nibZ = false, allDef = true;
-        for (let b = hi; b > hi - 4 && b >= 0; b--) {
+        for (let b = hi; b >= lo; b--) {
           const c = bitChar(b);
           nib = (nib << 1) | (c === "1" ? 1 : 0);
           if (c === "X") { nibX = true; allDef = false; }
@@ -89,9 +92,11 @@ export function formatSegmentValue(
   }
   if (radix === "hex") {
     let hex = "";
-    for (let hi = bitWidth - 1; hi >= 0; hi -= 4) {
+    // Nibbles aligned to the LSB (top nibble carries the leftover bitWidth%4 bits).
+    for (let ni = Math.floor((bitWidth - 1) / 4); ni >= 0; ni--) {
+      const lo = ni * 4, hi = Math.min(lo + 3, bitWidth - 1);
       let nib = 0;
-      for (let b = hi; b > hi - 4 && b >= 0; b--) nib = (nib << 1) | bitOfWords(value.lsb, b);
+      for (let b = hi; b >= lo; b--) nib = (nib << 1) | bitOfWords(value.lsb, b);
       hex += nib.toString(16).toUpperCase();
     }
     return `0x${hex.replace(/^0+/, "") || "0"}`;

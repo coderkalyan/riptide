@@ -154,17 +154,21 @@ pub fn formatValue(
             return;
         },
         .hex => {
-            // Nibbles MSB-first, always 0x-prefixed, fixed width (no trim).
+            // Nibbles aligned to the LSB: the top nibble carries the leftover
+            // width%4 bits, not the bottom one (e.g. 7-bit 0x7B prints "7B", not
+            // "F3"). Always 0x-prefixed, fixed width (no trim). Keep in lockstep
+            // with value.ts formatSegmentValue's hex paths.
             const nibbles = (width + 3) / 4;
             try out.ensureUnusedCapacity(gpa, 2 + nibbles);
             out.appendSliceAssumeCapacity("0x");
 
-            var hi: i64 = @as(i64, @intCast(width)) - 1;
-            while (hi >= 0) : (hi -= 4) {
-                const lo: usize = @intCast(@max(hi - 3, 0));
-                // Mask off bits above the nibble (the bottom nibble may be < 4
-                // bits wide when the width isn't a multiple of 4).
-                const nbits: u3 = @intCast(hi - @as(i64, @intCast(lo)) + 1);
+            // lo of the highest nibble = largest multiple of 4 <= width-1.
+            var lo_i: i64 = @intCast((width - 1) / 4 * 4);
+            while (lo_i >= 0) : (lo_i -= 4) {
+                const lo: usize = @intCast(lo_i);
+                // The top nibble may be < 4 bits when width isn't a multiple of 4.
+                const hi_bit: usize = @min(lo + 3, @as(usize, width) - 1);
+                const nbits: u3 = @intCast(hi_bit - lo + 1);
                 const mask: u8 = (@as(u8, 1) << nbits) - 1;
                 const x0n = nibble(x0s, lo) & mask;
                 const x1n = nibble(x1s, lo) & mask;
