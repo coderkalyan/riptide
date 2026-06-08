@@ -346,7 +346,7 @@ export let TRACE_END = SCENE.hierarchy.endTicks;
 // when present, else fresh defaults. While idle: fresh defaults over an empty
 // window with no open tab.
 export let INITIAL: InitialState = !VCD_PATH
-  ? { ...freshInitial(0), tabs: { open: [], active: 0 } }
+  ? freshInitial(0)
   : SIDECAR
     ? initialFromSidecar(SIDECAR, TRACE_END)
     : freshInitial(TRACE_END);

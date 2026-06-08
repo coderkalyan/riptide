@@ -31,6 +31,11 @@ export const BOTTOM_RULER_HEIGHT = 24;
 export const MAX_MARKERS = 16;
 export const MARKER_GRAB_PX = 5;
 
+// Grid-snap magnetism: in snap mode the cursor drags smoothly but snaps to a
+// clock grid edge when the pointer is within this generous radius (CSS px) of
+// one. Beyond the radius the raw, unsnapped tick is used.
+export const SNAP_RADIUS_CSS = 12;
+
 // Zoom: Math.exp() factor per wheel deltaY unit; button-zoom step + anim.
 export const ZOOM_PER_DELTA_Y = 0.001;
 export const ZOOM_STEP = 1.25;

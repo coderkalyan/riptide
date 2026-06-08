@@ -9,7 +9,7 @@ struct Viewport {
     height: f32,
     row_height: f32,
     dpr: f32,
-    selected_row: i32,
+    _pad_sel: i32,
     wave_y_offset: f32,
     // Slot 9: pad. (Row dimming moved to RowInfo.flags bit 0 so it scales past
     // the 32-row limit of the old dim_mask bitfield.)
@@ -57,8 +57,8 @@ struct RowInfo {
 
 // RowInfo.flags bits (distinct from the VertexData F_* flags below). Must match
 // ROW_FLAG_DIM / ROW_FLAG_HIGHLIGHT in segments.zig / digital.ts. Highlight is a
-// per-row flag (not viewport.selected_row) so multi-select highlights every
-// selected row and scales past 32 rows.
+// per-row flag (not a viewport field) so multi-select highlights every selected
+// row and scales past 32 rows.
 const ROW_FLAG_DIM: u32 = 1u << 0u;
 const ROW_FLAG_HIGHLIGHT: u32 = 1u << 1u;
 

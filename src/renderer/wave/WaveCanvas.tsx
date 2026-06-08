@@ -1,4 +1,4 @@
-import { onMount, onCleanup } from "solid-js";
+import { onMount, onCleanup, createSignal, Show } from "solid-js";
 import { initGPU, resizeCanvas, GPUInitError } from "../gpu/device";
 import { createDigitalRenderer } from "../gpu/digital";
 import { renderFrame, PillRange } from "../gpu/frame";
@@ -18,7 +18,7 @@ import { view } from "./viewport";
 import { drainCaptures, hasPendingCaptures } from "./capture";
 import {
   ROW_HEIGHT_CSS, LINE_THICKNESS_CSS, LINE_HALF_CSS, NOTCH_HEIGHT, BOTTOM_RULER_HEIGHT,
-  MAX_MARKERS, MARKER_GRAB_PX, ZOOM_PER_DELTA_Y, ZOOM_OUT_FACTOR, WINDOW_SHRINK_FACTOR,
+  MAX_MARKERS, MARKER_GRAB_PX, SNAP_RADIUS_CSS, ZOOM_PER_DELTA_Y, ZOOM_OUT_FACTOR, WINDOW_SHRINK_FACTOR,
   DIVIDER_HEIGHT_CSS,
 } from "./constants";
 import * as P from "./palette";
@@ -50,10 +50,14 @@ function resetBandColor(cols: number[]): number {
 export function WaveCanvas() {
   let host!: HTMLDivElement;
   let canvasEl!: HTMLCanvasElement;
+  // Surfaced when WebGPU can't initialize or the device is lost — renders a DOM
+  // overlay over the (blank) canvas instead of leaving a silent white area.
+  const [gpuError, setGpuError] = createSignal<string | null>(null);
 
   onMount(() => {
     let raf = 0;
     let disposed = false;
+    let lost = false; // set on GPUDevice loss — stops the frame loop (see device.lost below)
     // Optimized rendering: the rAF loop polls every frame but only does the
     // (expensive) geometry build + encode + GPU submit when something changed.
     // `needsRender` is the dirty flag; requestRender() arms it for non-store
@@ -69,6 +73,15 @@ export function WaveCanvas() {
     initGPU(canvasEl).then(async ({ device, ctx, format }) => {
       if (disposed) return;
       const gpuCtx = { device, ctx, format };
+      // Stop the loop + show a recovery message if the GPU device is lost (driver
+      // reset / TDR / GPU switch). Without this the rAF loop keeps submitting to a
+      // dead device and the canvas just freezes blank. reason "destroyed" = our own
+      // teardown, not a real loss — ignore it.
+      device.lost.then((info) => {
+        if (disposed || info.reason === "destroyed") return;
+        lost = true;
+        setGpuError(`GPU device lost (${info.reason || "unknown"})${info.message ? `: ${info.message}` : ""}.`);
+      });
       const gpuTimer = createGpuTimer(device, perf.pushGpu);
       perf.setGpuSupported(gpuTimer.supported);
       const colorBuf = createColorBuffer(device);
@@ -143,7 +156,7 @@ export function WaveCanvas() {
 
       // Repack GPU buffers + pill labels for a new active list (add/remove/radix)
       // over a tick window [qStart, qEnd] (the visible viewport plus over-fetch).
-      const rebuildScene = (active: ActiveSignalRef[], qStart: number, qEnd: number) => {
+      const rebuildScene = (active: ActiveSignalRef[], qStart: number, qEnd: number, forceFullLabels = false) => {
         const packed = getMockSegments(packSpecsFor(active), qStart, qEnd);
         perf.addMark("native repack (getMockSegments)");
         const nextScene = renderer.createSceneBuffers(packed.rowInfo, packed.x0Pool, packed.x1Pool);
@@ -162,7 +175,10 @@ export function WaveCanvas() {
         // end → label buffer prefix is identical, so only upload the new glyphs.
         // Any other change (reorder/remove/radix) → full label rebuild.
         const prev = lastLabelActive;
-        const isAppend = active.length > prev.length &&
+        // On a trace swap nodeIds restart from 0, so a prefix key-match can spuriously
+        // succeed against the OLD trace's resident label buffer (different glyphs, same
+        // ids) — the swap caller forces a full rebuild to avoid stale pill text.
+        const isAppend = !forceFullLabels && active.length > prev.length &&
           prev.every((r, i) => {
             const n = active[i];
             return n != null && n.signalId === r.signalId && n.row === r.row && n.radix === r.radix && n.role === r.role;
@@ -212,7 +228,7 @@ export function WaveCanvas() {
 
       const vp = {
         ticks_per_pixel: 0, start_ticks: 0, width: 0, height: 0,
-        row_height: 0, dpr: 1, selected_row: -1, wave_y_offset: 0,
+        row_height: 0, dpr: 1, wave_y_offset: 0,
       };
 
       const writeText = (
@@ -257,6 +273,7 @@ export function WaveCanvas() {
       perf.stamp("gpu:ready");
 
       const frame = (now: number) => {
+        if (lost) return; // device gone — stop drawing (overlay shown); reload to recover
         // Optimized-render gate: skip the whole frame (no metering) unless there's
         // a reason to draw — a dirty flag (input/store/resize), an in-flight zoom
         // animation, a pending repack, or a queued canvas capture. The perf
@@ -296,7 +313,7 @@ export function WaveCanvas() {
         if (!hasTrace()) {
           vp.ticks_per_pixel = 1; vp.start_ticks = 0;
           vp.width = canvasW; vp.height = canvasH; vp.row_height = rowHeightCSS;
-          vp.dpr = dpr; vp.selected_row = -1; vp.wave_y_offset = rulerHeightCSS;
+          vp.dpr = dpr; vp.wave_y_offset = rulerHeightCSS;
           const encStart = performance.now();
           renderFrame(gpuCtx, renderer, [multiBit, singleBit], { linesBg, rectsBg, labels: labelBatch, labelsSingle: singleLabelBatch, linesFg, textBody, pillRects, pillText, pillRanges, pillRangeCount: 0 }, vp, gpuTimer);
           drainCaptures(canvasEl);
@@ -407,12 +424,20 @@ export function WaveCanvas() {
             r.x = xForTick(t); r.y = canvasH - NOTCH_HEIGHT; r.w = LINE_THICKNESS_CSS; r.h = NOTCH_HEIGHT; r.color = P.NOTCH_COLOR;
           }
           const arrowY = bottomRulerTop + (bottomRulerH - NOTCH_HEIGHT) * 0.5;
-          const drawSpanArrow = (leftX: number, rightX: number, label: string, color: number) => {
+          const drawSpanArrow = (leftX: number, rightX: number, label: string, color: number, leftName: string, rightName: string) => {
             const headW = 12, headH = 10, shaftH = 2, gap = 6;
             const cellSm = textRenderer.cellSm;
             const textW = label.length * cellSm.widthPx;
             const labelPad = 5;
             const labelY = Math.round(arrowY - cellSm.midlinePx);
+            // When an endpoint is scrolled off-screen, name what the arrow points
+            // to (the marker name or "cursor") tucked against the edge it exits,
+            // so the off-screen target is still identifiable.
+            const pushEndName = (name: string, side: "left" | "right") => {
+              const w = name.length * cellSm.widthPx;
+              const x = side === "left" ? labelPad : canvasW - w - labelPad;
+              rulerArrowLabels.push({ x: Math.round(x), y: labelY, text: name, color });
+            };
             const drawShaft = (x0: number, x1: number) => {
               if (x1 <= x0) return;
               const sh = getRect(rectsBgScratch, bgRectN++);
@@ -446,7 +471,12 @@ export function WaveCanvas() {
             const INSIDE_LABEL_MIN_SPAN_PX = 85;
             const minShaftClear = 2;
             if (insideRoom - headW >= minShaftClear) {
-              const midX = (leftApex + rightApex) * 0.5;
+              // Center on the *visible* portion of the shaft, not its true span:
+              // when the arrow runs off the left/right edge the label stays
+              // centered in the on-screen sliver (clamped to [0, canvasW]) rather
+              // than drifting off with the geometric midpoint — same trick the
+              // pill labels use in labels.wgsl.
+              const midX = (Math.max(leftApex, 0) + Math.min(rightApex, canvasW)) * 0.5;
               const splitL = midX - textW * 0.5 - labelPad;
               const splitR = midX + textW * 0.5 + labelPad;
               const labelFits = span >= INSIDE_LABEL_MIN_SPAN_PX && splitL > leftApex + 2 && splitR < rightApex - 2;
@@ -465,6 +495,8 @@ export function WaveCanvas() {
               drawHead(rightX + gap, false);
               pushSideLabel(rightX + gap + headW * 0.5, leftX - gap - headW * 0.5);
             }
+            if (leftX < 0) pushEndName(leftName, "left");
+            if (rightX > canvasW) pushEndName(rightName, "right");
           };
 
           // Reset bands — rebuilt every frame from every active signal in reset
@@ -545,7 +577,10 @@ export function WaveCanvas() {
             const spanLabel = clockMode
               ? `${clockEdgesBetween(arrowMarker.tick, cursor, grid!)} clks`
               : `${formatTime(Math.abs(cursor - arrowMarker.tick))} ns`;
-            drawSpanArrow(Math.min(mX, cX), Math.max(mX, cX), spanLabel, arrowMarker.color);
+            const markerLeft = mX <= cX;
+            const leftName = markerLeft ? arrowMarker.name : "cursor";
+            const rightName = markerLeft ? "cursor" : arrowMarker.name;
+            drawSpanArrow(Math.min(mX, cX), Math.max(mX, cX), spanLabel, arrowMarker.color, leftName, rightName);
           }
         }
         rectsBg.setRects(rectsBgScratch, bgRectN);
@@ -661,13 +696,21 @@ export function WaveCanvas() {
       raf = requestAnimationFrame(frame);
 
       // ---- pointer / wheel / keyboard --------------------------------------
+      // Magnetic snap: drag smoothly, but pull to a clock edge when the pointer is
+      // within SNAP_RADIUS_CSS px of one. Distance is measured in pixels so the
+      // vicinity is constant on screen regardless of zoom. No-op when snap is off
+      // or there's no clock grid. Shared by cursor placement + the hover guide so
+      // the guide visibly magnetizes to where a click will land.
+      const magneticSnap = (tick: number): number => {
+        const st = useAppStore.getState();
+        if (!st.snapCursor || !st.clockGrid) return tick;
+        const snapped = snapToClockEdge(tick, st.clockGrid);
+        return Math.abs(snapped - tick) / view.ticksPerPixel <= SNAP_RADIUS_CSS ? snapped : tick;
+      };
       const tickAtClientX = (clientX: number): number => {
         const rect = host.getBoundingClientRect();
         const px = Math.max(0, Math.min(rect.width, clientX - rect.left)) - LINE_HALF_CSS;
-        let tick = view.startTicks + px * view.ticksPerPixel;
-        const stSnap = useAppStore.getState();
-        if (stSnap.snapCursor && stSnap.clockGrid) tick = snapToClockEdge(tick, stSnap.clockGrid);
-        return tick;
+        return magneticSnap(view.startTicks + px * view.ticksPerPixel);
       };
       const setCursorAtClientX = (clientX: number) => useAppStore.getState().setCursor(tickAtClientX(clientX));
       const markerAt = (clientX: number, clientY: number): number | null => {
@@ -686,7 +729,7 @@ export function WaveCanvas() {
         const rulerH = ROW_HEIGHT_CSS;
         const py = clientY - rect.top;
         const px = Math.max(0, Math.min(rect.width, clientX - rect.left)) - LINE_HALF_CSS;
-        const tick = view.startTicks + px * view.ticksPerPixel;
+        const tick = magneticSnap(view.startTicks + px * view.ticksPerPixel);
         // Walk the per-row stacked heights (rows can be individually resized) to
         // find which row contains py. Live rows, not SCENE's stale initial set.
         const rows = useAppStore.getState().activeSignals;
@@ -826,7 +869,7 @@ export function WaveCanvas() {
         () => {
           view.resetForTrace();
           const rows = useAppStore.getState().activeSignals;
-          rebuildScene(rows, 0, TRACE_END);
+          rebuildScene(rows, 0, TRACE_END, true);
           packedRange = { start: 0, end: TRACE_END, tpp: 0 };
           specsDirty = false;
           perf.swapMark("GPU repack");
@@ -850,10 +893,19 @@ export function WaveCanvas() {
         unsubTrace,
         unsubRender,
         unsubForce,
+        // Free all GPU resources on unmount (HMR / remount): device.destroy()
+        // releases every child buffer/pipeline/texture at once; gpuTimer owns a
+        // query set + readback buffer pool. Without this each remount leaks the
+        // full GPU resource set + a device.lost handler. (destroy() resolves
+        // device.lost with reason "destroyed", which the handler above ignores.)
+        () => { gpuTimer.destroy(); device.destroy(); },
       );
     }).catch((e) => {
-      if (e instanceof GPUInitError) console.error("GPU init failed:", e.message);
-      else throw e;
+      // Surface init failure as a DOM overlay instead of a silent blank canvas —
+      // the single most likely thing a tester on bad/absent GPU drivers hits.
+      const msg = e instanceof GPUInitError ? e.message : `GPU initialization error: ${e?.message ?? e}`;
+      console.error("GPU init failed:", msg);
+      if (!disposed) setGpuError(msg);
     });
 
     onCleanup(() => {
@@ -866,6 +918,22 @@ export function WaveCanvas() {
   return (
     <div class="gpu-host" ref={host}>
       <canvas id="gpu" ref={canvasEl} />
+      <Show when={gpuError()}>{(msg) => (
+        <div
+          style={{
+            position: "absolute", inset: "0", display: "flex", "flex-direction": "column",
+            "align-items": "center", "justify-content": "center", gap: "10px", padding: "24px",
+            "text-align": "center", background: "var(--panel, #1b1d21)", cursor: "default",
+            font: "13px 'IBM Plex Sans', system-ui, sans-serif", color: "var(--text-2, #c4c3bb)",
+          }}
+        >
+          <div style={{ "font-weight": "600", "font-size": "14px", color: "var(--hot, #f06b5b)" }}>WebGPU unavailable</div>
+          <div style={{ "max-width": "440px", "line-height": "1.5" }}>{msg()}</div>
+          <div style={{ "font-size": "11px", color: "var(--muted, #989ea8)", "line-height": "1.5" }}>
+            Check that GPU drivers / hardware acceleration are enabled, then reload the window.
+          </div>
+        </div>
+      )}</Show>
     </div>
   );
 }

@@ -2,6 +2,25 @@
 @import "tailwindcss/theme.css" layer(theme) prefix(tw);
 @import "tailwindcss/utilities.css" layer(utilities) prefix(tw) source(none);
 
+/* Vendored fonts (was the Google Fonts CDN — removed so typography works offline
+   / behind a firewall and the CSP can drop the remote font + style origins). Both
+   are variable woff2 covering the 400–700 weight axis (latin subset); esbuild's
+   file loader copies + content-hashes them into dist/renderer/. */
+@font-face {
+    font-family: 'IBM Plex Sans';
+    font-style: normal;
+    font-weight: 400 700;
+    font-display: swap;
+    src: url("fonts/IBMPlexSans-latin.woff2") format("woff2");
+}
+@font-face {
+    font-family: 'JetBrains Mono';
+    font-style: normal;
+    font-weight: 400 700;
+    font-display: swap;
+    src: url("fonts/JetBrainsMono-latin.woff2") format("woff2");
+}
+
 /* prefix(tw): every Tailwind utility/variant is namespaced `tw:` (e.g. tw:flex,
    tw:items-center) so it can never collide with the app's semantic class names
    (e.g. .collapse) and so stray bracket text in comments isn't mined into bogus
@@ -952,6 +971,10 @@
         .btn.on {
             @apply tw:accent-active;
             border-color: transparent;
+        }
+        .btn.disabled {
+            opacity: 0.35;
+            pointer-events: none;
         }
 
         .wv-canvas {

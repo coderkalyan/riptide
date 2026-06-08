@@ -19,6 +19,38 @@ screen of over-fetch margin)**. The items below are what remains on top of that.
 
 ---
 
+## Load / memory (scales with trace size — revisit on the first big real trace)
+
+### Whole-VCD slurp + full in-RAM db (no size cap, no streaming)
+`mock_db.zig` `readFileAllocOptions(…, .unlimited, …)` reads the entire VCD into
+RAM, then tide builds a full in-memory db on top — no size ceiling, no
+backpressure. A multi-GB VCD OOMs at load (surfaces as a thrown JS error, so it
+doesn't corrupt, but it can't open). Trigger to revisit: first multi-hundred-MB /
+GB trace; longer-term wants a size cap or the streaming model tide references.
+
+### Every Open VCD leaks the prior trace
+`tide`'s `Database.deinit` frees only the signal list + map, never the per-signal
+`timestamps`/`x0s`/`x1s` payloads (`Signal.deinit` exists but is never called), so
+each in-app trace swap leaks the entire prior trace (~0.42 MB/swap on the mock; the
+whole trace on a real one → RSS grows monotonically, OOM after enough opens). A
+*bug*, not a deferred optimization, but it's the dominant memory cost of repeated
+opens. Fix is upstream: loop `for (db.signals.items) |*s| s.deinit(db.gpa);` in
+`tide`'s `Database.deinit`.
+
+## Per-frame GPU (scales with on-screen transition density)
+
+### No decimation / draw budget
+Windowing bounds buffers to the visible span, but within one screen there is no
+transition cap: a window containing a dense burst packs + draws every transition as
+its own instance, so GPU overdraw / vertex throughput grows with on-screen
+transition *density* (a sub-pixel segment still costs a full instance). Not yet
+measurable — there is no `visible_transitions` / `drawn_primitive_count` hook
+(tests/FINDINGS.md coverage gap). Trigger: a zoomed-out view of a fast signal
+(≫ ~50k transitions on screen) shows GPU pass ms climbing. Fix direction: collapse
+sub-pixel runs during pack, or a per-row draw budget.
+
+---
+
 ## Deferred deficiencies (non-critical)
 
 Recorded for tracking. **None are critical** and none scale with trace size onto the

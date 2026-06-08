@@ -1,5 +1,5 @@
 import { For, Show, createSignal, createMemo, onMount, onCleanup } from "solid-js";
-import { X, PanelLeftClose, PanelLeftOpen, FileText, FolderOpen } from "lucide-solid";
+import { PanelLeftClose, PanelLeftOpen, FileText, FolderOpen } from "lucide-solid";
 import { useAppStore, selectExportSidecarText } from "./store/store";
 import { WaveCanvas } from "./wave/WaveCanvas";
 import { ActiveSignals } from "./ActiveSignals";
@@ -207,7 +207,9 @@ export function App() {
           treeCollapsed={() => s.panels.treeCollapsed} onToggleTree={toggleTree}
           activeCollapsed={() => s.panels.activeCollapsed} onToggleActive={toggleActive}
           snapOn={() => s.snapCursor} onToggleSnap={() => s.toggleSnap()}
-          clockOn={() => s.clockAnchor} onToggleClock={() => s.toggleClock()}
+          clockOn={() => s.clockAnchor}
+          clockAvailable={() => s.clockAnchor || s.timebaseClock != null || s.activeSignals.some((r) => r.role === "clock")}
+          onToggleClock={() => s.toggleClock()}
           markerCount={() => s.markers.length} markerSelected={() => s.selectedMarkerId != null}
           onMarkerAdd={() => s.addMarkerAtCursor()} onMarkerDelete={deleteSelMarker}
           onMarkerClear={() => s.clearMarkers()} onMarkerNext={() => s.cycleMarker(1)} onMarkerPrev={() => s.cycleMarker(-1)}
@@ -219,21 +221,7 @@ export function App() {
           onSignalMoveBottom={() => { const r = selSignal(); if (r) s.moveSignal(r.row, "bottom"); }}
           onSignalRemove={() => { const r = selSignal(); if (r) s.removeSignal(r.row); }}
         />
-        {/* TODO: file tabs aren't wired up yet (no multi-file/tab support), so the
-            tab bar is hidden to cut visual noise. Code kept intact — flip this Show
-            back to `true` (or a real condition) once tabs are implemented. */}
-        <Show when={false}>
-          <div class="divider" />
-          <div class="tabs">
-            <For each={s.tabs.open}>{(f, i) => (
-              <span class={`tab${i() === s.tabs.active ? " active" : ""}`} onClick={() => s.setActiveTab(i())}>
-                {f}
-                <span class="tab-close" data-tip="close file" onClick={(e) => { e.stopPropagation(); s.closeTab(i()); }}><X size={11} /></span>
-              </span>
-            )}</For>
-          </div>
-        </Show>
-        {/* Non-interactive pill noting the open file, in place of the (hidden) tabs.
+        {/* Non-interactive pill noting the open file (multi-file tabs aren't built).
             Hidden while idle (no trace) — nothing to name. */}
         <Show when={traceOpen()}>
           <span class="pill file" data-tip={currentVcdPath()}>
@@ -280,7 +268,8 @@ export function App() {
                   <span class="sp" />
                   <span class="collapse" data-tip="collapse panel" onClick={() => toggleTree(true)}><PanelLeftClose size={14} stroke-width={1.75} /></span>
                 </div>
-                <div class="col-sub"><input class="search" placeholder="filter scope/name" /></div>
+                {/* Filtering isn't wired up yet — disabled so it doesn't read as a working control. */}
+                <div class="col-sub"><input class="search" placeholder="filter scope/name" disabled data-tip="filtering not yet implemented" /></div>
                 <SignalTree />
               </div>
             }

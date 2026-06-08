@@ -10,13 +10,15 @@ const baseName = (p: string) => p.split(/[\\/]/).pop() || p;
 // Edit + Help are static (state-independent). Signals/View/Markers depend on
 // runtime state and are built in `menus()`.
 const EDIT_HELP: { name: string; items: MenuItem[] }[] = [
+  // Unimplemented items intentionally carry no `kbd` — advertising a shortcut
+  // that does nothing reads as broken. Add the hint back when the action lands.
   { name: "Edit", items: [
-    { label: "Undo", kbd: "Ctrl+Z", disabled: true, unimplemented: true }, { label: "Redo", kbd: "Ctrl+Shift+Z", disabled: true, unimplemented: true }, "sep",
-    { label: "Cut", kbd: "Ctrl+X", disabled: true, unimplemented: true }, { label: "Copy", kbd: "Ctrl+C", disabled: true, unimplemented: true }, { label: "Paste", kbd: "Ctrl+V", disabled: true, unimplemented: true }, "sep", { label: "Find…", kbd: "Ctrl+F", disabled: true, unimplemented: true },
+    { label: "Undo", disabled: true, unimplemented: true }, { label: "Redo", disabled: true, unimplemented: true }, "sep",
+    { label: "Cut", disabled: true, unimplemented: true }, { label: "Copy", disabled: true, unimplemented: true }, { label: "Paste", disabled: true, unimplemented: true }, "sep", { label: "Find…", disabled: true, unimplemented: true },
   ] },
   { name: "Help", items: [
     { label: "Documentation", disabled: true, unimplemented: true },
-    { label: "Keyboard Shortcuts", kbd: "Ctrl+/", disabled: true, unimplemented: true },
+    { label: "Keyboard Shortcuts", disabled: true, unimplemented: true },
     "sep",
     { label: "About Riptide", disabled: true, unimplemented: true },
   ] },
@@ -40,6 +42,8 @@ export function MenuBar(props: {
   snapOn: () => boolean;
   onToggleSnap: () => void;
   clockOn: () => boolean;
+  // False when there's no clock-format signal to anchor to — disables the toggle.
+  clockAvailable: () => boolean;
   onToggleClock: () => void;
   markerCount: () => number;
   markerSelected: () => boolean;
@@ -77,13 +81,13 @@ export function MenuBar(props: {
     const idle = props.idle();
     return [
     { name: "File", items: [
-      { label: "New Window", kbd: "Ctrl+N", disabled: true, unimplemented: true },
+      { label: "New Window", disabled: true, unimplemented: true },
       { label: "Open VCD…", kbd: "Ctrl+O", action: "open-vcd" },
       { label: "Open Recent", submenu: recentSubmenu() },
       "sep",
       { label: "Export Sidecar…", action: "export-sidecar", disabled: idle },
       "sep",
-      { label: "Reload Trace", kbd: "Ctrl+R", disabled: true, unimplemented: true },
+      { label: "Reload Trace", disabled: true, unimplemented: true },
       "sep",
       { label: "Close Window", kbd: "Ctrl+W", action: "close-window" },
     ] },
@@ -97,7 +101,7 @@ export function MenuBar(props: {
       { label: props.activeCollapsed() ? "Expand Active Signals" : "Compact Active Signals", action: "toggle-active", disabled: idle },
       "sep",
       { label: "Grid Snap", checked: props.snapOn(), action: "toggle-snap", disabled: idle },
-      { label: "Align Grid to Clock", checked: props.clockOn(), action: "toggle-clock", disabled: idle },
+      { label: "Align Grid to Clock", checked: props.clockOn(), action: "toggle-clock", disabled: idle || !props.clockAvailable() },
       "sep",
       { label: "Reset Layout", disabled: true, unimplemented: true },
     ] },

@@ -170,7 +170,7 @@
     "panels": {
       "treeWidth": 236,
       "activeWidth": 296,
-      "treeCollapsed": true,
+      "treeCollapsed": false,
       "activeCollapsed": false,
       "activeCompactWidth": null
     },
@@ -183,7 +183,7 @@
       ]
     },
     "toggles": {
-      "snapCursor": false,
+      "snapCursor": true,
       "clockAnchor": true
     },
     "timebase": {

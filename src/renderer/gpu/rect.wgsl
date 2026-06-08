@@ -10,7 +10,7 @@ struct Viewport {
     height: f32,
     row_height: f32,
     dpr: f32,
-    selected_row: i32,
+    _pad_sel: i32,
     wave_y_offset: f32,
     _pad0: f32,
     _pad1: f32,

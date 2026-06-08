@@ -92,7 +92,6 @@ export interface UiSection {
   tree: { expanded: string[] };
   toggles: { snapCursor: boolean; clockAnchor: boolean };
   timebase?: SidecarTimebase;
-  tabs: { open: string[]; active: number };
 }
 
 export interface Sidecar {
@@ -271,7 +270,6 @@ export interface SidecarSnapshot {
   treeExpanded: Set<NodeId>;
   toggles: { snapCursor: boolean; clockAnchor: boolean };
   timebase: { clockPath: string | null; override: { period: number; phase: number } | null };
-  tabs: { open: string[]; active: number };
 }
 
 // Pure. Builds the object with a fixed key order (insertion order is preserved
@@ -325,7 +323,6 @@ export function serializeSidecar(snap: SidecarSnapshot): Sidecar {
         clockPath: snap.timebase.clockPath,
         ...(snap.timebase.override ? { override: snap.timebase.override } : {}),
       },
-      tabs: { open: snap.tabs.open, active: snap.tabs.active },
     },
   };
 }
@@ -344,7 +341,6 @@ export interface InitialState {
   panels: UiPanels;
   toggles: { snapCursor: boolean; clockAnchor: boolean };
   timebase: { clockPath: string | null; override?: { period: number; phase: number } };
-  tabs: { open: string[]; active: number };
 }
 
 export function freshInitial(endTicks: number): InitialState {
@@ -358,9 +354,8 @@ export function freshInitial(endTicks: number): InitialState {
       activeCollapsed: false,
       activeCompactWidth: null,
     },
-    toggles: { snapCursor: false, clockAnchor: false },
+    toggles: { snapCursor: true, clockAnchor: false },
     timebase: { clockPath: null },
-    tabs: { open: ["keysched.vcd"], active: 0 },
   };
 }
 
@@ -383,6 +378,5 @@ export function initialFromSidecar(sc: Sidecar, endTicks: number): InitialState 
     panels: ui?.panels ?? fresh.panels,
     toggles: ui?.toggles ?? fresh.toggles,
     timebase: ui?.timebase ?? fresh.timebase,
-    tabs: ui?.tabs ?? fresh.tabs,
   };
 }

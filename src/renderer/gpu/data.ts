@@ -9,17 +9,16 @@ export interface Viewport {
   height: number;
   row_height: number;
   dpr: number;
-  selected_row: number;
   wave_y_offset: number;
 }
 
 // Viewport = 12 × 4 B = 48 bytes (multiple of 16, required by WebGPU). Mixed
-// int/float fields per the WGSL Viewport struct: slot 1 (start_ticks_int) and
-// slot 7 (selected_row) are i32; the rest are f32. Slots 9..11 are pad to hit
-// 16-byte alignment (row dimming now lives in RowInfo.flags, not a viewport
-// bitmask). Caller provides aliased Float32 and Int32 views over the same
-// ArrayBuffer so each slot is written with the correct bit pattern without
-// per-frame allocation.
+// int/float fields per the WGSL Viewport struct: slot 1 (start_ticks_int) is i32;
+// the rest are f32. Slot 7 (formerly selected_row) is now unused pad, and slots
+// 9..11 are pad to hit 16-byte alignment (row highlight + dimming live in
+// RowInfo.flags, not a viewport field). Caller provides aliased Float32 and Int32
+// views over the same ArrayBuffer so each slot is written with the correct bit
+// pattern without per-frame allocation.
 export const VIEWPORT_BYTES = 48;
 export function writeViewportInto(f32: Float32Array, i32: Int32Array, vp: Viewport): void {
   // Split start_ticks into integer + fractional parts so shader subtraction
@@ -32,7 +31,7 @@ export function writeViewportInto(f32: Float32Array, i32: Int32Array, vp: Viewpo
   f32[4] = vp.height;
   f32[5] = vp.row_height;
   f32[6] = vp.dpr;
-  i32[7] = vp.selected_row;
+  i32[7] = 0; // slot 7: formerly selected_row (unused — row highlight lives in RowInfo.flags)
   f32[8] = vp.wave_y_offset;
   // Slots 9..11 are pad: never written, stay zero-initialized.
 }

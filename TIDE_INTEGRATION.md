@@ -3,8 +3,8 @@
 Riptide reads a real VCD via tide-vcd → `tide.Database`. The items below are the
 **temporary mocks/overlays still in place** — delete each as the stack grows the
 capability. Everything else (pool/pack pipeline, windowed packing,
-open-file/sidecar flow) is done; see the code. Todo-only: once an item is real,
-remove it from this file rather than recording it as resolved.
+open-file/sidecar flow) is wired up; see the code. Todo-only: once an item is
+real, remove it from this file rather than recording it as resolved.
 
 Siblings: `tide` at `../tide`, `tide-vcd` at `../tide-vcd` (`native/build.zig.zon`
 → `../../tide`, `../../tide-vcd`).
@@ -18,12 +18,37 @@ Each item is binned by *why* it's still mocked:
   in our stack, not the format.
 - **Riptide-internal** — engineering shims independent of what the VCD carries.
 
+## ⚠ Crash / leak consequences of these shims (fix before release)
+
+The shims below mostly *degrade* gracefully, but these specific consequences
+currently **break** the app on a real (non-mock) trace — promoted here so they
+aren't buried:
+
+- [ ] **Adding a signal tide didn't ingest panics the renderer.** real / string /
+  `event` and any zero-sample signal are dropped at load (see "real/string" +
+  "Fine var-type" below) but still appear in the hierarchy tree; `SignalTree`
+  lets the user click-add any signal node, and `getMockSegments` then hits
+  `db.query(...) orelse @panic("missing signal")` (`native/src/main.zig:353`) →
+  SIGABRT, taking down the whole renderer. Real VCDs routinely carry `real`
+  signals, so this is a one-click crash. Fix: in the pack loop, skip a spec whose
+  handle isn't in the current db (emit an empty packed signal) instead of
+  `@panic`; ideally also filter/grey unsupported nodes in the tree. (Related:
+  `getValueAt`/`pack.valueAt` on a VCD `event` signal also aborts — tests/FINDINGS.md
+  B3.)
+- [ ] **Hardcoded `trace.id: "keysched"` leaks into every foreign sidecar.**
+  `store.ts:466` writes `trace: { id: "keysched" }` onto any trace the tester opens
+  (the sidecar is auto-written on first edit). Fix: derive it from the trace
+  basename (`currentVcdPath()` is available), or drop the field. *(The related
+  `"keysched.vcd"` default tab label is resolved — the unused `tabs` block was
+  removed from the sidecar + store entirely.)*
+
 ## Not in the VCD (no source to read)
 
 - [ ] **Enum int→label table.** Mocked in `scene.ts` `ENUM_TYPES` + an `enumTypeId`
   overlay on the signal node; `native.ts` ships `enumTypes` empty. Standard VCD
-  carries no enum members. → when a VCD convention (`$comment`/translate) or tide's
-  hierarchy starts carrying them.
+  carries no enum members. The overlay is path-scoped (try/catch), so it correctly
+  no-ops on a non-matching trace. → when a VCD convention (`$comment`/translate) or
+  tide's hierarchy starts carrying them.
 - [ ] **Signal direction.** VCD `$var` lines carry no port direction, so `walkInto`
   never sets one and `hier.zig` defaults every signal to `.implicit` — the
   renderer's `Direction` enum never sees its other cases. Not surfaced in the UI
@@ -31,21 +56,25 @@ Each item is binned by *why* it's still mocked:
   direction.
 - [ ] **`package` scope kind.** VCD scope types are module/task/function/begin/fork
   only; the fixture declares the package as a plain `module`, and `scene.ts`
-  overlays the `package` kind onto the `derived` root. → when the source format
+  overlays the `package` kind onto the `derived` root. Foot-gun: `scene.ts:292`
+  restyles *any* root scope literally named `derived`, so a foreign design with a
+  top-level module of that name is mislabeled. → when the source format
   distinguishes it *and* tide-vcd grows the scope kind.
-- [ ] **Timescale precision.** Value+unit are real (`mock_db.zig` maps
-  `p.header.timescale` → `Loaded.timescale`, shipped by `main.zig` `getHierarchy`),
-  but VCD `$timescale` carries no precision magnitude (that's a Verilog source
-  concept), so `scene.ts` still overlays a `{10, ps}` precision. → only if a real
-  precision source appears (a sidecar field or a `$comment` convention).
+- [ ] **Timescale precision — applied unconditionally to every trace.** Value+unit
+  are real (`mock_db.zig` maps `p.header.timescale` → `Loaded.timescale`), but VCD
+  `$timescale` carries no precision magnitude, and `scene.ts:281` overlays a
+  fabricated `{10, ps}` precision onto **every** loaded trace (not just the mock) —
+  so all real traces mis-report precision. Fix: leave precision `undefined` unless
+  a real source (a sidecar field or a `$comment` convention) supplies it.
 
 ## In the VCD but not surfaced (dropped by riptide / unrepresentable in tide / mis-parsed by tide-vcd)
 
 - [ ] **real / string + weak-pull values.** Present in the event stream, but tide's
-  data model is quaternary-only: `mock_db.zig` skips real/string changes and
+  data model is quaternary-only: `mock_db.zig:227` skips real/string changes and
   collapses weak/pull scalars (`h l u w -`) to `x`. *Cause: tide can't represent
-  them.* → when tide gains real/string + weak/pull state. *(reals also surface in
-  tests/FINDINGS.md.)*
+  them.* Until then these signals carry zero samples and **must not be added to a
+  row** (see the crash hazard above). → when tide gains real/string + weak/pull
+  state. *(reals also surface in tests/FINDINGS.md.)*
 - [ ] **Fine var-type.** tide-vcd parses the full `$var` type set
   (wire/reg/integer/time/…), but `mock_db.zig` `mapVarType` collapses every one to
   `vcd_wire`/`vcd_reg`, so the renderer's richer `VarType` enum + `scene.ts`
@@ -57,3 +86,15 @@ Each item is binned by *why* it's still mocked:
 - [ ] **Derived signals.** No expression engine — the VCD precomputes `busy`/`done`
   under a `derived` scope and `scene.ts` tags a cosmetic `derivedExpr`. → when a
   live derivation layer computes them from inputs.
+- [ ] **`ROWS` is dead-but-present.** `scene.ts:89-104` reads like the live default
+  view but only `path` + `enumTypeId` are consumed (`scene.ts:283-288`); the
+  curated mock view actually comes from the bundled
+  `native/src/mock.vcd.sidecar.json`, so `row/radix/color/role/pinned/derivedExpr/
+  vcdType` are never read. Don't "fix" the view by editing `ROWS` — shrink it to a
+  `path → enumTypeId` map (or fold into `ENUM_TYPES`).
+- [ ] **No sidecar schema validation / migration.** `sidecar.ts` accepts any v1
+  file past a version-equality + `view.signals`-present check; bad field types
+  (e.g. unknown `radix`) flow into the formatter (mis-format, no crash), and there
+  is no migration path for a future v2. A read-only trace directory makes the
+  autosave write fail **silently** (console.warn only — view edits are lost with no
+  user-facing signal). Fine for alpha; note for v0.2.

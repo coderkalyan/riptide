@@ -18,11 +18,12 @@ import { subscribeWithSelector } from "zustand/middleware";
 import { shallow } from "zustand/shallow";
 import { create } from "solid-zustand/store";
 
-import { SCENE, INITIAL, makeActiveRef, handleForPath, type ActiveSignalRef, type Radix, type ActiveRole, type ClockConfig, type EnumEntry } from "../hier/scene";
+import { SCENE, INITIAL, TRACE_END, makeActiveRef, handleForPath, type ActiveSignalRef, type Radix, type ActiveRole, type ClockConfig, type EnumEntry } from "../hier/scene";
 import type { NodeId } from "../hier/types";
 import type { ClockGrid } from "../wave/format";
 import { detectClockGrid } from "../wave/clock";
 import { MAX_ROWS } from "../gpu/colors";
+import { MAX_MARKERS } from "../wave/constants";
 import {
   serializeSidecar,
   sidecarToString,
@@ -72,7 +73,6 @@ export interface DocState {
   clockGrid: ClockGrid | null;
   expandedScopes: NodeId[]; // array (not Set) so reconcile/serialization stay simple
   panels: PanelState;
-  tabs: { open: string[]; active: number };
 }
 
 export interface UiState {
@@ -164,9 +164,6 @@ export interface Actions {
   setActiveCollapsed: (v: boolean) => void;
   setActiveCompactWidth: (w: number | null) => void;
 
-  setActiveTab: (i: number) => void;
-  closeTab: (i: number) => void;
-
   setHover: (h: { tick: number; row: number } | null) => void;
   setPicker: (p: { row: number; rows?: number[]; anchorRect: DOMRect } | null) => void;
   setCtxMenu: (m: { x: number; y: number; row: number; kind?: "signal" | "divider" } | null) => void;
@@ -185,6 +182,12 @@ let markerSeq = 1; // unique marker id/name; deletes never reuse a name
 let selectionAnchor = -1; // last single/ctrl-selected row; shift-range pivots here
 
 const withRowId = (r: ActiveSignalRef): Row => ({ ...r, id: rowSeq++ });
+
+// Clamp a tick into the loaded trace's bounds [0, TRACE_END]. TRACE_END is a live
+// binding (reassigned by swapTrace), so this reads the current trace end each call.
+// Keeps the cursor/markers from being placed in the past-end dead zone via the
+// editable time fields. While idle (no trace) TRACE_END is 0 → everything pins to 0.
+const clampTick = (t: number): number => Math.max(0, Math.min(TRACE_END, t));
 
 // Detect the cycle grid from the timebase clock (unless overridden). Pure read
 // of the clock signal's prefix via native getEdges. null when nothing resolves.
@@ -238,7 +241,6 @@ function hydrateDoc(): DocState {
     clockGrid,
     expandedScopes: [...SCENE.initialExpanded],
     panels: { ...INITIAL.panels },
-    tabs: { open: [...INITIAL.tabs.open], active: INITIAL.tabs.active },
   };
 }
 
@@ -251,7 +253,7 @@ const renumber = (rows: Row[]): Row[] => rows.map((r, i) => (r.row === i ? r : {
 // ---- store --------------------------------------------------------------
 
 const vanilla = createVanilla<AppState>()(
-  subscribeWithSelector((set, get) => ({
+  subscribeWithSelector((set) => ({
     ...hydrateDoc(),
     ...freshUi(),
     traceNonce: 0,
@@ -371,10 +373,13 @@ const vanilla = createVanilla<AppState>()(
     )),
 
     addMarkerAtCursor: () => set((s) => {
+      // Rendering caps at MAX_MARKERS (shared line/pill pools); markers past it
+      // would be invisible + un-grabbable, so stop adding rather than ghost them.
+      if (s.markers.length >= MAX_MARKERS) return s;
       const id = markerSeq++;
       const color = MARKER_PALETTE[(id - 1) % MARKER_PALETTE.length];
       return {
-        markers: [...s.markers, { id, name: `M${id}`, tick: s.cursorTicks, color }],
+        markers: [...s.markers, { id, name: `M${id}`, tick: clampTick(s.cursorTicks), color }],
         selectedMarkerId: id,
       };
     }),
@@ -384,10 +389,10 @@ const vanilla = createVanilla<AppState>()(
     })),
     selectMarker: (id) => set({ selectedMarkerId: id }),
     moveMarker: (id, tick) => set((s) => ({
-      markers: s.markers.map((m) => (m.id === id ? { ...m, tick } : m)),
+      markers: s.markers.map((m) => (m.id === id ? { ...m, tick: clampTick(tick) } : m)),
     })),
     setMarkerTick: (id, tick) => set((s) => ({
-      markers: s.markers.map((m) => (m.id === id ? { ...m, tick } : m)),
+      markers: s.markers.map((m) => (m.id === id ? { ...m, tick: clampTick(tick) } : m)),
     })),
     clearMarkers: () => set({ markers: [], selectedMarkerId: null }),
     // Select the next/prev marker in time order (wrapping) and park the cursor on
@@ -402,7 +407,7 @@ const vanilla = createVanilla<AppState>()(
       return { selectedMarkerId: next.id, cursorTicks: next.tick };
     }),
 
-    setCursor: (tick) => set({ cursorTicks: tick }),
+    setCursor: (tick) => set({ cursorTicks: clampTick(tick) }),
     setViewRange: (start, end) => set({ viewRange: { start, end } }),
     bumpViewSave: () => set((s) => ({ viewSaveNonce: s.viewSaveNonce + 1 })),
     toggleSnap: () => set((s) => ({ snapCursor: !s.snapCursor })),
@@ -439,13 +444,6 @@ const vanilla = createVanilla<AppState>()(
     setActiveCollapsed: (v) => set((s) => ({ panels: { ...s.panels, activeCollapsed: v } })),
     setActiveCompactWidth: (w) => set((s) => ({ panels: { ...s.panels, activeCompactWidth: w } })),
 
-    setActiveTab: (i) => set({ tabs: { ...get().tabs, active: i } }),
-    closeTab: (i) => set((s) => {
-      const open = s.tabs.open.filter((_, k) => k !== i);
-      const active = s.tabs.active >= i && s.tabs.active > 0 ? s.tabs.active - 1 : s.tabs.active;
-      return { tabs: { open, active } };
-    }),
-
     setHover: (h) => set({ hover: h }),
     setPicker: (p) => set({ picker: p }),
     setCtxMenu: (m) => set({ ctxMenu: m }),
@@ -473,7 +471,6 @@ function sidecarSnapshot(s: AppState): SidecarSnapshot {
     treeExpanded: new Set(s.expandedScopes),
     toggles: { snapCursor: s.snapCursor, clockAnchor: s.clockAnchor },
     timebase: { clockPath: s.timebaseClock, override: s.timebaseOverride },
-    tabs: { open: s.tabs.open, active: s.tabs.active },
   };
 }
 
@@ -500,7 +497,7 @@ export function startAutosave(): () => void {
     (s) => [
       s.activeSignals, s.markers, s.selectedMarkerId, s.snapCursor, s.clockAnchor,
       s.timebaseClock, s.timebaseOverride,
-      s.panels, s.expandedScopes, s.tabs, s.cursorTicks, s.viewSaveNonce,
+      s.panels, s.expandedScopes, s.cursorTicks, s.viewSaveNonce,
     ] as const,
     () => {
       const text = selectSidecarText(useAppStore.getState());

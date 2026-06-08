@@ -1,15 +1,19 @@
 # Testing
 
-Two independent harnesses (no linter):
+Three independent harnesses (no linter):
 
-1. **Oracle regression/integration** — drives the deterministic **vcd-tests**
-   fixture corpus through tide → the napi addon → the app, asserting values,
-   formatting, and structure against a ground-truth answer key. Headless and
-   CI-ready. **This is the section below.**
-2. **Canvas (GPU) pixel** — proves GPU refactors are visual no-ops against a
-   committed golden. See [Canvas (GPU) testing](#canvas-gpu-testing).
+1. **Oracle regression/integration** (`pnpm test`) — drives the deterministic
+   **vcd-tests** fixture corpus through tide → the napi addon → the app, asserting
+   values, formatting, and structure against a ground-truth answer key. Headless
+   and CI-ready. **This is the first section below.**
+2. **DOM visual regression** (`pnpm test:visual`) — proves the renderer **chrome**
+   (CSS/Tailwind, layout) is a pixel no-op against committed PNG goldens, the
+   WebGPU canvas masked. See [DOM visual regression](#dom-visual-regression).
+3. **Canvas (GPU) pixel** (`pnpm canvas-test`) — proves GPU refactors are visual
+   no-ops against a committed golden. See [Canvas (GPU) testing](#canvas-gpu-testing).
 
-Plus manual verification (`pnpm dev`).
+Plus manual verification (`pnpm dev`) and ad-hoc verifiers
+(`node tests/gate-split.verify.cjs` — muted-data segment splitting).
 
 ---
 
@@ -54,7 +58,7 @@ or a *formatter* bug, never silent core/marshalling corruption.
 ### Running
 
 ```sh
-pnpm build:native        # dist/native/riptide.node + the query-fixture exe
+pnpm build:native        # dist/native/riptide.node (query-fixture exe → native/zig-out/bin)
 pnpm test                # == tests/run.sh: all suites (e2e only if $DISPLAY set)
 tests/run.sh seam-a      # one suite: seam-a | native | format | differential | malformed | e2e
 VCD_TESTS_DIR=/path tests/run.sh
@@ -66,17 +70,18 @@ VCD_TESTS_DIR=/path tests/run.sh
   tests/e2e/app.test.cjs`; `SKIP_E2E=1` opts out; expect WebGPU on a Vulkan
   llvmpipe/SwiftShader fallback in CI).
 - **Process isolation is mandatory.** The node suites spawn a worker per fixture
-  because the addon `@panic`s/`abort()`s on some inputs (u32 tick overflow; the
-  truncated malformed file; `getValueAt` on an event). Isolated, a crash is
-  reported for one fixture and the rest continue.
+  because the addon `@panic`s/`abort()`s on some inputs (the truncated malformed
+  file; `getValueAt`/pack on an `event` signal — see FINDINGS B3/B4; the u32 tick
+  overflow B1 is now fixed). Isolated, a crash is reported for one fixture and the
+  rest continue.
 
 ### Asserted vs. tracked
 
 Genuine value/structure errors **fail**. Display-style and known-capability
-divergences (style-only, x/z-hex, leading-zero pad, unsupported radix, u32-skip,
-real-skip) are **counted and printed**, not failed, so they don't drown the
-signal — each suite prints a summary. See `tests/FINDINGS.md` for the
-bug-vs-by-design calls left open.
+divergences (style-only, x/z-hex, leading-zero pad, unsupported radix, real-skip)
+are **counted and printed**, not failed, so they don't drown the signal — each
+suite prints a summary. See `tests/FINDINGS.md` for the bug-vs-by-design calls
+left open.
 
 ### Determinism & CI
 
@@ -89,6 +94,39 @@ bug-vs-by-design calls left open.
   corpus): decimation/draw-budget, perf/jank, `find_next_edge`, real (`f64`)
   signals, and a structured warning log (which would upgrade the malformed suite
   from "survived" to "diagnosed").
+
+---
+
+## DOM visual regression
+
+Goal: prove that renderer-chrome changes meant to be **visual no-ops** (the
+Tailwind migration, CSS refactors, layout tweaks) leave the DOM pixel-identical.
+Launches the real built Electron app via **playwright-core**, drives it into a
+matrix of UI states, and screenshots the full window with the **WebGPU canvas
+masked** (its pixels are GPU-rendered, out of scope, and nondeterministic). Each
+shot is compared against a committed golden PNG; any chrome change fails.
+
+### Commands
+
+```
+pnpm test:visual          # tests/e2e/run-headless.sh: compare to goldens
+pnpm test:visual:update   # UPDATE_GOLDENS=1: (re)write goldens
+```
+
+- Driver `tests/e2e/visual.test.cjs`; pixel diff `tests/e2e/pngdiff.cjs`; goldens
+  in `tests/e2e/golden/`; state seeding in `tests/e2e/seed.cjs`. **Build first**
+  (`pnpm build`) so `dist/` is current.
+- **Fully headless via nested `sway`** (`run-headless.sh`): spins a throwaway
+  wlroots-headless compositor on a virtual output, forces Electron onto that
+  nested Wayland display, runs the test, tears it down — nothing touches the real
+  desktop. Requires `sway` on PATH (software pixman renderer is fine; the GPU
+  canvas is masked). Without `run-headless.sh` the test needs a display like the
+  e2e suite.
+- **Determinism knobs:** fixed content size per state, `device-scale-factor=1`,
+  `fonts.ready` await + settle delay, Playwright `animations:'disabled'` +
+  `caret:'hide'`, and the canvas mask. Tolerance via env (`VISUAL_CHANNEL`
+  per-channel delta, `VISUAL_RATIO` max differing-pixel fraction) absorbs sub-pixel
+  text-AA jitter while still catching real glyph/colour/layout shifts.
 
 ---
 

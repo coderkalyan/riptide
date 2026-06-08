@@ -69,7 +69,8 @@ export function ActiveSignals(props: {
         </span>
       </div>
       <div class="col-sub">
-        <input class="search" placeholder={props.collapsed ? "filter signals" : "filter active signals"} />
+        {/* Filtering isn't wired up yet — disabled so it doesn't read as a working control. */}
+        <input class="search" placeholder={props.collapsed ? "filter signals" : "filter active signals"} disabled data-tip="filtering not yet implemented" />
       </div>
       <Show
         when={props.collapsed}

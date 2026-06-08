@@ -2,8 +2,9 @@ import {
   ArrowLeftToLine, ArrowRightToLine, ChevronFirst, ChevronLast, ChevronLeft, ChevronRight,
   Clock, Grid2x2, Maximize, Minus, Plus, Save, Undo2,
 } from "lucide-solid";
-import { SCENE } from "./hier/scene";
+import { SCENE, TRACE_END, handleForPath } from "./hier/scene";
 import { useAppStore } from "./store/store";
+import { getEdges } from "./native";
 import { view } from "./wave/viewport";
 import { formatTime, formatTimescale } from "./wave/format";
 import { ZOOM_STEP } from "./wave/constants";
@@ -27,12 +28,19 @@ async function saveCanvas() {
   }
 }
 
-// Waves toolbar: cursor pill (jump-to-cursor + edit), nav segs (decorative,
-// mock — match the React build), editable [start–end] range, zoom in/out/fit,
-// snap + clock toggles. Zoom drives the viewport controller; toggles drive the
-// store. (The nav/transition buttons have no handlers yet, as in React.)
+// Waves toolbar: cursor pill (jump-to-cursor + edit), quad nav (jump-to-start,
+// step back/forward by a clock cycle, jump-to-end — each moves the cursor and
+// the viewport follows via view.revealTick), editable [start–end] range, zoom
+// in/out/fit, snap + clock toggles. Transition nav (prev/next value change of
+// the lone selected signal; disabled unless exactly one row is selected) also
+// moves the cursor + follows. Zoom/nav drive the viewport controller; toggles
+// drive the store.
 export function WavesToolbar() {
   const s = useAppStore();
+  // Clock-align is only meaningful when there's a clock to anchor to: a
+  // role:"clock" row, an already-chosen timebase, or it's already on (so it can
+  // be turned off). Without one, toggleClock silently no-ops — disable instead.
+  const clockAvailable = () => s.clockAnchor || s.timebaseClock != null || s.activeSignals.some((r) => r.role === "clock");
   const applyCursor = (n: number): boolean => {
     if (!isFinite(n) || n < 0) return false;
     s.setCursor(n);
@@ -42,6 +50,58 @@ export function WavesToolbar() {
     if (!view.applyRange(start, end)) return false;
     s.setViewRange(view.startTicks, view.startTicks + view.timelinePx * view.ticksPerPixel);
     return true;
+  };
+  // Move the cursor to `tick` (clamped to the trace) and let the viewport follow.
+  const jumpTo = (tick: number) => {
+    const t = Math.max(0, Math.min(TRACE_END, tick));
+    s.setCursor(t);
+    view.revealTick(t);
+  };
+  // Step the cursor one clock cycle back/forward (next/prev reference edge of the
+  // timebase grid). With no valid grid, nudge by ~10% of the visible window.
+  const stepCursor = (dir: 1 | -1) => {
+    const cur = s.cursorTicks;
+    const g = s.clockGrid;
+    let next: number;
+    if (g && g.valid && g.period > 0) {
+      const rel = (cur - g.phase) / g.period;
+      const k = dir > 0 ? Math.floor(rel + 1e-6) + 1 : Math.ceil(rel - 1e-6) - 1;
+      next = g.phase + k * g.period;
+    } else {
+      const visible = view.ticksPerPixel * view.timelinePx;
+      next = cur + dir * Math.max(1, Math.round(visible * 0.1));
+    }
+    jumpTo(next);
+  };
+  // Transition nav targets the lone selected signal — disabled unless exactly one
+  // row is selected (no ambiguity about which signal's edges to walk).
+  const oneSelected = () => s.activeSignals.filter((r) => r.selected).length === 1;
+  // Move the cursor to the prev/next value change of that signal. queryNext (via
+  // getEdges) returns the sample at/before `start` as element[0], so: next = the
+  // first returned tick strictly after the cursor; prev = element[0] when it sits
+  // before the cursor, else the boundary one tick before it.
+  const gotoTransition = (dir: 1 | -1) => {
+    const sel = s.activeSignals.find((r) => r.selected);
+    const handle = sel && oneSelected() ? handleForPath(sel.path) : null;
+    if (!handle) return;
+    const cur = s.cursorTicks;
+    const eps = 1e-6;
+    let next: number | null = null;
+    if (dir > 0) {
+      const q = getEdges(handle, cur, 2);
+      if (q) for (let i = 0; i < q.count; i++) if (q.ticks[i] > cur + eps) { next = q.ticks[i]; break; }
+    } else {
+      const q = getEdges(handle, cur, 1);
+      if (q && q.count > 0) {
+        const s0 = q.ticks[0];
+        if (s0 < cur - eps) next = s0; // cursor inside a segment → its start boundary
+        else if (s0 > 0) {              // cursor on a boundary → the one before it
+          const q2 = getEdges(handle, s0 - 1, 1);
+          if (q2 && q2.count > 0 && q2.ticks[0] < s0 - eps) next = q2.ticks[0];
+        }
+      }
+    }
+    if (next != null) jumpTo(next);
   };
 
   return (
@@ -55,14 +115,22 @@ export function WavesToolbar() {
         </span>
       </span>
       <div class="seg">
-        <span class="btn icon" data-tip="jump to start"><ChevronFirst size={14} /></span>
-        <span class="btn icon" data-tip="step back"><ChevronLeft size={14} /></span>
-        <span class="btn icon" data-tip="step forward"><ChevronRight size={14} /></span>
-        <span class="btn icon" data-tip="jump to end"><ChevronLast size={14} /></span>
+        <span class="btn icon" data-tip="jump to start" onClick={() => jumpTo(0)}><ChevronFirst size={14} /></span>
+        <span class="btn icon" data-tip="step back" onClick={() => stepCursor(-1)}><ChevronLeft size={14} /></span>
+        <span class="btn icon" data-tip="step forward" onClick={() => stepCursor(1)}><ChevronRight size={14} /></span>
+        <span class="btn icon" data-tip="jump to end" onClick={() => jumpTo(TRACE_END)}><ChevronLast size={14} /></span>
       </div>
       <div class="seg">
-        <span class="btn icon" data-tip="previous transition"><ArrowLeftToLine size={14} /></span>
-        <span class="btn icon" data-tip="next transition"><ArrowRightToLine size={14} /></span>
+        <span
+          class={`btn icon${oneSelected() ? "" : " disabled"}`}
+          data-tip={oneSelected() ? "previous transition" : "select one signal to step transitions"}
+          onClick={() => gotoTransition(-1)}
+        ><ArrowLeftToLine size={14} /></span>
+        <span
+          class={`btn icon${oneSelected() ? "" : " disabled"}`}
+          data-tip={oneSelected() ? "next transition" : "select one signal to step transitions"}
+          onClick={() => gotoTransition(1)}
+        ><ArrowRightToLine size={14} /></span>
       </div>
       <span class="sp" />
       <div class="ts-box">
@@ -87,9 +155,9 @@ export function WavesToolbar() {
           onClick={() => s.toggleSnap()}
         ><Grid2x2 size={14} /></span>
         <span
-          class={`btn icon${s.clockAnchor ? " on" : ""}`}
-          data-tip={s.clockAnchor ? "align grid to timescale" : "align grid to clock"}
-          onClick={() => s.toggleClock()}
+          class={`btn icon${s.clockAnchor ? " on" : ""}${clockAvailable() ? "" : " disabled"}`}
+          data-tip={!clockAvailable() ? "no clock-format signal to align to" : s.clockAnchor ? "align grid to timescale" : "align grid to clock"}
+          onClick={() => { if (clockAvailable()) s.toggleClock(); }}
         ><Clock size={14} /></span>
       </div>
       <ClockPicker />

@@ -22,7 +22,7 @@ export const buildOptions = {
   outfile: `${DST_DIR}/index.js`,
   format: "iife",
   target: "es2022",
-  loader: { ".wgsl": "text" },
+  loader: { ".wgsl": "text", ".woff2": "file" },
   minify: PROD,
   sourcemap: PROD ? false : "linked",
   define: { "process.env.NODE_ENV": JSON.stringify(PROD ? "production" : "development") },

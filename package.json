@@ -1,13 +1,14 @@
 {
   "name": "riptide",
-  "version": "0.0.0",
+  "version": "0.1.0-alpha.1",
   "private": true,
   "main": "dist/main/index.js",
   "packageManager": "pnpm@9.0.0",
   "scripts": {
     "wgsl-check": "node scripts/wgsl-check.mjs",
-    "build:native": "cd native && zig build -Doptimize=ReleaseSafe && mkdir -p ../dist/native && cp zig-out/lib/libriptide.so ../dist/native/riptide.node && cp zig-out/bin/query-fixture ../dist/native/query-fixture && cp src/mock.vcd ../dist/native/ && cp -n src/mock.vcd.sidecar.json ../dist/native/",
+    "build:native": "cd native && zig build -Doptimize=ReleaseSafe && mkdir -p ../dist/native && cp zig-out/lib/libriptide.so ../dist/native/riptide.node && cp src/mock.vcd ../dist/native/ && cp -n src/mock.vcd.sidecar.json ../dist/native/",
     "build:native:win": "node scripts/gen-win-napi-shim.mjs && cd native && zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-windows && mkdir -p ../dist/native && cp zig-out/bin/riptide.dll ../dist/native/riptide-win.node && cp src/mock.vcd ../dist/native/ && cp -n src/mock.vcd.sidecar.json ../dist/native/",
+    "build:native:mac": "cd native && zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-macos && mkdir -p ../dist/native && cp zig-out/lib/libriptide.dylib ../dist/native/riptide.node && cp src/mock.vcd ../dist/native/ && cp -n src/mock.vcd.sidecar.json ../dist/native/",
     "test": "tests/run.sh",
     "test:differential": "node --test tests/differential.test.cjs",
     "test:visual": "tests/e2e/run-headless.sh",
@@ -19,6 +20,7 @@
     "dist": "pnpm build:prod && electron-builder",
     "dist:linux": "pnpm build:prod && electron-builder --linux",
     "dist:win": "pnpm build:prod && pnpm build:native:win && electron-builder --win",
+    "dist:mac": "pnpm build:prod && pnpm build:native:mac && electron-builder --mac",
     "dist:all": "pnpm build:prod && pnpm build:native:win && electron-builder --linux --win",
     "dist:dir": "pnpm build:prod && electron-builder --dir",
     "dev": "pnpm build && electron .",
@@ -54,6 +56,7 @@
       "!dist/installers/**",
       "!dist/native/mock.vcd",
       "!dist/native/mock.vcd.sidecar.json",
+      "!dist/native/query-fixture",
       "package.json"
     ],
     "asarUnpack": [

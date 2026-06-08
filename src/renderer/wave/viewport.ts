@@ -146,6 +146,27 @@ export const view = {
     this.zoomAnim = { tpp0: tpp, start0: this.startTicks, tppT: tpp, startT: cursorTick, t0: performance.now(), releaseFit: false };
   },
 
+  // Pan (keeping zoom) just enough to keep `tick` comfortably on-screen, then
+  // animate there with the same easing as zoom/jump. A tick already inside the
+  // margin band is a no-op — so small cursor steps don't scroll the view, but a
+  // step off the edge (or a jump to start/end) scrolls to reveal it. Used by the
+  // nav buttons so the viewport "follows" the cursor.
+  revealTick(tick: number): void {
+    const tpp = this.ticksPerPixel;
+    if (tpp <= 0) return;
+    const visible = this.timelinePx * tpp;
+    const margin = visible * 0.15; // comfortable inset from the edge
+    let startT: number;
+    if (tick < this.startTicks + margin) startT = tick - margin;
+    else if (tick > this.startTicks + visible - margin) startT = tick - visible + margin;
+    else return; // already comfortably visible — leave the viewport put
+    startT = visible < TRACE_END ? Math.max(0, Math.min(TRACE_END - visible, startT)) : 0;
+    if (Math.abs(startT - this.startTicks) < 1e-6) return;
+    this.pushHistory();
+    this.userInteracted = true;
+    this.zoomAnim = { tpp0: tpp, start0: this.startTicks, tppT: tpp, startT, t0: performance.now(), releaseFit: false };
+  },
+
   // Commit an edited [start, end] window. Returns false on invalid input.
   applyRange(start: number, end: number): boolean {
     if (this.timelinePx <= 0 || !isFinite(start) || !isFinite(end) || start < 0 || end <= start) return false;

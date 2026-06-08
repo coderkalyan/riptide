@@ -103,6 +103,10 @@ function createWindow(): void {
   loadTrace(win);
   // win.webContents.openDevTools({ mode: "detach" });
   //
+  // Debug-only: capture the window to screenshot.png 1s after launch. Disabled
+  // for release — in a packaged app the cwd is arbitrary, so this litters a
+  // screenshot.png wherever the app was launched from (or throws EROFS/EACCES on
+  // a read-only mount). Re-enable locally when you need a quick snapshot.
   // setTimeout(() => {
   //   win.capturePage().then(image => {
   //     fs.writeFileSync('screenshot.png', image.toPNG())
