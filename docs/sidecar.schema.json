@@ -17,7 +17,6 @@
       "description": "Advisory metadata about the trace this sidecar was authored against. Never gates loading.",
       "additionalProperties": true,
       "properties": {
-        "id": { "type": "string", "description": "Logical trace name (e.g. the VCD/FST stem)." },
         "format": { "type": "string", "description": "Source format, e.g. \"vcd\", \"fst\"." },
         "timescale": { "type": "object", "description": "Time unit/precision; informational." }
       }

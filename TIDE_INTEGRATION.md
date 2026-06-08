@@ -24,23 +24,20 @@ The shims below mostly *degrade* gracefully, but these specific consequences
 currently **break** the app on a real (non-mock) trace — promoted here so they
 aren't buried:
 
-- [ ] **Adding a signal tide didn't ingest panics the renderer.** real / string /
-  `event` and any zero-sample signal are dropped at load (see "real/string" +
-  "Fine var-type" below) but still appear in the hierarchy tree; `SignalTree`
-  lets the user click-add any signal node, and `getMockSegments` then hits
-  `db.query(...) orelse @panic("missing signal")` (`native/src/main.zig:353`) →
-  SIGABRT, taking down the whole renderer. Real VCDs routinely carry `real`
-  signals, so this is a one-click crash. Fix: in the pack loop, skip a spec whose
-  handle isn't in the current db (emit an empty packed signal) instead of
-  `@panic`; ideally also filter/grey unsupported nodes in the tree. (Related:
-  `getValueAt`/`pack.valueAt` on a VCD `event` signal also aborts — tests/FINDINGS.md
-  B3.)
-- [ ] **Hardcoded `trace.id: "keysched"` leaks into every foreign sidecar.**
-  `store.ts:466` writes `trace: { id: "keysched" }` onto any trace the tester opens
-  (the sidecar is auto-written on first edit). Fix: derive it from the trace
-  basename (`currentVcdPath()` is available), or drop the field. *(The related
-  `"keysched.vcd"` default tab label is resolved — the unused `tabs` block was
-  removed from the sidecar + store entirely.)*
+- [ ] **`event` signals still crash if added.** real / string / never-assigned
+  signals are dropped at load (see "real/string" + "Fine var-type" below); the
+  renderer now marks them `supported: false` (native db-membership, in
+  `getHierarchy`) so the tree disables them and `store.addSignal`/`addSignals` +
+  sidecar `resolveView` skip them — closing the common real/string one-click crash.
+  **Not** covered: `event` vars, which tide *does* ingest (so they read
+  `supported: true`) but `getValueAt`/`pack.valueAt` aborts on (tests/FINDINGS.md
+  B3); and the raw backstop `getMockSegments` `db.query(...) orelse
+  @panic("missing signal")` (`native/src/main.zig:353`) is still a hard panic.
+  Durable fix: turn that `@panic` into a skip (emit an empty packed signal) and
+  skip/handle event-type queries.
+
+  *(Resolved: the hardcoded `trace.id: "keysched"` + `"keysched.vcd"` tab-label
+  leaks into foreign sidecars — both removed.)*
 
 ## Not in the VCD (no source to read)
 

@@ -472,7 +472,6 @@ export const useAppStore = create(vanilla);
 function sidecarSnapshot(s: AppState): SidecarSnapshot {
   return {
     hierarchy: SCENE.hierarchy,
-    trace: { id: "keysched" },
     activeSignals: s.activeSignals,
     time: { start: s.viewRange.start, end: s.viewRange.end, cursor: s.cursorTicks },
     markers: s.markers.map((m) => ({

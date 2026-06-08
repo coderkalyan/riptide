@@ -95,7 +95,7 @@ export interface UiSection {
 
 export interface Sidecar {
   version: number;
-  trace?: { id?: string; format?: string; timescale?: unknown };
+  trace?: { format?: string; timescale?: unknown };
   view: ViewSection;
   ui?: UiSection;
 }
@@ -263,7 +263,6 @@ export function resolveExpanded(idx: Map<string, NodeId[]>, paths: string[]): Se
 
 export interface SidecarSnapshot {
   hierarchy: Hierarchy;
-  trace?: { id?: string };
   activeSignals: ActiveSignalRef[];
   time: { start: number; end: number; cursor: number };
   markers: { name: string; tick: number; color: number; selected: boolean }[];
@@ -307,7 +306,6 @@ export function serializeSidecar(snap: SidecarSnapshot): Sidecar {
   return {
     version: SIDECAR_VERSION,
     trace: {
-      id: snap.trace?.id,
       timescale: h.timescale,
     },
     view: {
