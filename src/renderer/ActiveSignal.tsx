@@ -1,8 +1,8 @@
 import { Dynamic } from "solid-js/web";
-import { Activity, Eye, EyeOff, CircleCheck, Clock, EqualApproximately, RotateCcw } from "lucide-solid";
+import { Activity, Eye, EyeOff, Clock, RotateCcw } from "lucide-solid";
 import { createMemo, type JSX } from "solid-js";
 
-export type ActiveSignalKind = "clock" | "reset" | "valid" | "derived" | "signal";
+export type ActiveSignalKind = "clock" | "reset" | "signal";
 
 // Split a signal name into its base and a trailing bit-range suffix (e.g.
 // "in_data[7:0]" → "in_data" + "[7:0]") so the range can be tinted apart from the
@@ -36,10 +36,10 @@ export interface ActiveSignalProps {
 }
 
 const KIND_ICON: Record<ActiveSignalKind, (p: { size: number }) => JSX.Element> = {
-  clock: Clock, reset: RotateCcw, valid: CircleCheck, derived: EqualApproximately, signal: Activity,
+  clock: Clock, reset: RotateCcw, signal: Activity,
 };
 const KIND_TIP: Record<ActiveSignalKind, string> = {
-  clock: "clock", reset: "reset", valid: "valid", derived: "derived", signal: "data",
+  clock: "clock", reset: "reset", signal: "data",
 };
 
 // Presentational row. Reads props.* directly (no destructuring) so Solid keeps

@@ -49,6 +49,14 @@ pub const Loaded = struct {
     timescale: Timescale,
 
     pub fn deinit(self: *Loaded) void {
+        // Free each signal's payload (timestamps/x0s/x1s). tide's Database.deinit
+        // frees only the signals list + map, not the per-signal payloads — because
+        // some callers (tide's own tests) insert signals backed by static slices it
+        // must not free. Every signal in THIS db came from Builder.build →
+        // toOwnedSlice (load() below), so it owns heap memory from db.gpa; free it
+        // here or each in-place trace swap (main.loadVcd → old.deinit) leaks the
+        // entire prior trace.
+        for (self.db.signals.items) |*s| s.deinit(self.db.gpa);
         self.db.deinit();
         self.hierarchy.deinit();
     }

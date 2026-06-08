@@ -9,9 +9,10 @@ signals from the tree to see the waveform area).
 - **`single-edge.vcd`** — values at `#0` plus a single edge at `#1`. Also
   `TRACE_END == 1`.
 
-Both reproduce the **loaded-but-empty / single-event** case (release review item
-#20, *unresolved*): with `TRACE_END <= 1` the whole timeline fits in ~1 px, so the
-ruler shows a single "0 ns / 1 ns", waveforms collapse to a sliver, and fit/zoom
-can't open it up. The fix (detect `TRACE_END <= 1` → render a real "empty / no
-data" state with a sane default window) is **not** implemented yet — these files
-exist to test it against.
+Both load with `endTicks == 1` (`TRACE_END == 1`) — the degenerate
+**loaded-but-empty / single-event** case. A fresh trace opens with no active
+signals, so the canvas just renders an empty ruler and reads fine; the collapsed
+~1 px timeline only shows if you add a signal from the tree. Judged acceptable for
+v0.1-alpha (the empty state isn't misleading), so the review item is **closed** —
+these files are kept as regression inputs in case degenerate-trace handling is
+revisited later.

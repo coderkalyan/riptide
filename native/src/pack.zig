@@ -10,6 +10,19 @@ pub const PackKind = enum { data, clk };
 // ClockPolarity; `both` draws rising + falling.
 pub const ClockPolarity = enum { rising, falling, both };
 
+// GPU segment ticks are the LOW 32 bits of tide's u64 timestamp; the shader
+// positions each endpoint as an i32 delta from start_ticks, which only stays
+// correct while a segment's span fits in i32. A segment wider than 2^31 ticks
+// (~2.1 s at ns resolution — i.e. a trace longer than that) wraps and renders at a
+// garbled / negative x. Trip loudly here instead of corrupting silently on screen;
+// the real fix is widening the GPU tick pipeline to 64 bits (see PERFORMANCE.md).
+const MAX_SEGMENT_SPAN: u64 = 0x7FFF_FFFF; // 2^31 - 1
+
+fn assertRenderableSpan(t_start: u64, t_end: u64) void {
+    std.debug.assert(t_end >= t_start);
+    std.debug.assert(t_end - t_start <= MAX_SEGMENT_SPAN);
+}
+
 pub const PackOpts = struct {
     width: u32,
     shaded: bool,
@@ -105,11 +118,11 @@ pub fn packSignal(
         // wraps mod 2^32, so the wrapped low word yields the correct on-screen
         // offset for any window whose span fits i32 — full absolute precision
         // (endTicks, cursor, query window) stays u64 on the JS/Zig side.
-        const t_start: u32 = @truncate(query.timestamps[i]);
-        const t_end: u32 = if (i + 1 < len)
-            @truncate(query.timestamps[i + 1])
-        else
-            @truncate(opts.end_t);
+        const t_start_u: u64 = query.timestamps[i];
+        const t_end_u: u64 = if (i + 1 < len) query.timestamps[i + 1] else opts.end_t;
+        assertRenderableSpan(t_start_u, t_end_u);
+        const t_start: u32 = @truncate(t_start_u);
+        const t_end: u32 = @truncate(t_end_u);
 
         const has_next = i + 1 < len;
 
@@ -316,6 +329,7 @@ fn pushMutedSegment(
     opts: PackOpts,
     next_di: ?usize,
 ) !void {
+    assertRenderableSpan(t_start_u, t_end_u);
     const t_start: u32 = @truncate(t_start_u);
     const t_end: u32 = @truncate(t_end_u);
     const x0 = data_q.x0s[di * bps .. (di + 1) * bps];

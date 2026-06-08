@@ -32,8 +32,15 @@ classified out so they don't mask real value errors (see §Divergences).
 and return `endTicks`/edge ticks as JS numbers (f64, exact to 2⁵³), and
 `pack.packSignal` carries the LOW 32 bits of each timestamp into the GPU segment
 buffer (the shader works in deltas relative to start_ticks, also a low-32 word, so
-i32 wraparound yields the correct on-screen offset). `time_long_sparse` and
-`time_u64_extreme` now pass `native`/`format`/`differential`.
+i32 wraparound yields the correct on-screen offset). `time_u64_extreme` now passes
+`native`/`format`/`differential` (huge *absolute* time, normal per-segment spans).
+`time_long_sparse` passes the *value* suites (`native`/`differential`) but, as of
+the v0.1-alpha prep, intentionally **trips a new assert in `format`/pack**: it holds
+a value across a span > 2³¹ ticks, which the GPU segment buffer (low-32 tick + i32
+shader delta) can't position. `pack.zig` `assertRenderableSpan` now aborts on any
+single segment span > 2³¹ ticks instead of rendering it at a garbled / negative x —
+so such a trace fails *loudly* rather than silently. Proper fix: widen the GPU tick
+pipeline to 64-bit (PERFORMANCE.md).
 
 Original report: the napi boundary took ticks as `uint32` (`getValueAt` tick,
 `getMockSegments` `qStart`/`qEnd`, `endTicks`). Any VCD whose timestamps exceeded

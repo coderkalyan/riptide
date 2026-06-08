@@ -47,7 +47,6 @@ export interface ActiveSignalRef {
   color: string;
   path: string;
   vcdType: VcdType;
-  pinned?: boolean;
   selected?: boolean;
   hidden?: boolean;
   role?: ActiveRole;
@@ -77,7 +76,6 @@ interface RowConfig {
   radix: Radix;
   color: string;
   vcdType: VcdType;
-  pinned?: boolean;
   selected?: boolean;
   role?: ActiveRole;
   clock?: ClockConfig;
@@ -87,7 +85,7 @@ interface RowConfig {
 
 const W = "top.keysched.waves";
 const ROWS: (RowConfig & { path: string })[] = [
-  { row: 0,  radix: "bin", role: "clock", pinned: true,                 color: "#72F5DF", path: `${W}.clk`,              vcdType: "net" },
+  { row: 0,  radix: "bin", role: "clock",                 color: "#72F5DF", path: `${W}.clk`,              vcdType: "net" },
   { row: 1,  radix: "bin", role: "reset",                               color: "#F06B5B", path: `${W}.rst`,              vcdType: "reg" },
   { row: 2,  radix: "enum", selected: true, enumTypeId: 1,              color: "#B48CFF", path: `${W}.state[1:0]`,       vcdType: "reg" },
   { row: 3,  radix: "dec",                                              color: "#B48CFF", path: `${W}.cycle_count[7:0]`, vcdType: "reg" },

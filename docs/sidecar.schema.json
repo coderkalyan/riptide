@@ -99,19 +99,11 @@
               "additionalProperties": false,
               "description": "Manual period/phase (ticks), overriding detection.",
               "properties": {
-                "period": { "type": "number" },
+                "period": { "type": "number", "exclusiveMinimum": 0 },
                 "phase": { "type": "number" }
               },
               "required": ["period", "phase"]
             }
-          }
-        },
-        "tabs": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "open": { "type": "array", "items": { "type": "string" } },
-            "active": { "type": "integer" }
           }
         }
       }
@@ -140,7 +132,6 @@
         "color": { "$ref": "#/$defs/color" },
         "hidden": { "type": "boolean", "description": "Eye toggled off (dimmed)." },
         "selected": { "type": "boolean", "description": "Highlighted/active row." },
-        "pinned": { "type": "boolean", "description": "Sticky header row." },
         "role": {
           "type": "string",
           "enum": ["clock", "reset", "valid"],

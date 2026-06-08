@@ -71,9 +71,10 @@ VCD_TESTS_DIR=/path tests/run.sh
   llvmpipe/SwiftShader fallback in CI).
 - **Process isolation is mandatory.** The node suites spawn a worker per fixture
   because the addon `@panic`s/`abort()`s on some inputs (the truncated malformed
-  file; `getValueAt`/pack on an `event` signal — see FINDINGS B3/B4; the u32 tick
-  overflow B1 is now fixed). Isolated, a crash is reported for one fixture and the
-  rest continue.
+  file; `getValueAt`/pack on an `event` signal — see FINDINGS B3/B4; a single
+  segment spanning > 2³¹ ticks — the deliberate `pack.zig` GPU tick-range assert,
+  hit by `time_long_sparse`; the u32 tick overflow B1 is now fixed). Isolated, a
+  crash is reported for one fixture and the rest continue.
 
 ### Asserted vs. tracked
 

@@ -42,7 +42,6 @@ export interface SidecarSignal {
   color: string;            // "#RRGGBB"
   hidden?: boolean;
   selected?: boolean;
-  pinned?: boolean;
   role?: ActiveRole;
   clock?: ClockConfig;
   enumTable?: EnumEntry[];
@@ -233,7 +232,6 @@ export function resolveView(
       color: s.color,
       path: s.path,
       vcdType: s.derived ? "derived" : vcdTypeOf(node.varType),
-      ...(s.pinned ? { pinned: true } : {}),
       ...(s.selected ? { selected: true } : {}),
       ...(s.hidden ? { hidden: true } : {}),
       ...(s.role ? { role: s.role } : {}),
@@ -282,7 +280,6 @@ export function serializeSidecar(snap: SidecarSnapshot): Sidecar {
     color: r.color,
     ...(r.hidden ? { hidden: true } : {}),
     ...(r.selected ? { selected: true } : {}),
-    ...(r.pinned ? { pinned: true } : {}),
     ...(r.role ? { role: r.role } : {}),
     ...(r.clock ? { clock: r.clock } : {}),
     ...(r.enumTable ? { enumTable: r.enumTable } : {}),

@@ -199,7 +199,13 @@ function computeTimebase(
   if (clockPath == null) return null;
   const handle = handleForPath(clockPath);
   if (handle == null) return null;
-  if (override) return { period: override.period, phase: override.phase, valid: true };
+  // A corrupt override (period <= 0 or non-finite — e.g. a hand-edited / migrated
+  // sidecar) would make the ruler + grid cycle loops spin forever (format.ts
+  // clockRulerTicks, WaveCanvas clock-grid loop). Reject it and fall through to
+  // auto-detection rather than trusting it.
+  if (override && override.period > 0 && isFinite(override.period) && isFinite(override.phase)) {
+    return { period: override.period, phase: override.phase, valid: true };
+  }
   const polarity = active.find((r) => r.path === clockPath)?.clock?.polarity ?? "rising";
   return detectClockGrid(handle, polarity);
 }
@@ -428,6 +434,8 @@ const vanilla = createVanilla<AppState>()(
     })),
     setTimebaseOverride: (period, phase) => set((s) => {
       if (s.timebaseClock == null) return s;
+      // Reject a non-positive / non-finite period (would hang the grid loops).
+      if (!(period > 0) || !isFinite(period) || !isFinite(phase)) return s;
       return { timebaseOverride: { period, phase }, clockGrid: { period, phase, valid: true } };
     }),
 
