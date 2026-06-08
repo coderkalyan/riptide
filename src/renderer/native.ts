@@ -33,6 +33,7 @@ interface RawSignalNode {
   direction: Direction;
   bitWidth: number;
   handle: string;
+  supported: boolean;
 }
 
 type RawNode = RawScopeNode | RawSignalNode;
@@ -259,6 +260,7 @@ export function getHierarchy(): Hierarchy {
         direction: n.direction,
         bitWidth: n.bitWidth,
         handle: n.handle,
+        supported: n.supported,
       };
       nodes.set(n.id, sig);
       const arr = byHandle.get(sig.handle);

@@ -25,6 +25,10 @@ export interface Signal {
   direction: Direction;
   bitWidth: number;
   handle: string;
+  // False when tide ingested no renderable samples for this signal (real / string
+  // / never-assigned). Such signals appear in the tree but can't be added — the
+  // pack path would panic on the missing db handle. Set natively (see main.zig).
+  supported: boolean;
   enumTypeId?: number;
   sourceLoc?: SourceLoc;
   comment?: string;

@@ -266,7 +266,10 @@ const vanilla = createVanilla<AppState>()(
 
     addSignal: (signalId) => set((s) => {
       const node = SCENE.hierarchy.nodes.get(signalId);
-      if (!node || node.kind !== "signal") return s;
+      // Skip non-signals + unsupported signals (real/string/no-sample): the pack
+      // path panics on a handle tide never ingested. The tree already disables
+      // them; this guards other entry points.
+      if (!node || node.kind !== "signal" || !node.supported) return s;
       const row = s.activeSignals.length;
       if (row >= MAX_ROWS) return s;
       return { activeSignals: [...s.activeSignals, withRowId(makeActiveRef(SCENE.hierarchy, signalId, row))] };
@@ -278,7 +281,7 @@ const vanilla = createVanilla<AppState>()(
       for (const id of signalIds) {
         if (rows.length >= MAX_ROWS) break;
         const node = SCENE.hierarchy.nodes.get(id);
-        if (!node || node.kind !== "signal") continue;
+        if (!node || node.kind !== "signal" || !node.supported) continue;
         rows = [...rows, withRowId(makeActiveRef(SCENE.hierarchy, id, rows.length))];
       }
       return rows === s.activeSignals ? s : { activeSignals: rows };

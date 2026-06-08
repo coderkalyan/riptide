@@ -221,7 +221,10 @@ export function resolveView(
     }
     const id = ids[0];
     const node = h.nodes.get(id);
-    if (!node || node.kind !== "signal") {
+    // Skip non-signals + unsupported signals (real/string/no-sample) — adding one
+    // would panic the pack path on a handle tide never ingested. Counted as a miss
+    // (logged) so a foreign/hand-edited sidecar listing one degrades gracefully.
+    if (!node || node.kind !== "signal" || !node.supported) {
       misses.push(s.path);
       continue;
     }

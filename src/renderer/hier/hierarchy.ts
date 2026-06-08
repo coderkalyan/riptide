@@ -80,6 +80,7 @@ export class HierarchyBuilder {
       id,
       parent,
       direction: params.direction ?? "implicit",
+      supported: true, // synthetic hierarchies (tests/harness) are always renderable
       ...params,
     };
     this.nodes.set(id, sig);

@@ -85,7 +85,18 @@ export function SignalTree() {
           const sigChildren = createMemo<NodeId[]>(() => {
             const n = node();
             if (!n || n.kind !== "scope") return [];
-            return n.children.filter((c) => SCENE.hierarchy.nodes.get(c)?.kind === "signal");
+            // Only addable (supported) signals — real/string/no-sample children are
+            // excluded so "add all in scope" never adds an un-renderable signal.
+            return n.children.filter((c) => {
+              const cn = SCENE.hierarchy.nodes.get(c);
+              return cn?.kind === "signal" && cn.supported;
+            });
+          });
+          // A signal row is addable only if tide ingested data for it (Signal.
+          // supported). Unsupported rows render dimmed + non-addable with a tip.
+          const supported = createMemo(() => {
+            const n = node();
+            return !(n && n.kind === "signal" && !n.supported);
           });
           const iconClass = () => {
             if (e().kind === "scope") return "icon module";
@@ -97,7 +108,8 @@ export function SignalTree() {
           if (expanding()) requestAnimationFrame(() => setOp(1));
           return (
             <div
-              class="t-row"
+              class={"t-row" + (supported() ? "" : " unsupported")}
+              data-tip={supported() ? undefined : "unsupported type (real/string or no samples) — can't be displayed"}
               style={{
                 position: "absolute", top: 0, left: 0, width: "100%",
                 transform: `translateY(${item().start}px)`,
@@ -119,11 +131,13 @@ export function SignalTree() {
               <span class={iconClass()}>{e().kind === "scope" ? <Package size={12} /> : <Activity size={12} />}</span>
               <span class="lbl">{node()?.name}</span>
               {e().kind === "signal" ? (
-                <span
-                  class="plus"
-                  data-tip="add to viewer"
-                  onClick={(ev) => { ev.stopPropagation(); perf.beginAdd(); s.addSignal(e().id); }}
-                ><Plus size={12} /></span>
+                supported() ? (
+                  <span
+                    class="plus"
+                    data-tip="add to viewer"
+                    onClick={(ev) => { ev.stopPropagation(); perf.beginAdd(); s.addSignal(e().id); }}
+                  ><Plus size={12} /></span>
+                ) : null
               ) : sigChildren().length > 0 ? (
                 <span
                   class="plus"

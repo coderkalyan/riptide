@@ -806,6 +806,11 @@
         .t-row.sel {
             @apply tw:bg-accent-soft tw:text-text;
         }
+        /* Unsupported signal (real/string/no-sample): dimmed + not addable. */
+        .t-row.unsupported {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
         .t-row .chev {
             @apply tw:inline-flex tw:items-center tw:justify-center tw:text-muted;
             width: 10px;

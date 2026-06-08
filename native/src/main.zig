@@ -510,7 +510,13 @@ fn directionStr(d: hier.Direction) []const u8 {
     };
 }
 
-fn buildNodeObj(env: c.napi_env, n: hier.Node) c.napi_value {
+fn jsBool(env: c.napi_env, b: bool) c.napi_value {
+    var v: c.napi_value = undefined;
+    _ = c.napi_get_boolean(env, b, &v);
+    return v;
+}
+
+fn buildNodeObj(env: c.napi_env, n: hier.Node, db: *const tide.Database) c.napi_value {
     const o = jsObj(env);
     setProp(env, o, "id", jsU32(env, n.id));
     setProp(env, o, "parent", if (n.parent) |p| jsU32(env, p) else jsNull(env));
@@ -531,6 +537,12 @@ fn buildNodeObj(env: c.napi_env, n: hier.Node) c.napi_value {
             setProp(env, o, "direction", jsStr(env, directionStr(s.direction)));
             setProp(env, o, "bitWidth", jsU32(env, s.bit_width));
             setProp(env, o, "handle", jsHandle(env, s.handle));
+            // "supported": did tide ingest renderable samples for this handle?
+            // real / string / zero-sample signals are skipped by mock_db (never
+            // inserted), so they're absent from the db — the renderer disables
+            // adding them rather than letting getMockSegments panic on the missing
+            // handle (db.query orelse @panic). See SignalTree / store.addSignal.
+            setProp(env, o, "supported", jsBool(env, db.map.contains(s.handle)));
         },
     }
     return o;
@@ -548,9 +560,10 @@ fn getHierarchy(env: c.napi_env, info: c.napi_callback_info) callconv(.c) c.napi
     }
     setProp(env, root, "rootIds", root_ids);
 
+    const db = &getLoaded().db;
     const nodes = jsArr(env, @intCast(h.nodes.items.len));
     for (h.nodes.items, 0..) |n, i| {
-        _ = c.napi_set_element(env, nodes, @intCast(i), buildNodeObj(env, n));
+        _ = c.napi_set_element(env, nodes, @intCast(i), buildNodeObj(env, n, db));
     }
     setProp(env, root, "nodes", nodes);
 
