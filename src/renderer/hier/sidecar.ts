@@ -15,6 +15,7 @@ import { pathOf } from "./types";
 import { getScope } from "./hierarchy";
 import type { ActiveRole, ActiveSignalRef, ClockConfig, EnumEntry, Radix, VcdType } from "./scene";
 import { SIDECAR_PATH } from "../runtime";
+import { MAX_ROWS } from "../gpu/colors";
 
 // Renderer runs with nodeIntegration; mirror native.ts's runtime require so
 // esbuild leaves the node builtins alone instead of trying to bundle them. The
@@ -225,6 +226,13 @@ export function resolveView(
     // would panic the pack path on a handle tide never ingested. Counted as a miss
     // (logged) so a foreign/hand-edited sidecar listing one degrades gracefully.
     if (!node || node.kind !== "signal" || !node.supported) {
+      misses.push(s.path);
+      continue;
+    }
+    // Don't exceed the row cap (the 16-bit GPU row index / color buffer); extra
+    // signals from an oversized/hand-edited sidecar are dropped + logged, not
+    // crashed (the native pack asserts row < MAX_ROWS).
+    if (row >= MAX_ROWS) {
       misses.push(s.path);
       continue;
     }

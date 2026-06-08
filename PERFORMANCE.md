@@ -49,6 +49,35 @@ measurable — there is no `visible_transitions` / `drawn_primitive_count` hook
 (≫ ~50k transitions on screen) shows GPU pass ms climbing. Fix direction: collapse
 sub-pixel runs during pack, or a per-row draw budget.
 
+## Many active rows — Y-axis windowing (the row cap is now 65535)
+
+The active-row cap was raised 64 → 65535 (`gpu/colors.ts` + `segments.zig` Scene
+rows made dynamic). Correctness scales, but per-row work does not — the three items
+below all violate the "scales with what's on screen" principle on the **Y** axis,
+the same way the time window already solves it on the X axis. Trigger: a view with
+more rows than fit on screen (hundreds+).
+
+### Active-signal DOM list isn't virtualized
+`ActiveSignals.tsx` `<For each={s.activeSignals}>` mounts a DOM row (+ its per-row
+value `createMemo` on `cursorTicks`, resize handle, eye/pin) for **every** active
+signal, not just the visible ones. Hundreds+ rows → heavy DOM + reactive churn on
+every cursor move / edit. Fix: virtualize with `@tanstack/solid-virtual`
+(`SignalTree` already does), sharing one vertical scroll offset with the canvas.
+
+### No vertical scroll for the waveform pane
+Canvas height == window; rows stack top-down by `RowInfo.y_offset` with nowhere to
+overflow, so rows past the fold are off-screen and unreachable. Fix: a vertical
+scrollbar + scroll offset driving both the canvas Y (the viewport already carries
+`wave_y_offset`, today only the ruler) and the DOM list `scrollTop` in lockstep.
+
+### Pack + per-frame cost is O(total rows), not O(visible rows)
+`getMockSegments(buildPackSpecs())` packs **every** active row each repack, and the
+rAF loop walks all rows for layout / value cells — the time axis bounds this to the
+visible window, the Y axis has no equivalent. Fix: vertical culling — pack + draw
+only rows in the visible Y band (± a margin), mirroring the X-axis viewport
+windowing. Until then CPU encode ms + repack cost grow with the active-row count,
+not with what's on screen.
+
 ---
 
 ## Deferred deficiencies (non-critical)

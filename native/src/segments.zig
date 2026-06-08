@@ -77,7 +77,9 @@ const RowAccum = struct {
     }
 };
 
-pub const MAX_ROWS: usize = 64;
+// Max active rows. Bounded by the 16-bit row index packed into PackedSegment
+// .row_flags[15:0] (so ≤ 65535). The renderer's gpu/colors.ts MAX_ROWS must match.
+pub const MAX_ROWS: usize = 65535;
 
 // One fully packed signal, independent of its row placement — the cacheable unit
 // (main.zig keys these by signal+config and reuses them across repacks, so an
@@ -154,7 +156,10 @@ pub const Scene = struct {
     // pair (singleCount+1 prefix offsets, label i = bytes[off[i]..off[i+1]]).
     single_label_bytes: std.ArrayList(u8) = .empty,
     single_label_offsets: std.ArrayList(u32) = .empty,
-    rows: [MAX_ROWS]RowAccum = [_]RowAccum{.{}} ** MAX_ROWS,
+    // Grown on demand to (highest placed row + 1); a [MAX_ROWS]RowAccum fixed array
+    // would be multi-MB on the stack at the 65535 cap. Gaps (unplaced rows) stay
+    // default (bit_width 0) and finalize emits empty RowInfo for them.
+    rows: std.ArrayList(RowAccum) = .empty,
 
     pub fn init(gpa: Allocator) Scene {
         return .{ .gpa = gpa };
@@ -167,7 +172,13 @@ pub const Scene = struct {
         self.multi_label_offsets.deinit(self.gpa);
         self.single_label_bytes.deinit(self.gpa);
         self.single_label_offsets.deinit(self.gpa);
-        for (&self.rows) |*r| r.deinit(self.gpa);
+        for (self.rows.items) |*r| r.deinit(self.gpa);
+        self.rows.deinit(self.gpa);
+    }
+
+    // Ensure `self.rows` has an entry for index `row`, default-filling any gap.
+    fn ensureRow(self: *Scene, row: u32) !void {
+        while (self.rows.items.len <= row) try self.rows.append(self.gpa, .{});
     }
 
     // Place an already-packed signal at `row`: append its segments to `target`
@@ -178,8 +189,9 @@ pub const Scene = struct {
     pub fn pushPackedSignal(self: *Scene, target: *std.ArrayList(PackedSegment), row: u32, ps: *const PackedSignal) !void {
         std.debug.assert(row < MAX_ROWS);
         if (ps.segments.items.len == 0) return; // empty signal contributes no row data
+        try self.ensureRow(row);
         const bps = bytesPerSample(ps.bit_width);
-        var ra = &self.rows[row];
+        var ra = &self.rows.items[row];
         // Each row is filled by exactly one signal, contiguously.
         std.debug.assert(!ra.started);
         ra.bit_width = ps.bit_width;
@@ -242,10 +254,14 @@ fn packRow(pool: *std.ArrayList(u8), gpa: Allocator, bytes: []const u8) !u32 {
 
 pub fn finalize(scene: *Scene, gpa: Allocator) !Finalized {
     var max_row: usize = 0;
-    for (scene.rows, 0..) |r, idx| {
-        if (r.bit_width != 0) max_row = idx;
+    var any_row = false;
+    for (scene.rows.items, 0..) |r, idx| {
+        if (r.bit_width != 0) {
+            max_row = idx;
+            any_row = true;
+        }
     }
-    const row_count: usize = if (scene.rows[0].bit_width != 0 or max_row > 0) max_row + 1 else 0;
+    const row_count: usize = if (any_row) max_row + 1 else 0;
 
     var row_infos: std.ArrayList(RowInfo) = .empty;
     errdefer row_infos.deinit(gpa);
@@ -258,7 +274,7 @@ pub fn finalize(scene: *Scene, gpa: Allocator) !Finalized {
 
     var i: usize = 0;
     while (i < row_count) : (i += 1) {
-        const r = scene.rows[i];
+        const r = scene.rows.items[i];
         if (r.bit_width == 0) {
             row_infos.appendAssumeCapacity(.{ .x0_offset = 0, .x1_offset = 0, .bytes_per_sample = 0, .segment_start = 0, .flags = 0, .y_offset = 0, .height = 0 });
             continue;
