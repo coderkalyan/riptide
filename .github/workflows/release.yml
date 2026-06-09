@@ -1,0 +1,200 @@
+name: Release builds
+
+# Builds the four distributable artifacts (Linux AppImage, macOS arm64 dmg,
+# macOS x64 dmg, Windows portable exe) on their native runners and, on a tag
+# push, attaches them to a GitHub Release. Manual runs upload artifacts and
+# cut a draft pre-release.
+#
+# The native addon (Zig napi) pulls two sibling repos referenced by
+# native/build.zig.zon as ../../tide and ../../tide-vcd, so all three repos are
+# checked out side-by-side under the workspace root. All three are public, so
+# the default GITHUB_TOKEN can read them — no PAT needed.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    env:
+      # Alpha builds are unsigned: stop electron-builder from trying (and
+      # failing) to discover a macOS signing identity. Harmless on linux/win.
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-latest
+            addon: linux
+            eb_args: --linux
+            artifact: riptide-linux-x64
+          - name: macos-arm64
+            os: macos-14
+            addon: mac-host
+            eb_args: --mac --arm64
+            artifact: riptide-macos-arm64
+          - name: macos-x64
+            os: macos-14            # cross-build x64 on Apple-silicon runner
+            addon: mac-x64
+            eb_args: --mac --x64
+            artifact: riptide-macos-x64
+          - name: windows-x64
+            os: windows-latest
+            addon: windows
+            eb_args: --win --x64
+            artifact: riptide-windows-x64
+    steps:
+      - name: Checkout riptide
+        uses: actions/checkout@v4
+        with:
+          path: riptide
+
+      - name: Checkout tide
+        uses: actions/checkout@v4
+        with:
+          repository: coderkalyan/tide
+          ref: main
+          path: tide
+
+      - name: Checkout tide-vcd
+        uses: actions/checkout@v4
+        with:
+          repository: coderkalyan/tide-vcd
+          ref: main
+          path: tide-vcd
+
+      - name: Setup Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: riptide/pnpm-lock.yaml
+
+      - name: Install deps
+        working-directory: riptide
+        run: pnpm install --frozen-lockfile
+
+      # Build the host (or cross) native addon. Done explicitly here rather than
+      # via the dist:* npm scripts because those hardcode the Linux .so copy and
+      # use unix-only shell that breaks on Windows. shell: bash exists on every
+      # runner (Git Bash on Windows).
+      - name: Build native addon
+        working-directory: riptide
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/native
+          case "${{ matrix.addon }}" in
+            linux)
+              (cd native && zig build -Doptimize=ReleaseSafe)
+              cp native/zig-out/lib/libriptide.so dist/native/riptide.node
+              ;;
+            mac-host)
+              (cd native && zig build -Doptimize=ReleaseSafe)
+              cp native/zig-out/lib/libriptide.dylib dist/native/riptide.node
+              ;;
+            mac-x64)
+              (cd native && zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-macos)
+              cp native/zig-out/lib/libriptide.dylib dist/native/riptide.node
+              ;;
+            windows)
+              node scripts/gen-win-napi-shim.mjs
+              (cd native && zig build -Doptimize=ReleaseSafe)
+              cp native/zig-out/bin/riptide.dll dist/native/riptide-win.node
+              ;;
+            *)
+              echo "unknown addon target: ${{ matrix.addon }}" >&2; exit 1
+              ;;
+          esac
+          echo "dist/native contents:"
+          ls -l dist/native
+
+      # Platform-independent half: main process (tsc) + renderer bundle.
+      # NODE_ENV=production minifies the renderer. wgsl-check is skipped on
+      # purpose (shaders are committed pre-validated; avoids a naga/Rust dep).
+      - name: Build JS (main + renderer)
+        working-directory: riptide
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm exec tsc -p tsconfig.json
+          NODE_ENV=production node scripts/build-ui.mjs
+
+      - name: Package with electron-builder
+        working-directory: riptide
+        shell: bash
+        run: pnpm exec electron-builder ${{ matrix.eb_args }} --publish never
+
+      - name: List installers
+        working-directory: riptide
+        shell: bash
+        run: ls -l dist/installers
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: riptide/dist/installers/*
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout riptide (for version)
+        uses: actions/checkout@v4
+        with:
+          path: riptide
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Compute release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          ver=$(node -p "require('./riptide/package.json').version")
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "draft=false" >> "$GITHUB_OUTPUT"
+            echo "name=Riptide ${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=v${ver}-ci.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+            echo "draft=true" >> "$GITHUB_OUTPUT"
+            echo "name=Riptide v${ver} (CI #${{ github.run_number }})" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create / update release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.name }}
+          draft: ${{ steps.meta.outputs.draft }}
+          prerelease: true
+          files: artifacts/**/*
+          fail_on_unmatched_files: true
