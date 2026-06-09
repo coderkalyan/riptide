@@ -221,10 +221,11 @@ jobs:
           cp "addons/riptide-macos-${{ matrix.arch }}.node" dist/native/riptide.node
           ls -l dist/native
 
+      # riptide is checked out at the workspace root here (not a subdir like the
+      # build job), so package.json's "packageManager: pnpm@9.0.0" is visible.
+      # Don't also pass version: — action-setup errors on two pnpm versions.
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - name: Setup Node
         uses: actions/setup-node@v4
