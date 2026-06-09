@@ -26,6 +26,7 @@
     "dev": "pnpm build && electron .",
     "dev:blank": "pnpm build && RIPTIDE_NO_TRACE=1 electron .",
     "dev:ui": "pnpm wgsl-check && pnpm build:native && node scripts/dev-ui.mjs",
+    "dev:mac": "cd native && zig build -Doptimize=ReleaseSafe && mkdir -p ../dist/native && cp zig-out/lib/libriptide.dylib ../dist/native/riptide.node && cp src/mock.vcd ../dist/native/ && cp -n src/mock.vcd.sidecar.json ../dist/native/ && cd .. && tsc -p tsconfig.json && node scripts/build-ui.mjs && electron .",
     "canvas-test": "node scripts/canvas-test/build.mjs && deno run --allow-all scripts/canvas-test/harness.bundle.mjs",
     "canvas-test:update": "node scripts/canvas-test/build.mjs && deno run --allow-all scripts/canvas-test/harness.bundle.mjs --update",
     "canvas-test:equiv": "node scripts/canvas-test/build.mjs && deno run --allow-all scripts/canvas-test/harness.bundle.mjs --equiv"

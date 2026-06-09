@@ -14,6 +14,7 @@ Run from repo root:
 - `pnpm build:native:mac` — cross-compile the addon for macOS (`-Dtarget=aarch64-macos`) → `dist/native/riptide.node` (same name as Linux; `build.zig` allows undefined napi symbols on Mach-O via `linker_allow_shlib_undefined`). Untested — packaging the dmg still requires running electron-builder on macOS.
 - `pnpm build` — wgsl-check + build:native + compile main process (`tsc`, CommonJS → `dist/main`) + bundle renderer (`scripts/build-ui.mjs`, esbuild + Tailwind) + copy `index.html`.
 - `pnpm dev` — build + launch Electron. `pnpm dev:blank` — same but `RIPTIDE_NO_TRACE=1` (boots the idle/no-file UI even though the mock is present).
+- `pnpm dev:mac` — run-from-source path for **macOS** (the default `build:native` copies a Linux `.so`, so it can't run on a Mac): host-arch `zig build` → `libriptide.dylib` → `riptide.node`, then main + renderer (skips `wgsl-check`, so no `naga`/Rust needed) + launch. Needs `zig` + the `../tide` / `../tide-vcd` siblings, like every native build.
 - `pnpm dev:ui` — wgsl-check + build:native + renderer-only esbuild watch & live-reload at `http://localhost:5173` (`scripts/dev-ui.mjs`). Pair with Electron started under `RIPTIDE_DEV=1` to loadURL the dev server instead of `dist/renderer/index.html`.
 - `pnpm typecheck` — two tsconfigs (`tsconfig.json` main, `tsconfig.renderer.json` the renderer = SolidJS app + shared `.ts`), no emit.
 - `pnpm test` / `pnpm test:visual` / `pnpm canvas-test` — see `TESTING.md` (oracle suites; DOM screenshot regression; GPU golden).
