@@ -11,6 +11,7 @@ pub fn build(b: *std.Build) void {
     // fixtures/tests below use std.process args (unsupported on Windows) and are
     // skipped for that target.
     const is_win = target.result.os.tag == .windows;
+    const is_mac = target.result.os.tag == .macos;
 
     const lib_mod = b.createModule(.{
         .root_source_file = b.path("src/main.zig"),
@@ -37,6 +38,22 @@ pub fn build(b: *std.Build) void {
         .name = "riptide",
         .root_module = lib_mod,
     });
+
+    // macOS: the napi_* symbols are exported by the Electron host executable, not
+    // a dylib, so the addon's references to them are undefined at link time. Allow
+    // that (the Mach-O linker resolves them at load via dynamic_lookup), mirroring
+    // node-gyp's `-undefined dynamic_lookup`. ELF (Linux) permits undefined shlib
+    // symbols by default; Windows uses the generated trampoline shim instead.
+    //
+    // Only zig's *old* MachO linker translates linker_allow_shlib_undefined into
+    // `-undefined dynamic_lookup`; the new self-hosted linker (default in some
+    // 0.16.0 builds, e.g. the one mlugg/setup-zig fetches in CI) drops it and the
+    // link fails with 21 undefined napi symbols. Pin the old linker so the addon
+    // builds the same regardless of which 0.16.0 zig is on PATH.
+    if (is_mac) {
+        lib.linker_allow_shlib_undefined = true;
+        lib.use_new_linker = false;
+    }
 
     b.installArtifact(lib);
 
