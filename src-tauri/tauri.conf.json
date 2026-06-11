@@ -1,0 +1,27 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "riptide",
+  "version": "0.1.0",
+  "identifier": "dev.ksriram.riptide",
+  "build": {
+    "devUrl": "http://localhost:5173",
+    "frontendDist": "../dist-tauri"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "riptide",
+        "width": 1280,
+        "height": 800,
+        "transparent": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false
+  }
+}

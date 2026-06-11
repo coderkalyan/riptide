@@ -10,3 +10,4 @@ zig-out/
 release/
 screenshot.png
 scripts/canvas-test/harness.bundle.mjs
+target/

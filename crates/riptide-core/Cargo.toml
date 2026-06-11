@@ -1,0 +1,13 @@
+[package]
+name = "riptide-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+riptide-contract = { workspace = true }
+tide = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

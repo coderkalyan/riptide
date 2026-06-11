@@ -1,0 +1,15 @@
+[package]
+name = "riptide-render"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+riptide-contract = { workspace = true }
+wgpu = { workspace = true }
+bytemuck = { workspace = true }
+ab_glyph = { workspace = true }
+image = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+pollster = { workspace = true }

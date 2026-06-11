@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/riptide-contract",
+  "crates/riptide-core",
+  "crates/riptide-render",
+  "src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+riptide-contract = { path = "crates/riptide-contract" }
+riptide-core = { path = "crates/riptide-core" }
+riptide-render = { path = "crates/riptide-render" }
+# Sibling repo, like the Zig build referenced ../tide via build.zig.zon. Absolute
+# path (not ../) so isolated git worktrees of this repo still resolve it; swap to
+# a git/registry dep before CI builds.
+tide = { path = "/home/kalyan/Documents/tide.rs/crates/tide" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+bytemuck = { version = "1", features = ["derive"] }
+wgpu = "27"
+ab_glyph = "0.2"
+image = { version = "0.25", default-features = false, features = ["png"] }
+raw-window-handle = "0.6"
+pollster = "0.4"

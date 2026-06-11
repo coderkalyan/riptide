@@ -1,0 +1,25 @@
+[package]
+name = "riptide-app"
+version.workspace = true
+edition.workspace = true
+
+# Binary-only crate (the Tauri app).
+[[bin]]
+name = "riptide"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+riptide-contract = { workspace = true }
+riptide-core = { workspace = true }
+riptide-render = { workspace = true }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+wgpu = { workspace = true }
+raw-window-handle = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+pollster = { workspace = true }
