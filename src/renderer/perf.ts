@@ -14,6 +14,8 @@
 // the reload that "Open VCD…" triggers. Surfaced live via PerfOverlay and the
 // window.__perf console API.
 
+import type { PerfSample as RustPerfSample } from "./ipc/types";
+
 const FRAME_BUDGET_MS = 1000 / 60;
 const DROP_THRESHOLD_MS = FRAME_BUDGET_MS * 1.5; // a frame longer than this = a drop
 const WINDOW = 180; // ~3s of samples at 60fps
@@ -237,6 +239,19 @@ export function markSwapRebuilt(rows: number): void {
   if (pendingSwap) { pendingSwap.rows = rows; pendingSwap.rebuilt = true; }
 }
 
+// ---- Rust-pushed samples (Tauri build) -----------------------------------
+// In the Tauri build the render loop lives in Rust; the backend's perf sampler
+// (src-tauri/src/perf.rs) pushes throttled (~4 Hz) PerfSamples over the UI
+// event channel (`UiEvent::Perf`), and the Tauri entry feeds them in here.
+// Under Electron nothing calls ingestRustSample, so `rust` stays null and the
+// overlay omits the section — the existing rAF-loop meters above are
+// unaffected either way (in the Tauri entry they simply aren't fed).
+
+export type { PerfSample as RustPerfSample } from "./ipc/types";
+
+let lastRustSample: RustPerfSample | null = null;
+export function ingestRustSample(s: RustPerfSample): void { lastRustSample = s; }
+
 // ---- snapshot + console API ---------------------------------------------
 
 export interface PerfSnapshot {
@@ -250,6 +265,8 @@ export interface PerfSnapshot {
   load: LoadReport | null;
   add: PhaseReport | null;
   swap: PhaseReport | null;
+  /** Latest Rust-pushed sample (Tauri build); null under Electron. */
+  rust: RustPerfSample | null;
 }
 
 let gpuSupported = false;
@@ -279,6 +296,7 @@ export function snapshot(): PerfSnapshot {
     load: lastLoad,
     add: lastAdd,
     swap: lastSwap,
+    rust: lastRustSample,
   };
 }
 
@@ -289,6 +307,7 @@ export function reset(): void {
   gpuRing.len = gpuRing.head = 0;
   lastFrameTs = 0; dropped = 0; frames = 0; emaFps = 0;
   longTaskCount = 0; longTaskMs = 0;
+  lastRustSample = null;
 }
 
 // `~` / backtick toggles the overlay + heavy GPU metering. Ignored while typing.

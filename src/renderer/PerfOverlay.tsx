@@ -83,6 +83,25 @@ export function PerfOverlay() {
           {row("main-thread jank", `${s().jank.longTasks} task / ${s().jank.longTaskMs.toFixed(0)}ms`, s().jank.longTasks > 0 ? "#e6b14e" : undefined)}
           {sep()}
 
+          {/* Rust-pushed sampler (Tauri build, ~4 Hz). Absent under Electron —
+              nothing feeds perf.ts's rust slot there, so the section hides. */}
+          <Show when={s().rust}>
+            {(r) => (
+              <>
+                {caption("rust engine", "tauri · pushed ~4 Hz")}
+                {row("engine fps", fps(r().fps), budgetColor(r().fps > 0 ? 1000 / r().fps : 0))}
+                {phaseRow("pack ms", r().packMs)}
+                {phaseRow("geometry ms", r().geometryMs)}
+                {phaseRow("rust encode ms", r().cpuEncodeMs)}
+                {r().gpuPassMs != null
+                  ? row("gpu pass ms", ms(r().gpuPassMs!), budgetColor(r().gpuPassMs!))
+                  : row("gpu pass ms", "n/a (no timestamp-query)")}
+                {row("frames", `${r().frameCount}`)}
+                {sep()}
+              </>
+            )}
+          </Show>
+
           {caption("boot", "once · ↻ = also per open")}
           <Show when={s().load} fallback={row("boot → first frame", "measuring…")}>
             {row("boot → first frame", `${s().load!.total.toFixed(0)}ms · ${s().load!.nodes} nodes`, "#72f5df")}
