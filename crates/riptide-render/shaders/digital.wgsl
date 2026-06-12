@@ -220,7 +220,13 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
     // write anyway to keep the bit-layout intent explicit).
     var flags = (segment.row_flags >> 16u) & 0xffu;
     flags |= select(0u, F_CROSSHATCH, msb_nonzero);
-    flags |= select(0u, F_HATCH_COLOR, lsb_nonzero);
+    // tide.rs X/Z plane swap (MIGRATION.md): among unknown samples (msb plane
+    // nonzero), Z is lsb-plane-ZERO under tide.rs (Z=(p0 0,p1 1), X=(p0 1,p1 1));
+    // under the Zig tide it was lsb-plane-nonzero. So the z-color pick predicate
+    // is the negation of the Electron shader's. F_CROSSHATCH / F_DRAW_LINE read
+    // only the unknown (msb) plane and are unchanged; F_DRAW_LINE_HIGH only
+    // matters for defined samples, where the two conventions agree.
+    flags |= select(0u, F_HATCH_COLOR, !lsb_nonzero);
     flags |= select(0u, F_DRAW_LINE, !msb_nonzero);
     flags |= select(0u, F_DRAW_LINE_HIGH, lsb_nonzero && VARIANT == VARIANT_SINGLE);
     flags |= select(0u, F_HIGHLIGHT, highlight);
