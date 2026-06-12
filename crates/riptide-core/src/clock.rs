@@ -131,8 +131,7 @@ pub fn reset_high_spans(
     };
     let mut open: Option<u64> = if high { Some(start) } else { None };
     let mut cursor = start;
-    loop {
-        let Ok(Some(q)) = db.edges(id, cursor, RESET_CHUNK) else { break };
+    while let Ok(Some(q)) = db.edges(id, cursor, RESET_CHUNK) {
         let n = q.len();
         if n == 0 {
             break;

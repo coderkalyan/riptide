@@ -64,8 +64,8 @@ fn parse_recent(raw: &str) -> Vec<String> {
 /// mirrors Electron's `addRecent`.
 fn push_recent(list: Vec<String>, path: String) -> Vec<String> {
     let mut out = Vec::with_capacity(RECENT_MAX);
-    out.push(path);
-    out.extend(list.into_iter().filter(|p| *p != out[0]));
+    out.extend(list.into_iter().filter(|p| *p != path));
+    out.insert(0, path);
     out.truncate(RECENT_MAX);
     out
 }

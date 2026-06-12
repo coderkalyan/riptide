@@ -6,6 +6,10 @@
 //! frame, so JS sees at most one of each hot kind (per id, where there is
 //! one) per frame. Cold events pass through untouched, in arrival order.
 
+// The coalescer is consumed by the render loop, wired at U15 integration; until
+// then it is constructed but not driven, so silence the dead-code lints.
+#![allow(dead_code)]
+
 use riptide_contract::ipc::UiEvent;
 
 use crate::state::AppState;

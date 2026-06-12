@@ -106,7 +106,7 @@ fn render_and_read(gpu: &Gpu, draw: &mut dyn FnMut(&mut wgpu::RenderPass<'_>)) -
     let slice = readback.slice(..);
     let (tx, rx) = std::sync::mpsc::channel();
     slice.map_async(wgpu::MapMode::Read, move |r| tx.send(r).unwrap());
-    gpu.device.poll(wgpu::PollType::Wait).unwrap();
+    gpu.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
     rx.recv().unwrap().unwrap();
     let data = slice.get_mapped_range().to_vec();
     readback.unmap();

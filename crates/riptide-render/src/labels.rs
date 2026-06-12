@@ -279,9 +279,9 @@ impl LabelRenderer {
                 capacity_glyphs,
                 &mut scratch,
             );
-            if gi > prev_glyphs {
+            if gi > prev_glyphs && let Some(buf) = instance_buf.as_ref() {
                 gpu.queue.write_buffer(
-                    instance_buf.as_ref().unwrap(),
+                    buf,
                     prev_glyphs as u64 * LABEL_BYTES as u64,
                     bytemuck::cast_slice(&scratch[prev_glyphs as usize * LABEL_U32..gi as usize * LABEL_U32]),
                 );

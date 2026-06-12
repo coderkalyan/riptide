@@ -95,8 +95,8 @@ fn reorder_and_move_replay_from_cache() {
     assert_eq!(out1.multi.len(), out2.multi.len());
     let rows1: Vec<u32> = out1.multi.iter().map(|s| s.row_flags & 0xffff).collect();
     let rows2: Vec<u32> = out2.multi.iter().map(|s| s.row_flags & 0xffff).collect();
-    assert!(rows1.iter().any(|&r| r == 0) && rows1.iter().any(|&r| r == 1));
-    assert!(rows2.iter().any(|&r| r == 0) && rows2.iter().any(|&r| r == 1));
+    assert!(rows1.contains(&0) && rows1.contains(&1));
+    assert!(rows2.contains(&0) && rows2.contains(&1));
     // Flag bits (sans row) are untouched by placement.
     let flags = |segs: &[riptide_contract::gpu::PackedSegment]| -> Vec<u32> {
         let mut v: Vec<u32> = segs.iter().map(|s| s.row_flags & !0xffffu32).collect();

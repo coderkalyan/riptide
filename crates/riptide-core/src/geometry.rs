@@ -285,7 +285,7 @@ fn add_flag(
     let pill_h = 14.0;
     let pill_w = text.chars().count() as f64 * cell_sm.width_px as f64 + pad_x * 2.0;
     let flip_start = canvas_w - pill_w;
-    let t = ((x - flip_start) / pill_w).min(1.0).max(0.0);
+    let t = ((x - flip_start) / pill_w).clamp(0.0, 1.0);
     let anchor = x + t * LINE_THICKNESS_CSS as f64;
     // min-then-max like the TS, so a pill wider than the canvas pins to 0.
     let pill_x = (anchor - t * pill_w).min(canvas_w - pill_w).max(0.0);
@@ -354,7 +354,7 @@ pub fn build_frame_geometry(state: &FrameState) -> FrameGeometry {
     let wave_h = (canvas_h - ruler_h).max(0.0);
     let timeline_px = canvas_w;
     let visible_ticks = timeline_px * tpp;
-    let view_end = start_ticks + visible_ticks;
+    let _view_end = start_ticks + visible_ticks;
     let cursor = state.cursor;
     // Clock-aligned mode is on only when a valid detected/overridden grid
     // exists (:366-368). period > 0 is a Rust-side loop guard (detection
@@ -687,11 +687,7 @@ pub fn build_frame_geometry(state: &FrameState) -> FrameGeometry {
         // (the TS `sort((a, b) => Number(a.id===selId) - Number(b.id===selId))`).
         ordered.sort_by_key(|m| m.id == sel);
     }
-    let mut mi = 0;
-    for m in ordered {
-        if mi >= MAX_MARKERS {
-            break;
-        }
+    for m in ordered.into_iter().take(MAX_MARKERS) {
         let line_x = x_for_tick(m.tick);
         let m_label = if clock_mode {
             format_clock_whole(m.tick, &grid.unwrap())
@@ -706,7 +702,6 @@ pub fn build_frame_geometry(state: &FrameState) -> FrameGeometry {
             x1: x1 as f32,
             line_x: (line_x + LINE_HALF_CSS as f64) as f32,
         });
-        mi += 1;
     }
     let cursor_label = if clock_mode {
         format_clock_whole(cursor, &grid.unwrap())
