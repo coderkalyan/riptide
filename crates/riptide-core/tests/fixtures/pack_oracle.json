@@ -1,0 +1,2173 @@
+{
+ "vcd": "native/src/mock.vcd",
+ "cases": [
+  {
+   "name": "full_mixed",
+   "qStart": 0,
+   "qEnd": 90,
+   "specs": [
+    {
+     "row": 0,
+     "path": "top.keysched.clk",
+     "kind": "clk",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "bin",
+     "enums": []
+    },
+    {
+     "row": 1,
+     "path": "top.keysched.rst_n",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "bin",
+     "enums": []
+    },
+    {
+     "row": 2,
+     "path": "top.keysched.c",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "hex",
+     "enums": []
+    },
+    {
+     "row": 3,
+     "path": "top.keysched.waves.in_addr",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "hex",
+     "enums": []
+    },
+    {
+     "row": 4,
+     "path": "top.keysched.waves.wide_data",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "hex",
+     "enums": []
+    },
+    {
+     "row": 5,
+     "path": "top.keysched.waves.dbus",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "hex",
+     "enums": []
+    },
+    {
+     "row": 6,
+     "path": "top.keysched.waves.fifo_empty",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "boolean",
+     "enums": []
+    },
+    {
+     "row": 7,
+     "path": "top.keysched.state",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "enum",
+     "enums": [
+      {
+       "value": 0,
+       "label": "IDLE"
+      },
+      {
+       "value": 1,
+       "label": "LOAD"
+      },
+      {
+       "value": 2,
+       "label": "RUN"
+      },
+      {
+       "value": 3,
+       "label": "DONE"
+      }
+     ]
+    },
+    {
+     "row": 8,
+     "path": "top.keysched.waves.cycle_count",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": true,
+     "mutePath": null,
+     "radix": "dec",
+     "enums": []
+    },
+    {
+     "row": 9,
+     "path": "top.keysched.waves.out_data",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "sdec",
+     "enums": []
+    }
+   ],
+   "expect": {
+    "multi": [
+     [
+      0,
+      10,
+      131074
+     ],
+     [
+      10,
+      30,
+      131074
+     ],
+     [
+      30,
+      50,
+      131074
+     ],
+     [
+      50,
+      70,
+      131074
+     ],
+     [
+      70,
+      90,
+      2
+     ],
+     [
+      0,
+      25,
+      131075
+     ],
+     [
+      25,
+      35,
+      131075
+     ],
+     [
+      35,
+      45,
+      131075
+     ],
+     [
+      45,
+      55,
+      131075
+     ],
+     [
+      55,
+      65,
+      131075
+     ],
+     [
+      65,
+      75,
+      131075
+     ],
+     [
+      75,
+      90,
+      3
+     ],
+     [
+      0,
+      25,
+      131076
+     ],
+     [
+      25,
+      55,
+      131076
+     ],
+     [
+      55,
+      85,
+      131076
+     ],
+     [
+      85,
+      90,
+      4
+     ],
+     [
+      0,
+      15,
+      131077
+     ],
+     [
+      15,
+      25,
+      131077
+     ],
+     [
+      25,
+      45,
+      131077
+     ],
+     [
+      45,
+      55,
+      131077
+     ],
+     [
+      55,
+      75,
+      131077
+     ],
+     [
+      75,
+      90,
+      5
+     ],
+     [
+      0,
+      20,
+      131079
+     ],
+     [
+      20,
+      60,
+      131079
+     ],
+     [
+      60,
+      90,
+      7
+     ],
+     [
+      0,
+      15,
+      196616
+     ],
+     [
+      15,
+      25,
+      196616
+     ],
+     [
+      25,
+      35,
+      196616
+     ],
+     [
+      35,
+      45,
+      196616
+     ],
+     [
+      45,
+      55,
+      196616
+     ],
+     [
+      55,
+      65,
+      196616
+     ],
+     [
+      65,
+      75,
+      196616
+     ],
+     [
+      75,
+      85,
+      196616
+     ],
+     [
+      85,
+      90,
+      65544
+     ],
+     [
+      0,
+      45,
+      131081
+     ],
+     [
+      45,
+      65,
+      131081
+     ],
+     [
+      65,
+      85,
+      131081
+     ],
+     [
+      85,
+      90,
+      9
+     ]
+    ],
+    "single": [
+     [
+      0,
+      5,
+      393216
+     ],
+     [
+      5,
+      10,
+      2228224
+     ],
+     [
+      10,
+      15,
+      393216
+     ],
+     [
+      15,
+      20,
+      2228224
+     ],
+     [
+      20,
+      25,
+      393216
+     ],
+     [
+      25,
+      30,
+      2228224
+     ],
+     [
+      30,
+      35,
+      393216
+     ],
+     [
+      35,
+      40,
+      2228224
+     ],
+     [
+      40,
+      45,
+      393216
+     ],
+     [
+      45,
+      50,
+      2228224
+     ],
+     [
+      50,
+      55,
+      393216
+     ],
+     [
+      55,
+      60,
+      2228224
+     ],
+     [
+      60,
+      65,
+      393216
+     ],
+     [
+      65,
+      70,
+      2228224
+     ],
+     [
+      70,
+      75,
+      393216
+     ],
+     [
+      75,
+      80,
+      2228224
+     ],
+     [
+      80,
+      85,
+      393216
+     ],
+     [
+      85,
+      90,
+      2097152
+     ],
+     [
+      0,
+      10,
+      131073
+     ],
+     [
+      10,
+      90,
+      1
+     ],
+     [
+      0,
+      15,
+      6
+     ],
+     [
+      15,
+      25,
+      131078
+     ],
+     [
+      25,
+      75,
+      131078
+     ],
+     [
+      75,
+      90,
+      6
+     ]
+    ],
+    "rowInfos": [
+     [
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     [
+      18,
+      18,
+      1,
+      18,
+      0,
+      0,
+      0
+     ],
+     [
+      20,
+      20,
+      2,
+      0,
+      0,
+      0,
+      0
+     ],
+     [
+      30,
+      30,
+      2,
+      5,
+      0,
+      0,
+      0
+     ],
+     [
+      44,
+      44,
+      8,
+      12,
+      0,
+      0,
+      0
+     ],
+     [
+      76,
+      76,
+      1,
+      16,
+      0,
+      0,
+      0
+     ],
+     [
+      82,
+      82,
+      1,
+      20,
+      0,
+      0,
+      0
+     ],
+     [
+      86,
+      86,
+      1,
+      22,
+      0,
+      0,
+      0
+     ],
+     [
+      89,
+      89,
+      1,
+      25,
+      0,
+      0,
+      0
+     ],
+     [
+      98,
+      98,
+      4,
+      34,
+      0,
+      0,
+      0
+     ]
+    ],
+    "x0Pool": "000100010001000100010001000100010001000100000000010002000300000000100410000008100c1000000000000000000000bab0fecaefbeaddeefcdab8967452301000000000000000000ff55fff0ff0001000100010200000102030405060700000000efbeaddebab0feca000000000000",
+    "x1Pool": "0000000000000000000000000000000000000000ff070000000000000000ffff00000000ffff00000000ffffffffffffffffffff00000000000000000000000000000000ffffffffffffffffffff00ff00ff01000000030000ff0000000000000000ffffffff0000000000000000ffffffff0000",
+    "multiLabelBytes": "0xXXX0x0000x0010x0020x0030xXXXX0x10000x10040xXXXX0x10080x100C0xXXXX0xXXXXXXXXXXXXXXXX0xDEADBEEFCAFEB0BA0x0123456789ABCDEF0xXXXXXXXXXXXXXXXX0xXX0xZZ0x550xZZ0xF00xZZ0xXLOADRUNX01234567X-559038737-889278278X",
+    "multiLabelOffsets": [
+     0,
+     5,
+     10,
+     15,
+     20,
+     25,
+     31,
+     37,
+     43,
+     49,
+     55,
+     61,
+     67,
+     85,
+     103,
+     121,
+     139,
+     143,
+     147,
+     151,
+     155,
+     159,
+     163,
+     166,
+     170,
+     173,
+     174,
+     175,
+     176,
+     177,
+     178,
+     179,
+     180,
+     181,
+     182,
+     183,
+     193,
+     203,
+     204
+    ],
+    "singleLabelBytes": "xtruefalsetrue",
+    "singleLabelOffsets": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     5,
+     10,
+     14
+    ],
+    "endTicks": 90
+   }
+  },
+  {
+   "name": "clk_polarities",
+   "qStart": 0,
+   "qEnd": 90,
+   "specs": [
+    {
+     "row": 0,
+     "path": "top.keysched.clk",
+     "kind": "clk",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "bin",
+     "enums": []
+    },
+    {
+     "row": 1,
+     "path": "top.keysched.waves.clk",
+     "kind": "clk",
+     "polarity": "falling",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "bin",
+     "enums": []
+    },
+    {
+     "row": 2,
+     "path": "top.keysched.clk",
+     "kind": "clk",
+     "polarity": "both",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "bin",
+     "enums": []
+    }
+   ],
+   "expect": {
+    "multi": [],
+    "single": [
+     [
+      0,
+      5,
+      393216
+     ],
+     [
+      5,
+      10,
+      2228224
+     ],
+     [
+      10,
+      15,
+      393216
+     ],
+     [
+      15,
+      20,
+      2228224
+     ],
+     [
+      20,
+      25,
+      393216
+     ],
+     [
+      25,
+      30,
+      2228224
+     ],
+     [
+      30,
+      35,
+      393216
+     ],
+     [
+      35,
+      40,
+      2228224
+     ],
+     [
+      40,
+      45,
+      393216
+     ],
+     [
+      45,
+      50,
+      2228224
+     ],
+     [
+      50,
+      55,
+      393216
+     ],
+     [
+      55,
+      60,
+      2228224
+     ],
+     [
+      60,
+      65,
+      393216
+     ],
+     [
+      65,
+      70,
+      2228224
+     ],
+     [
+      70,
+      75,
+      393216
+     ],
+     [
+      75,
+      80,
+      2228224
+     ],
+     [
+      80,
+      85,
+      393216
+     ],
+     [
+      85,
+      90,
+      2097152
+     ],
+     [
+      0,
+      5,
+      131073
+     ],
+     [
+      5,
+      10,
+      655361
+     ],
+     [
+      10,
+      15,
+      4325377
+     ],
+     [
+      15,
+      20,
+      655361
+     ],
+     [
+      20,
+      25,
+      4325377
+     ],
+     [
+      25,
+      30,
+      655361
+     ],
+     [
+      30,
+      35,
+      4325377
+     ],
+     [
+      35,
+      40,
+      655361
+     ],
+     [
+      40,
+      45,
+      4325377
+     ],
+     [
+      45,
+      50,
+      655361
+     ],
+     [
+      50,
+      55,
+      4325377
+     ],
+     [
+      55,
+      60,
+      655361
+     ],
+     [
+      60,
+      65,
+      4325377
+     ],
+     [
+      65,
+      70,
+      655361
+     ],
+     [
+      70,
+      75,
+      4325377
+     ],
+     [
+      75,
+      80,
+      655361
+     ],
+     [
+      80,
+      85,
+      4325377
+     ],
+     [
+      85,
+      90,
+      1
+     ],
+     [
+      0,
+      5,
+      393218
+     ],
+     [
+      5,
+      10,
+      2752514
+     ],
+     [
+      10,
+      15,
+      4587522
+     ],
+     [
+      15,
+      20,
+      2752514
+     ],
+     [
+      20,
+      25,
+      4587522
+     ],
+     [
+      25,
+      30,
+      2752514
+     ],
+     [
+      30,
+      35,
+      4587522
+     ],
+     [
+      35,
+      40,
+      2752514
+     ],
+     [
+      40,
+      45,
+      4587522
+     ],
+     [
+      45,
+      50,
+      2752514
+     ],
+     [
+      50,
+      55,
+      4587522
+     ],
+     [
+      55,
+      60,
+      2752514
+     ],
+     [
+      60,
+      65,
+      4587522
+     ],
+     [
+      65,
+      70,
+      2752514
+     ],
+     [
+      70,
+      75,
+      4587522
+     ],
+     [
+      75,
+      80,
+      2752514
+     ],
+     [
+      80,
+      85,
+      4587522
+     ],
+     [
+      85,
+      90,
+      2097154
+     ]
+    ],
+    "rowInfos": [
+     [
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     [
+      18,
+      18,
+      1,
+      18,
+      0,
+      0,
+      0
+     ],
+     [
+      36,
+      36,
+      1,
+      36,
+      0,
+      0,
+      0
+     ]
+    ],
+    "x0Pool": "0001000100010001000100010001000100010001000100010001000100010001000100010001000100010001000100010001000100010000",
+    "x1Pool": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+    "multiLabelBytes": "",
+    "multiLabelOffsets": [],
+    "singleLabelBytes": "",
+    "singleLabelOffsets": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "endTicks": 90
+   }
+  },
+  {
+   "name": "muted",
+   "qStart": 0,
+   "qEnd": 90,
+   "specs": [
+    {
+     "row": 0,
+     "path": "top.keysched.waves.out_data",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": "top.keysched.waves.in_valid",
+     "radix": "hex",
+     "enums": []
+    },
+    {
+     "row": 1,
+     "path": "top.keysched.waves.wide_data",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": "top.keysched.waves.out_valid",
+     "radix": "hex",
+     "enums": []
+    },
+    {
+     "row": 2,
+     "path": "top.keysched.waves.fifo_empty",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": "top.keysched.waves.in_valid",
+     "radix": "bin",
+     "enums": []
+    },
+    {
+     "row": 3,
+     "path": "top.keysched.waves.in_data",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": "top.keysched.waves.in_valid",
+     "radix": "hex",
+     "enums": []
+    },
+    {
+     "row": 4,
+     "path": "top.keysched.waves.in_addr",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "hex",
+     "enums": []
+    }
+   ],
+   "expect": {
+    "multi": [
+     [
+      0,
+      25,
+      1179648
+     ],
+     [
+      25,
+      45,
+      131072
+     ],
+     [
+      45,
+      55,
+      1179648
+     ],
+     [
+      55,
+      65,
+      131072
+     ],
+     [
+      65,
+      75,
+      131072
+     ],
+     [
+      75,
+      85,
+      1179648
+     ],
+     [
+      85,
+      90,
+      1048576
+     ],
+     [
+      0,
+      25,
+      1179649
+     ],
+     [
+      25,
+      45,
+      1179649
+     ],
+     [
+      45,
+      55,
+      131073
+     ],
+     [
+      55,
+      85,
+      131073
+     ],
+     [
+      85,
+      90,
+      1048577
+     ],
+     [
+      0,
+      25,
+      1179651
+     ],
+     [
+      25,
+      45,
+      131075
+     ],
+     [
+      45,
+      55,
+      1179651
+     ],
+     [
+      55,
+      75,
+      131075
+     ],
+     [
+      75,
+      90,
+      1048579
+     ],
+     [
+      0,
+      25,
+      131076
+     ],
+     [
+      25,
+      35,
+      131076
+     ],
+     [
+      35,
+      45,
+      131076
+     ],
+     [
+      45,
+      55,
+      131076
+     ],
+     [
+      55,
+      65,
+      131076
+     ],
+     [
+      65,
+      75,
+      131076
+     ],
+     [
+      75,
+      90,
+      4
+     ]
+    ],
+    "single": [
+     [
+      0,
+      15,
+      1048578
+     ],
+     [
+      15,
+      25,
+      1179650
+     ],
+     [
+      25,
+      45,
+      2
+     ],
+     [
+      45,
+      55,
+      1048578
+     ],
+     [
+      55,
+      75,
+      131074
+     ],
+     [
+      75,
+      90,
+      1048578
+     ]
+    ],
+    "rowInfos": [
+     [
+      0,
+      0,
+      4,
+      0,
+      0,
+      0,
+      0
+     ],
+     [
+      28,
+      28,
+      8,
+      7,
+      0,
+      0,
+      0
+     ],
+     [
+      68,
+      68,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     [
+      74,
+      74,
+      1,
+      12,
+      0,
+      0,
+      0
+     ],
+     [
+      79,
+      79,
+      2,
+      17,
+      0,
+      0,
+      0
+     ]
+    ],
+    "x0Pool": "0000000000000000efbeaddeefbeaddebab0fecabab0feca000000000000000000000000bab0fecaefbeaddebab0fecaefbeaddeefcdab8967452301000000000000000000010000000100a300b700000000100410000008100c100000000000",
+    "x1Pool": "ffffffffffffffff00000000000000000000000000000000ffffffffffffffffffffffff000000000000000000000000000000000000000000000000ffffffffffffffff010000000000ff00ff00ffffff00000000ffff00000000ffff000000",
+    "multiLabelBytes": "0xXXXXXXXX0xDEADBEEF0xCAFEB0BA0xDEADBEEFCAFEB0BA0x0123456789ABCDEF0xA30xB70xXXXX0x10000x10040xXXXX0x10080x100C0xXXXX",
+    "multiLabelOffsets": [
+     0,
+     0,
+     10,
+     10,
+     20,
+     30,
+     30,
+     30,
+     30,
+     30,
+     48,
+     66,
+     66,
+     66,
+     70,
+     70,
+     74,
+     74,
+     80,
+     86,
+     92,
+     98,
+     104,
+     110,
+     116
+    ],
+    "singleLabelBytes": "",
+    "singleLabelOffsets": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "endTicks": 90
+   }
+  },
+  {
+   "name": "window_mid",
+   "qStart": 30,
+   "qEnd": 60,
+   "specs": [
+    {
+     "row": 0,
+     "path": "top.keysched.c",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "hex",
+     "enums": []
+    },
+    {
+     "row": 1,
+     "path": "top.keysched.clk",
+     "kind": "clk",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "bin",
+     "enums": []
+    },
+    {
+     "row": 2,
+     "path": "top.keysched.waves.out_data",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": "top.keysched.waves.in_valid",
+     "radix": "hex",
+     "enums": []
+    },
+    {
+     "row": 3,
+     "path": "top.keysched.rst_n",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "bin",
+     "enums": []
+    }
+   ],
+   "expect": {
+    "multi": [
+     [
+      30,
+      50,
+      131072
+     ],
+     [
+      50,
+      90,
+      0
+     ],
+     [
+      0,
+      45,
+      131074
+     ],
+     [
+      45,
+      55,
+      1179650
+     ],
+     [
+      55,
+      90,
+      2
+     ]
+    ],
+    "single": [
+     [
+      30,
+      35,
+      393217
+     ],
+     [
+      35,
+      40,
+      2228225
+     ],
+     [
+      40,
+      45,
+      393217
+     ],
+     [
+      45,
+      50,
+      2228225
+     ],
+     [
+      50,
+      55,
+      393217
+     ],
+     [
+      55,
+      60,
+      2228225
+     ],
+     [
+      60,
+      90,
+      1
+     ],
+     [
+      10,
+      90,
+      3
+     ]
+    ],
+    "rowInfos": [
+     [
+      0,
+      0,
+      2,
+      0,
+      0,
+      0,
+      0
+     ],
+     [
+      4,
+      4,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     [
+      11,
+      11,
+      4,
+      2,
+      0,
+      0,
+      0
+     ],
+     [
+      23,
+      23,
+      1,
+      7,
+      0,
+      0,
+      0
+     ]
+    ],
+    "x0Pool": "010002000001000100010000000000efbeaddeefbeadde01",
+    "x1Pool": "0000000000000000000000ffffffff000000000000000000",
+    "multiLabelBytes": "0x0010x0020xXXXXXXXX0xDEADBEEF",
+    "multiLabelOffsets": [
+     0,
+     5,
+     10,
+     20,
+     20,
+     30
+    ],
+    "singleLabelBytes": "",
+    "singleLabelOffsets": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "endTicks": 90
+   }
+  },
+  {
+   "name": "window_point",
+   "qStart": 40,
+   "qEnd": 40,
+   "specs": [
+    {
+     "row": 0,
+     "path": "top.keysched.waves.in_addr",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "hex",
+     "enums": []
+    },
+    {
+     "row": 1,
+     "path": "top.keysched.clk",
+     "kind": "clk",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "bin",
+     "enums": []
+    },
+    {
+     "row": 2,
+     "path": "top.keysched.waves.out_data",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": "top.keysched.waves.in_valid",
+     "radix": "hex",
+     "enums": []
+    }
+   ],
+   "expect": {
+    "multi": [
+     [
+      35,
+      90,
+      0
+     ],
+     [
+      0,
+      90,
+      2
+     ]
+    ],
+    "single": [
+     [
+      40,
+      90,
+      1
+     ]
+    ],
+    "rowInfos": [
+     [
+      0,
+      0,
+      2,
+      0,
+      0,
+      0,
+      0
+     ],
+     [
+      2,
+      2,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     [
+      3,
+      3,
+      4,
+      1,
+      0,
+      0,
+      0
+     ]
+    ],
+    "x0Pool": "0410000000000000",
+    "x1Pool": "000000ffffffff00",
+    "multiLabelBytes": "0x10040xXXXXXXXX",
+    "multiLabelOffsets": [
+     0,
+     6,
+     16
+    ],
+    "singleLabelBytes": "",
+    "singleLabelOffsets": [
+     0,
+     0
+    ],
+    "endTicks": 90
+   }
+  },
+  {
+   "name": "window_clamped",
+   "qStart": 0,
+   "qEnd": 1000000,
+   "specs": [
+    {
+     "row": 0,
+     "path": "top.keysched.waves.in_addr",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "hex",
+     "enums": []
+    },
+    {
+     "row": 1,
+     "path": "top.keysched.rst_n",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "bin",
+     "enums": []
+    }
+   ],
+   "expect": {
+    "multi": [
+     [
+      0,
+      25,
+      131072
+     ],
+     [
+      25,
+      35,
+      131072
+     ],
+     [
+      35,
+      45,
+      131072
+     ],
+     [
+      45,
+      55,
+      131072
+     ],
+     [
+      55,
+      65,
+      131072
+     ],
+     [
+      65,
+      75,
+      131072
+     ],
+     [
+      75,
+      90,
+      0
+     ]
+    ],
+    "single": [
+     [
+      0,
+      10,
+      131073
+     ],
+     [
+      10,
+      90,
+      1
+     ]
+    ],
+    "rowInfos": [
+     [
+      0,
+      0,
+      2,
+      0,
+      0,
+      0,
+      0
+     ],
+     [
+      14,
+      14,
+      1,
+      0,
+      0,
+      0,
+      0
+     ]
+    ],
+    "x0Pool": "000000100410000008100c1000000001",
+    "x1Pool": "ffff00000000ffff00000000ffff0000",
+    "multiLabelBytes": "0xXXXX0x10000x10040xXXXX0x10080x100C0xXXXX",
+    "multiLabelOffsets": [
+     0,
+     6,
+     12,
+     18,
+     24,
+     30,
+     36,
+     42
+    ],
+    "singleLabelBytes": "",
+    "singleLabelOffsets": [
+     0,
+     0,
+     0
+    ],
+    "endTicks": 90
+   }
+  },
+  {
+   "name": "row_gaps",
+   "qStart": 0,
+   "qEnd": 90,
+   "specs": [
+    {
+     "row": 1,
+     "path": "top.keysched.rst_n",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "bin",
+     "enums": []
+    },
+    {
+     "row": 3,
+     "path": "top.keysched.c",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "hex",
+     "enums": []
+    },
+    {
+     "row": 7,
+     "path": "top.keysched.clk",
+     "kind": "clk",
+     "polarity": "both",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "bin",
+     "enums": []
+    }
+   ],
+   "expect": {
+    "multi": [
+     [
+      0,
+      10,
+      131075
+     ],
+     [
+      10,
+      30,
+      131075
+     ],
+     [
+      30,
+      50,
+      131075
+     ],
+     [
+      50,
+      70,
+      131075
+     ],
+     [
+      70,
+      90,
+      3
+     ]
+    ],
+    "single": [
+     [
+      0,
+      10,
+      131073
+     ],
+     [
+      10,
+      90,
+      1
+     ],
+     [
+      0,
+      5,
+      393223
+     ],
+     [
+      5,
+      10,
+      2752519
+     ],
+     [
+      10,
+      15,
+      4587527
+     ],
+     [
+      15,
+      20,
+      2752519
+     ],
+     [
+      20,
+      25,
+      4587527
+     ],
+     [
+      25,
+      30,
+      2752519
+     ],
+     [
+      30,
+      35,
+      4587527
+     ],
+     [
+      35,
+      40,
+      2752519
+     ],
+     [
+      40,
+      45,
+      4587527
+     ],
+     [
+      45,
+      50,
+      2752519
+     ],
+     [
+      50,
+      55,
+      4587527
+     ],
+     [
+      55,
+      60,
+      2752519
+     ],
+     [
+      60,
+      65,
+      4587527
+     ],
+     [
+      65,
+      70,
+      2752519
+     ],
+     [
+      70,
+      75,
+      4587527
+     ],
+     [
+      75,
+      80,
+      2752519
+     ],
+     [
+      80,
+      85,
+      4587527
+     ],
+     [
+      85,
+      90,
+      2097159
+     ]
+    ],
+    "rowInfos": [
+     [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     [
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     [
+      2,
+      2,
+      2,
+      0,
+      0,
+      0,
+      0
+     ],
+     [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     [
+      12,
+      12,
+      1,
+      2,
+      0,
+      0,
+      0
+     ]
+    ],
+    "x0Pool": "0001000000000100020003000001000100010001000100010001000100010000",
+    "x1Pool": "0000ff0700000000000000000000000000000000000000000000000000000000",
+    "multiLabelBytes": "0xXXX0x0000x0010x0020x003",
+    "multiLabelOffsets": [
+     0,
+     5,
+     10,
+     15,
+     20,
+     25
+    ],
+    "singleLabelBytes": "",
+    "singleLabelOffsets": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "endTicks": 90
+   }
+  },
+  {
+   "name": "single_only",
+   "qStart": 0,
+   "qEnd": 90,
+   "specs": [
+    {
+     "row": 0,
+     "path": "top.keysched.rst_n",
+     "kind": "data",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "bin",
+     "enums": []
+    },
+    {
+     "row": 1,
+     "path": "top.keysched.clk",
+     "kind": "clk",
+     "polarity": "rising",
+     "shaded": false,
+     "mutePath": null,
+     "radix": "bin",
+     "enums": []
+    }
+   ],
+   "expect": {
+    "multi": [],
+    "single": [
+     [
+      0,
+      10,
+      131072
+     ],
+     [
+      10,
+      90,
+      0
+     ],
+     [
+      0,
+      5,
+      393217
+     ],
+     [
+      5,
+      10,
+      2228225
+     ],
+     [
+      10,
+      15,
+      393217
+     ],
+     [
+      15,
+      20,
+      2228225
+     ],
+     [
+      20,
+      25,
+      393217
+     ],
+     [
+      25,
+      30,
+      2228225
+     ],
+     [
+      30,
+      35,
+      393217
+     ],
+     [
+      35,
+      40,
+      2228225
+     ],
+     [
+      40,
+      45,
+      393217
+     ],
+     [
+      45,
+      50,
+      2228225
+     ],
+     [
+      50,
+      55,
+      393217
+     ],
+     [
+      55,
+      60,
+      2228225
+     ],
+     [
+      60,
+      65,
+      393217
+     ],
+     [
+      65,
+      70,
+      2228225
+     ],
+     [
+      70,
+      75,
+      393217
+     ],
+     [
+      75,
+      80,
+      2228225
+     ],
+     [
+      80,
+      85,
+      393217
+     ],
+     [
+      85,
+      90,
+      2097153
+     ]
+    ],
+    "rowInfos": [
+     [
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      0
+     ],
+     [
+      2,
+      2,
+      1,
+      2,
+      0,
+      0,
+      0
+     ]
+    ],
+    "x0Pool": "0001000100010001000100010001000100010001",
+    "x1Pool": "0000000000000000000000000000000000000000",
+    "multiLabelBytes": "",
+    "multiLabelOffsets": [],
+    "singleLabelBytes": "",
+    "singleLabelOffsets": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "endTicks": 90
+   }
+  }
+ ]
+}
