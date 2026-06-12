@@ -12,7 +12,10 @@ impl ColorBuffer {
         let buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("row-colors"),
             size: (MAX_ROWS * 16) as u64, // vec4<f32> per row
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            usage: wgpu::BufferUsages::STORAGE
+                | wgpu::BufferUsages::COPY_DST
+                // COPY_SRC so tests/captures can read the palette back.
+                | wgpu::BufferUsages::COPY_SRC,
             mapped_at_creation: false,
         });
         Self { buf }
