@@ -17,7 +17,12 @@ fn main() {
         .plugin(tauri_plugin_dialog::init())
         .manage(state::AppState::default())
         .setup(|app| {
-            surface::init(app)?;
+            // U1 compositing spike: wgpu renders to the window surface under
+            // the transparent webview. A GPU/adapter failure must not take
+            // down the (still functional) webview-only app.
+            if let Err(err) = surface::init(app) {
+                eprintln!("[riptide-gfx] disabled: {err}");
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
