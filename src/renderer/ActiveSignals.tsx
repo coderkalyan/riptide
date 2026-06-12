@@ -5,6 +5,8 @@ import { SCENE, type ActiveSignalRef } from "./hier/scene";
 import { useAppStore } from "./store/store";
 import { ActiveSignal, type ActiveSignalKind } from "./ActiveSignal";
 import { valueAtTick, formatSegmentValue } from "./wave/value";
+import { IS_TAURI } from "./runtime";
+import { rowValueText } from "./tauri/valuesStash";
 import {
   ROW_HEIGHT_CSS, ROW_MIN_HEIGHT_CSS, ROW_MAX_HEIGHT_CSS,
   DIVIDER_HEIGHT_CSS, DIVIDER_MIN_HEIGHT_CSS, DIVIDER_MAX_HEIGHT_CSS,
@@ -100,8 +102,12 @@ export function ActiveSignals(props: {
       >
         <For each={s.activeSignals}>{(row) => {
           const sig = getSignal(SCENE.hierarchy, row.signalId);
+          // Tauri: Rust formats the value column and pushes it per cursor move
+          // (storeBridge → valuesStash); Electron computes it from the native db.
           const value = createMemo(() =>
-            formatSegmentValue(valueAtTick(sig.handle, s.cursorTicks), sig.bitWidth, row.radix, props.enumLabels().get(row.row)));
+            IS_TAURI
+              ? rowValueText(row.row)
+              : formatSegmentValue(valueAtTick(sig.handle, s.cursorTicks), sig.bitWidth, row.radix, props.enumLabels().get(row.row)));
           return (
             <>
               <ActiveSignal

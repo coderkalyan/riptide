@@ -22,6 +22,7 @@ import { SCENE, INITIAL, makeActiveRef, handleForPath, type ActiveSignalRef, typ
 import type { NodeId } from "../hier/types";
 import type { ClockGrid } from "../wave/format";
 import { detectClockGrid } from "../wave/clock";
+import { IS_TAURI } from "../runtime";
 import { MAX_ROWS } from "../gpu/colors";
 import {
   serializeSidecar,
@@ -223,7 +224,10 @@ function hydrateDoc(): DocState {
   const timebaseOverride = INITIAL.timebase.override ?? null;
   const clockGrid = computeTimebase(active, timebaseClock, timebaseOverride);
   // A saved/auto clock absent from this trace → fall back to absolute time.
-  if (timebaseClock != null && clockGrid == null) { timebaseClock = null; clockAnchor = false; }
+  // Tauri: local edge detection can't run (native stub), so a null grid says
+  // nothing about the clock's presence — keep the timebase and let Rust push
+  // the detected grid over the event channel (clockGridChanged).
+  if (timebaseClock != null && clockGrid == null && !IS_TAURI) { timebaseClock = null; clockAnchor = false; }
 
   return {
     activeSignals: active.map(withRowId),

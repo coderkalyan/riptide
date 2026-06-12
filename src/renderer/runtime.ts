@@ -8,7 +8,16 @@
 // bundled mock loads its curated view; opening a fresh trace finds no sidecar
 // and starts empty.
 
-const params = new URLSearchParams(typeof location !== "undefined" ? location.search : "");
+// Tauri runtime detection. In the Tauri build, boot parameters come from
+// bridge.bootInfo() (see index.tauri.tsx) rather than the window URL, the
+// waveform canvas is a transparent hole Rust renders beneath (tauri/CanvasHost),
+// and the value column / hover readout show Rust-pushed text (tauri/valuesStash).
+export const IS_TAURI: boolean =
+  typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+
+const params = new URLSearchParams(
+  !IS_TAURI && typeof location !== "undefined" ? location.search : "",
+);
 
 export const VCD_PATH: string = params.get("vcd") ?? "";
 export const SIDECAR_PATH: string = VCD_PATH ? `${VCD_PATH}.sidecar.json` : "";
