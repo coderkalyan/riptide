@@ -1,0 +1,506 @@
+{
+  "rootIds": [
+    0,
+    43
+  ],
+  "nodes": [
+    {
+      "id": 0,
+      "parent": null,
+      "name": "top",
+      "kind": "scope",
+      "scopeType": "module",
+      "children": [
+        1,
+        2,
+        31,
+        35,
+        39
+      ]
+    },
+    {
+      "id": 1,
+      "parent": 0,
+      "name": "des",
+      "kind": "scope",
+      "scopeType": "module",
+      "children": []
+    },
+    {
+      "id": 2,
+      "parent": 0,
+      "name": "keysched",
+      "kind": "scope",
+      "scopeType": "module",
+      "children": [
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        14,
+        17
+      ]
+    },
+    {
+      "id": 3,
+      "parent": 2,
+      "name": "clk",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 1,
+      "handle": "1"
+    },
+    {
+      "id": 4,
+      "parent": 2,
+      "name": "rst_n",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 1,
+      "handle": "2"
+    },
+    {
+      "id": 5,
+      "parent": 2,
+      "name": "c[10:0]",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 11,
+      "handle": "3"
+    },
+    {
+      "id": 6,
+      "parent": 2,
+      "name": "load1[0:8]",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 9,
+      "handle": "4"
+    },
+    {
+      "id": 7,
+      "parent": 2,
+      "name": "load2[0:8]",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 9,
+      "handle": "5"
+    },
+    {
+      "id": 8,
+      "parent": 2,
+      "name": "load3[0:8]",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 9,
+      "handle": "6"
+    },
+    {
+      "id": 9,
+      "parent": 2,
+      "name": "data[31:0]",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 32,
+      "handle": "7"
+    },
+    {
+      "id": 10,
+      "parent": 2,
+      "name": "state[1:0]",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 2,
+      "handle": "8"
+    },
+    {
+      "id": 11,
+      "parent": 2,
+      "name": "fsm",
+      "kind": "scope",
+      "scopeType": "module",
+      "children": [
+        12,
+        13
+      ]
+    },
+    {
+      "id": 12,
+      "parent": 11,
+      "name": "cur[2:0]",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 3,
+      "handle": "9"
+    },
+    {
+      "id": 13,
+      "parent": 11,
+      "name": "nxt[2:0]",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 3,
+      "handle": "10"
+    },
+    {
+      "id": 14,
+      "parent": 2,
+      "name": "xbar",
+      "kind": "scope",
+      "scopeType": "module",
+      "children": [
+        15,
+        16
+      ]
+    },
+    {
+      "id": 15,
+      "parent": 14,
+      "name": "req[3:0]",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 4,
+      "handle": "11"
+    },
+    {
+      "id": 16,
+      "parent": 14,
+      "name": "gnt[3:0]",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 4,
+      "handle": "12"
+    },
+    {
+      "id": 17,
+      "parent": 2,
+      "name": "waves",
+      "kind": "scope",
+      "scopeType": "module",
+      "children": [
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30
+      ]
+    },
+    {
+      "id": 18,
+      "parent": 17,
+      "name": "clk",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 1,
+      "handle": "13"
+    },
+    {
+      "id": 19,
+      "parent": 17,
+      "name": "rst",
+      "kind": "signal",
+      "varType": "vcd_reg",
+      "direction": "implicit",
+      "bitWidth": 1,
+      "handle": "14"
+    },
+    {
+      "id": 20,
+      "parent": 17,
+      "name": "state[1:0]",
+      "kind": "signal",
+      "varType": "vcd_reg",
+      "direction": "implicit",
+      "bitWidth": 2,
+      "handle": "15"
+    },
+    {
+      "id": 21,
+      "parent": 17,
+      "name": "cycle_count[7:0]",
+      "kind": "signal",
+      "varType": "vcd_reg",
+      "direction": "implicit",
+      "bitWidth": 8,
+      "handle": "16"
+    },
+    {
+      "id": 22,
+      "parent": 17,
+      "name": "in_valid",
+      "kind": "signal",
+      "varType": "vcd_reg",
+      "direction": "implicit",
+      "bitWidth": 1,
+      "handle": "17"
+    },
+    {
+      "id": 23,
+      "parent": 17,
+      "name": "in_data[7:0]",
+      "kind": "signal",
+      "varType": "vcd_reg",
+      "direction": "implicit",
+      "bitWidth": 8,
+      "handle": "18"
+    },
+    {
+      "id": 24,
+      "parent": 17,
+      "name": "in_addr[15:0]",
+      "kind": "signal",
+      "varType": "vcd_reg",
+      "direction": "implicit",
+      "bitWidth": 16,
+      "handle": "19"
+    },
+    {
+      "id": 25,
+      "parent": 17,
+      "name": "out_valid",
+      "kind": "signal",
+      "varType": "vcd_reg",
+      "direction": "implicit",
+      "bitWidth": 1,
+      "handle": "20"
+    },
+    {
+      "id": 26,
+      "parent": 17,
+      "name": "out_data[31:0]",
+      "kind": "signal",
+      "varType": "vcd_reg",
+      "direction": "implicit",
+      "bitWidth": 32,
+      "handle": "21"
+    },
+    {
+      "id": 27,
+      "parent": 17,
+      "name": "fifo_level[3:0]",
+      "kind": "signal",
+      "varType": "vcd_reg",
+      "direction": "implicit",
+      "bitWidth": 4,
+      "handle": "22"
+    },
+    {
+      "id": 28,
+      "parent": 17,
+      "name": "fifo_empty",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 1,
+      "handle": "23"
+    },
+    {
+      "id": 29,
+      "parent": 17,
+      "name": "dbus[7:0]",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 8,
+      "handle": "24"
+    },
+    {
+      "id": 30,
+      "parent": 17,
+      "name": "wide_data[63:0]",
+      "kind": "signal",
+      "varType": "vcd_reg",
+      "direction": "implicit",
+      "bitWidth": 64,
+      "handle": "25"
+    },
+    {
+      "id": 31,
+      "parent": 0,
+      "name": "mem_ctrl",
+      "kind": "scope",
+      "scopeType": "module",
+      "children": [
+        32,
+        33,
+        34
+      ]
+    },
+    {
+      "id": 32,
+      "parent": 31,
+      "name": "addr[7:0]",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 8,
+      "handle": "26"
+    },
+    {
+      "id": 33,
+      "parent": 31,
+      "name": "wen",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 1,
+      "handle": "27"
+    },
+    {
+      "id": 34,
+      "parent": 31,
+      "name": "rdata[7:0]",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 8,
+      "handle": "28"
+    },
+    {
+      "id": 35,
+      "parent": 0,
+      "name": "dma",
+      "kind": "scope",
+      "scopeType": "module",
+      "children": [
+        36,
+        37,
+        38
+      ]
+    },
+    {
+      "id": 36,
+      "parent": 35,
+      "name": "src[15:0]",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 16,
+      "handle": "29"
+    },
+    {
+      "id": 37,
+      "parent": 35,
+      "name": "dst[15:0]",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 16,
+      "handle": "30"
+    },
+    {
+      "id": 38,
+      "parent": 35,
+      "name": "active",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 1,
+      "handle": "31"
+    },
+    {
+      "id": 39,
+      "parent": 0,
+      "name": "uart",
+      "kind": "scope",
+      "scopeType": "module",
+      "children": [
+        40,
+        41,
+        42
+      ]
+    },
+    {
+      "id": 40,
+      "parent": 39,
+      "name": "tx",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 1,
+      "handle": "32"
+    },
+    {
+      "id": 41,
+      "parent": 39,
+      "name": "rx",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 1,
+      "handle": "33"
+    },
+    {
+      "id": 42,
+      "parent": 39,
+      "name": "baud[15:0]",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 16,
+      "handle": "34"
+    },
+    {
+      "id": 43,
+      "parent": null,
+      "name": "derived",
+      "kind": "scope",
+      "scopeType": "module",
+      "children": [
+        44,
+        45
+      ]
+    },
+    {
+      "id": 44,
+      "parent": 43,
+      "name": "busy",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 1,
+      "handle": "35"
+    },
+    {
+      "id": 45,
+      "parent": 43,
+      "name": "done",
+      "kind": "signal",
+      "varType": "vcd_wire",
+      "direction": "implicit",
+      "bitWidth": 1,
+      "handle": "36"
+    }
+  ],
+  "timescale": {
+    "value": 1,
+    "unit": "ns"
+  },
+  "endTicks": 90
+}

@@ -50,7 +50,7 @@ impl Engine {
         let summary = TraceSummary {
             path: path.to_string(),
             end_ticks: db.end_ticks() as f64,
-            timescale: None, // U10: map tide::Timescale → TimescaleDto
+            timescale: db.timescale().map(crate::trace::timescale_dto),
             diagnostics: db.diagnostics(),
         };
         self.packer.clear();
