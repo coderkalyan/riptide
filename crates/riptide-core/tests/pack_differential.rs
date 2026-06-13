@@ -45,8 +45,50 @@ fn radix_of(s: &str) -> Radix {
     }
 }
 
+/// Resolves a fixture path to a tide handle, tolerating the range suffix.
+///
+/// The oracle fixture keys signals by their BARE path (the generator strips the
+/// VCD range, e.g. `in_addr` for `in_addr[15:0]`), because the Zig hierarchy it
+/// ran against exposed bare names. tide.rs keeps the range in the var name (the
+/// canonical, sidecar-compatible form — see `mock.vcd.sidecar.json`), so a bare
+/// path misses `db.find`. We therefore also accept a bare path by matching each
+/// signal's range-stripped full path. The resolved signal — hence the packed
+/// data — is identical either way; only the spelling of the lookup key differs.
 fn handle_of(db: &TraceDb, path: &str) -> String {
-    db.find(path).unwrap_or_else(|| panic!("no signal at {path}")).0.to_string()
+    if let Some(id) = db.find(path) {
+        return id.0.to_string();
+    }
+    use riptide_contract::hier::NodeDto;
+    let dto = db.hierarchy_dto();
+    let mut by_id = std::collections::HashMap::new();
+    for n in &dto.nodes {
+        let (id, parent, name) = match n {
+            NodeDto::Scope { id, parent, name, .. } => (*id, *parent, name.as_str()),
+            NodeDto::Signal { id, parent, name, .. } => (*id, *parent, name.as_str()),
+        };
+        by_id.insert(id, (parent, name));
+    }
+    let strip = |s: &str| s.split('[').next().unwrap_or(s).to_string();
+    let full_path = |mut id: u32| -> String {
+        let mut parts = Vec::new();
+        while let Some(&(parent, name)) = by_id.get(&id) {
+            parts.push(strip(name));
+            match parent {
+                Some(p) => id = p,
+                None => break,
+            }
+        }
+        parts.reverse();
+        parts.join(".")
+    };
+    for n in &dto.nodes {
+        if let NodeDto::Signal { id, handle, .. } = n
+            && full_path(*id) == path
+        {
+            return handle.clone();
+        }
+    }
+    panic!("no signal at {path}");
 }
 
 /// Builds the Rust `RowSpec`s for one fixture case (path → tide.rs handle).

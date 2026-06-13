@@ -280,15 +280,17 @@ mod tests {
 
     #[test]
     fn clock_ruler_decimated() {
-        // 100 cycles visible → cycleStep = rulerSpacing(100) round = 13?? No:
-        // rulerSpacing(100) = 12.5 → js_round → 13. Mirrors the TS exactly
-        // (Math.round(rulerSpacing(visibleCycles))).
+        // 1000 ticks / period 10 → 100 cycles visible. cycleStep =
+        // max(1, round(rulerSpacing(100))). rulerSpacing snaps target 12.5 to
+        // the nearest {1,2,5}×10^n = 10, so cycleStep = round(10) = 10 (NOT
+        // 13 — rulerSpacing returns the snapped spacing, not the raw target).
+        // first c = max(10, ceil(startCycle/10)*10) with startCycle 0.5 → 10.
         let g = grid(5.0, 10.0);
         let r = clock_ruler_ticks(0.0, 1000.0, &g);
-        let step = 13.0;
-        assert_eq!(r.labels[0], "#13");
-        assert_eq!(r.ticks[0], 5.0 + (step - 1.0) * 10.0);
-        assert_eq!(r.labels[1], "#26");
+        let step = 10.0;
+        assert_eq!(r.labels[0], "#10");
+        assert_eq!(r.ticks[0], 5.0 + (step - 1.0) * 10.0); // edge0 + (c-1)*period = 95
+        assert_eq!(r.labels[1], "#20");
     }
 
     #[test]

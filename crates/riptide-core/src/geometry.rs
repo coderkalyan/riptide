@@ -896,9 +896,10 @@ mod tests {
         for h in &g.marker_hits {
             assert!(h.x0 <= h.line_x && h.line_x <= h.x1, "pill contains its line center");
         }
-        // The pill text includes the middle dot (renderable, 9 glyphs).
+        // The pill text "B \u{b7} 70 ns" emits all 9 chars (spaces included);
+        // glyph 0='B', 1=' ', 2='\u{b7}' (the middle dot).
         assert_eq!(g.pill_ranges[0].text_count, 9);
-        assert_eq!(g.pill_glyphs[1].ch, 0xb7);
+        assert_eq!(g.pill_glyphs[2].ch, 0xb7);
     }
 
     #[test]
@@ -944,8 +945,10 @@ mod tests {
     #[test]
     fn side_label_flips_left_at_canvas_edge() {
         // Marker @95 selected, cursor 99: full-shaft layout near the right
-        // edge. pushSideLabel right = 985.25+6+5 = 996.25; 996.25+24 > 998 →
-        // label flips left of the arrow: 951.25-6-5-24 = 916.25 → round 916.
+        // edge. pushSideLabel(xR, xL): right = xR + labelPad = 985.25+5 =
+        // 990.25; 990.25+24 > 998 → flip left of xL: xL - labelPad - textW.
+        // xL = leftX - gap - headW*0.5 = 951.25 (the head offset is already in
+        // xL — it is NOT subtracted again), so 951.25 - 5 - 24 = 922.25 → 922.
         let c1 = pack_rgba(10, 20, 30, 0xff);
         let mut st = base_state();
         st.cursor = 99.0;
@@ -953,7 +956,7 @@ mod tests {
         st.selected_marker = Some(1);
         let g = build_frame_geometry(&st);
         let label = g.glyphs.iter().find(|gl| gl.color == c1).unwrap();
-        assert_eq!(label.x, 916.0);
+        assert_eq!(label.x, 922.0);
     }
 
     #[test]
@@ -1067,8 +1070,10 @@ mod tests {
         let labels: Vec<&GlyphInstance> =
             g.glyphs.iter().filter(|gl| gl.color == RESET_TEXT).collect();
         assert_eq!(labels.len(), 10); // two "RESET"s
-        assert_eq!(labels[0].x, 120.0); // round((100+200)/2 - 15)
-        assert_eq!(labels[5].x, 320.0);
+        // Each label centers on its cluster: x = round(centerPx - textW/2),
+        // textW = "RESET" 5 × cell_sm 6 = 30, half = 15.
+        assert_eq!(labels[0].x, 135.0); // round((100+200)/2 - 15) = 135
+        assert_eq!(labels[5].x, 335.0); // round((300+400)/2 - 15) = 335
         // Abutting spans of one signal merge into one run (starts sort before
         // ends at the same tick).
         st.reset_spans = vec![ResetRowSpans { color: ca, spans: vec![(10, 20), (20, 30)] }];

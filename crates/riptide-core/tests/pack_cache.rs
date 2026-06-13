@@ -40,7 +40,7 @@ fn same_key_and_window_reuses_cache() {
     let mut db = open_mock();
     let mut packer = Packer::new();
     let specs = vec![
-        spec(&db, 0, "top.keysched.waves.in_addr", Radix::Hex),
+        spec(&db, 0, "top.keysched.waves.in_addr[15:0]", Radix::Hex),
         spec(&db, 1, "top.keysched.rst_n", Radix::Bin),
     ];
 
@@ -59,8 +59,8 @@ fn radix_change_repacks_only_the_changed_signal() {
     let mut db = open_mock();
     let mut packer = Packer::new();
     let mut specs = vec![
-        spec(&db, 0, "top.keysched.waves.in_addr", Radix::Hex),
-        spec(&db, 1, "top.keysched.waves.cycle_count", Radix::Hex),
+        spec(&db, 0, "top.keysched.waves.in_addr[15:0]", Radix::Hex),
+        spec(&db, 1, "top.keysched.waves.cycle_count[7:0]", Radix::Hex),
     ];
     packer.pack(&mut db, &specs, 0, 90).unwrap();
     assert_eq!(packer.fresh_packs(), 2);
@@ -79,8 +79,8 @@ fn radix_change_repacks_only_the_changed_signal() {
 fn reorder_and_move_replay_from_cache() {
     let mut db = open_mock();
     let mut packer = Packer::new();
-    let a = spec(&db, 0, "top.keysched.waves.in_addr", Radix::Hex);
-    let b = spec(&db, 1, "top.keysched.waves.dbus", Radix::Hex);
+    let a = spec(&db, 0, "top.keysched.waves.in_addr[15:0]", Radix::Hex);
+    let b = spec(&db, 1, "top.keysched.waves.dbus[7:0]", Radix::Hex);
     let out1 = packer.pack(&mut db, &[a.clone(), b.clone()], 0, 90).unwrap();
     assert_eq!(packer.fresh_packs(), 2);
 
@@ -110,7 +110,7 @@ fn reorder_and_move_replay_from_cache() {
 fn window_change_evicts_and_repacks() {
     let mut db = open_mock();
     let mut packer = Packer::new();
-    let specs = vec![spec(&db, 0, "top.keysched.waves.in_addr", Radix::Hex)];
+    let specs = vec![spec(&db, 0, "top.keysched.waves.in_addr[15:0]", Radix::Hex)];
     let key = PackKey::of(&specs[0]);
 
     packer.pack(&mut db, &specs, 0, 90).unwrap();
@@ -128,7 +128,7 @@ fn window_change_evicts_and_repacks() {
 fn clear_drops_everything() {
     let mut db = open_mock();
     let mut packer = Packer::new();
-    let specs = vec![spec(&db, 0, "top.keysched.waves.in_addr", Radix::Hex)];
+    let specs = vec![spec(&db, 0, "top.keysched.waves.in_addr[15:0]", Radix::Hex)];
     let key = PackKey::of(&specs[0]);
     packer.pack(&mut db, &specs, 0, 90).unwrap();
     assert!(packer.contains(&key, 0, 90));
@@ -142,7 +142,7 @@ fn clear_drops_everything() {
 fn duplicate_rows_share_one_pack() {
     let mut db = open_mock();
     let mut packer = Packer::new();
-    let a = spec(&db, 0, "top.keysched.waves.in_addr", Radix::Hex);
+    let a = spec(&db, 0, "top.keysched.waves.in_addr[15:0]", Radix::Hex);
     let mut b = a.clone();
     b.row = 1; // same signal+config at a second row — one cache entry
     let out = packer.pack(&mut db, &[a, b], 0, 90).unwrap();
@@ -155,7 +155,7 @@ fn duplicate_rows_share_one_pack() {
 fn unknown_handle_errors() {
     let mut db = open_mock();
     let mut packer = Packer::new();
-    let mut s = spec(&db, 0, "top.keysched.waves.in_addr", Radix::Hex);
+    let mut s = spec(&db, 0, "top.keysched.waves.in_addr[15:0]", Radix::Hex);
     s.handle = "not-a-handle".into();
     assert!(packer.pack(&mut db, &[s], 0, 90).is_err());
 }
@@ -166,7 +166,7 @@ fn unknown_handle_errors() {
 fn unresolvable_mute_falls_back_unmuted() {
     let mut db = open_mock();
     let mut packer = Packer::new();
-    let plain = spec(&db, 0, "top.keysched.waves.in_addr", Radix::Hex);
+    let plain = spec(&db, 0, "top.keysched.waves.in_addr[15:0]", Radix::Hex);
     let mut muted = plain.clone();
     muted.mute_handle = Some("99999".into()); // parses, but no such signal
     let out_muted = packer.pack(&mut db, &[muted], 0, 90).unwrap();
