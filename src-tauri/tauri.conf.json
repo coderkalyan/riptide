@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "identifier": "dev.ksriram.riptide",
   "build": {
+    "beforeDevCommand": "RIPTIDE_TAURI=1 node scripts/dev-ui.mjs",
     "devUrl": "http://localhost:5173",
     "frontendDist": "../dist-tauri"
   },

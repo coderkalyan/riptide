@@ -96,8 +96,59 @@ Full-app e2e exists only after U15 (integration); the old visual harness is
 Electron/CDP-only. U1 additionally runs `pnpm tauri dev` interactively and
 records findings below.
 
-## §U1 findings
+## §U1 findings (compositing spike)
 
-(filled in by the compositing spike: threading model — render on event loop vs
-dedicated thread; Linux/webkit2gtk transparency behavior; resize/DPR pacing;
-present mode.)
+- **Threading**: all GTK/handle access happens on the main thread inside the
+  Tauri `setup` hook (window lookup, raw-window-handle, `create_surface`). The
+  resulting `GfxState` (surface + device + queue + config) is handed to a
+  dedicated **render thread** (`render_loop`); wgpu objects are `Send + Sync`
+  and the render thread never touches GTK again. Window resize / scale-factor /
+  destroy arrive on `window.on_window_event` and are forwarded to the render
+  thread through `RenderHandle` (a condvar wake-up) — we don't own tao's GTK
+  event loop and must never block it on vsync.
+- **Linux compositor**: native Wayland is **NOT viable** — GTK and wgpu would
+  both attach buffers to the same `wl_surface`. **Run under XWayland:
+  `GDK_BACKEND=x11`.** On X11/XWayland the handle is the GTK Xlib window and
+  the transparent webview composites correctly over the wgpu layer.
+- **Present pacing**: `PresentMode::Fifo` (vsync, universally supported) + a
+  dirty-flag condvar scheme. The render thread sleeps until a command, resize,
+  or in-flight viewport animation marks it dirty; a continuously-dirty loop is
+  throttled by `get_current_texture()` back-pressure, not spinning.
+- **Format**: prefer a non-sRGB surface format (the JS renderer wrote raw bytes
+  to a `bgra8unorm` canvas — palette parity wants no implicit sRGB encode).
+- **Alpha**: the wgpu layer is the opaque bottom of the stack (the webview is
+  the transparent one), so the adapter's default/opaque alpha mode is correct.
+
+## Running the Tauri app (bring-up)
+
+One command (the `beforeDevCommand` auto-starts the Tauri UI dev server at
+:5173, building `index.tauri.tsx`):
+
+```
+GDK_BACKEND=x11 pnpm tauri dev
+```
+
+To auto-load a trace, pass it after `-- --` (boot_info reads the first
+positional arg): `GDK_BACKEND=x11 pnpm tauri dev -- -- native/src/mock.vcd`.
+Otherwise open one via the File menu. The first `cargo` build of the app takes
+a few minutes; subsequent launches are fast.
+
+## U15 integration status
+
+Wired and green (builds, clippy clean, all tests pass): `Engine::frame`
+(viewport → repack → geometry), the render thread driving the real
+riptide-render pipelines (digital single/multi, lines, rects, text) + scene
+buffers, command → engine → wake plumbing, clock-grid resolution.
+
+Deferred follow-ups (functions exist + tested, just unwired):
+- **Value-pill label text** — the digital multi pipeline draws the pills; the
+  text inside needs the digital segment buffer shared with `LabelRenderer`.
+- **Bucket-mode downsampling** (`pack::buckets`) — wire `should_bucket` per row
+  into `Engine::frame` and route busy bands into `FrameState.bucket_bands`.
+- **Reset crosshatch bands** — the contract `RowSpec` dropped the old
+  reset/valid role; re-add it, then feed `clock::reset_high_spans` into
+  `FrameState.reset_spans`.
+- **Hot-event coalescing** — `events::Coalescer` (tested) to dedupe per-frame
+  ViewportChanged/HoverChanged instead of the current direct emit.
+- **Packaging** — `tauri.conf.json` `bundle.active` is false; 3-OS bundler
+  config is a later step.
