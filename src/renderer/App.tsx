@@ -19,6 +19,8 @@ import { SCENE, swapTrace, currentVcdPath, hasTrace } from "./hier/scene";
 import { view } from "./wave/viewport";
 import { ZOOM_STEP } from "./wave/constants";
 import * as perf from "./perf";
+import { IS_TAURI, openTraceTauri } from "./tauri/openTrace";
+import * as bridge from "./ipc/bridge";
 
 declare const require: (m: string) => unknown;
 
@@ -125,7 +127,9 @@ export function App() {
   // one atomic store reset re-hydrates the doc slice + bumps traceNonce → the
   // canvas resets the viewport and the activeSignals subscriptions repack.
   const handleOpenVcd = async () => {
-    const p = await openVcdDialog();
+    // Tauri: Rust shows the dialog + loads the trace, then we refresh the scene
+    // hierarchy from the bridge before swapping (see tauri/openTrace.ts).
+    const p = IS_TAURI ? await openTraceTauri() : await openVcdDialog();
     if (!p) return;
     perf.beginSwap();
     swapTrace(p);
@@ -135,7 +139,11 @@ export function App() {
   // Open a recent trace: note it as opened (bumps the recent list main-side),
   // then swap in place — same path as handleOpenVcd minus the dialog.
   const handleOpenRecent = async (p: string) => {
-    await ipc()?.invoke("riptide:open-recent", p);
+    if (IS_TAURI) {
+      if (!(await openTraceTauri(p))) return;
+    } else {
+      await ipc()?.invoke("riptide:open-recent", p);
+    }
     perf.beginSwap();
     swapTrace(p);
     s.resetForTrace();
@@ -145,11 +153,18 @@ export function App() {
   // native save dialog (main writes the file).
   const handleExportSidecar = async () => {
     const text = selectExportSidecarText(useAppStore.getState());
-    await ipc()?.invoke("riptide:export-sidecar", text);
+    if (IS_TAURI) await bridge.exportSidecar(text);
+    else await ipc()?.invoke("riptide:export-sidecar", text);
   };
 
-  const getRecent = async () => ((await ipc()?.invoke("riptide:recent-vcds")) as string[] | null) ?? [];
-  const closeWindow = () => { ipc()?.invoke("riptide:close-window"); };
+  const getRecent = async () =>
+    IS_TAURI
+      ? await bridge.recentVcds()
+      : (((await ipc()?.invoke("riptide:recent-vcds")) as string[] | null) ?? []);
+  const closeWindow = () => {
+    if (IS_TAURI) void bridge.closeWindow();
+    else ipc()?.invoke("riptide:close-window");
+  };
 
   const zoomIn = () => view.zoomBy(1 / ZOOM_STEP);
   const zoomOut = () => view.zoomBy(ZOOM_STEP);
