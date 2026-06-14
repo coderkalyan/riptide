@@ -1,27 +1,35 @@
-//! The native render loop: vsync-paced present with a dirty-flag scheme (the
-//! old rAF `needsRender`), driving `Engine::frame()` → repack/geometry →
-//! `riptide_render::frame::render_frame`.
+//! The native render loop: a dedicated thread that, on each wake, drives
+//! `Engine::frame()` → repack/geometry → `riptide_render::frame::render_frame`
+//! and presents to the window surface.
 //!
-//! OWNED BY UNIT U1 (pacing/threading skeleton, proven with a test pipeline);
-//! wired to the real engine + batches at INTEGRATION (U15).
+//! Pacing (U1's design): the thread sleeps on a condvar until something marks
+//! the frame dirty (`RenderHandle::request_redraw` from a command, a resize, or
+//! a viewport animation re-arming itself). Presents use `PresentMode::Fifo`, so
+//! a continuously-dirty loop is throttled to the display refresh by
+//! `get_current_texture()` back-pressure rather than spinning.
 //!
-//! Pacing: a dedicated render thread sleeps on a condvar until something marks
-//! the frame dirty (`RenderHandle::request_redraw`, a resize, or — for the
-//! spike's animated test scene — the loop re-arming itself). Presents use
-//! `PresentMode::Fifo`, so a continuously-dirty loop is throttled to the
-//! display refresh by `get_current_texture()` back-pressure rather than
-//! spinning. U15 replaces the self-re-arm with engine-driven dirtiness
-//! (`Engine::frame().dirty` + viewport animation).
+//! Threading: wgpu objects are `Send + Sync`; the engine is shared with the IPC
+//! command handlers through `Arc<Mutex<Engine>>` and locked once per frame.
+//!
+//! Deferred (see `engine.rs`): value-pill labels (the digital multi pipeline
+//! draws the pills; the text inside them needs the segment buffer shared with
+//! `LabelRenderer`), bucket-mode bands, and reset crosshatch.
 
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Instant;
 
+use riptide_contract::geometry::FrameGeometry;
+use riptide_contract::gpu::{PackedSegment, RowInfo, ViewportUniform};
+use riptide_render::colors::ColorBuffer;
+use riptide_render::device::{Gpu, ViewportBuffer};
+use riptide_render::digital::{DigitalContext, SignalPipeline, Variant};
+use riptide_render::frame::{FrameLayers, render_frame};
+use riptide_render::lines::{LineBatch, LineRenderer};
+use riptide_render::rect::{RectBatch, RectRenderer};
+use riptide_render::scene::SceneBuffers;
+use riptide_render::text::{TextBatch, TextRenderer};
+
+use crate::state::{SharedEngine, SharedEvents, emit_to, now_ms};
 use crate::surface::GfxState;
-
-/// Spike only: keep the test scene animating by re-marking dirty after each
-/// present. With this off the thread renders once and sleeps until a resize
-/// or an explicit `request_redraw`.
-const DEMO_ANIMATE: bool = true;
 
 #[derive(Default)]
 struct Shared {
@@ -31,8 +39,8 @@ struct Shared {
     shutdown: bool,
 }
 
-/// Cheap clonable wake-up handle owned by the window-event hook, Tauri state,
-/// and (later) the engine command layer.
+/// Cheap clonable wake-up handle owned by the window-event hook, the Tauri
+/// command layer (managed state), and the render thread.
 #[derive(Clone)]
 pub struct RenderHandle {
     inner: Arc<(Mutex<Shared>, Condvar)>,
@@ -80,22 +88,35 @@ impl RenderHandle {
     }
 }
 
-/// Spawns the render thread against an already-configured surface and returns
-/// the wake-up handle. The first frame is queued immediately.
-pub fn start(gfx: Arc<GfxState>) -> RenderHandle {
+/// Spawns the render thread against an already-configured surface + the shared
+/// engine/event channel, returns the wake-up handle. The first frame is queued.
+pub fn start(
+    gfx: Arc<GfxState>,
+    engine: SharedEngine,
+    events: SharedEvents,
+    dpr: f32,
+) -> RenderHandle {
     let handle = RenderHandle::new();
     let thread_handle = handle.clone();
     std::thread::Builder::new()
         .name("riptide-render".into())
-        .spawn(move || run(&gfx, &thread_handle))
+        .spawn(move || run(&gfx, &thread_handle, &engine, &events, dpr))
         .expect("spawn render thread");
     handle.request_redraw();
     handle
 }
 
-fn run(gfx: &GfxState, handle: &RenderHandle) {
-    let scene = TestScene::new(gfx);
-    let t0 = Instant::now();
+fn run(
+    gfx: &GfxState,
+    handle: &RenderHandle,
+    engine: &SharedEngine,
+    events: &SharedEvents,
+    dpr: f32,
+) {
+    let mut scene = Scene::new(gfx, dpr);
+    // Hand the engine the atlas metrics so its geometry can lay glyphs out.
+    engine.lock().expect("engine lock").set_text_metrics(scene.text.metrics());
+
     loop {
         let Some(resize) = handle.wait_dirty() else {
             return; // shutdown
@@ -103,6 +124,20 @@ fn run(gfx: &GfxState, handle: &RenderHandle) {
         if let Some((w, h)) = resize {
             gfx.reconfigure(w, h);
         }
+
+        // One engine frame, snapshotted under a single lock.
+        let mut snap = {
+            let mut eng = engine.lock().expect("engine lock");
+            let result = eng.frame(now_ms());
+            let presentation = result
+                .repack
+                .as_ref()
+                .map(|_| (eng.row_layout(), eng.row_colors(), eng.row_flags()));
+            FrameSnapshot { result, presentation }
+        };
+
+        emit_to(events, std::mem::take(&mut snap.result.events));
+        scene.apply(gfx, &snap);
 
         let frame = match gfx.surface.get_current_texture() {
             Ok(frame) => frame,
@@ -120,139 +155,172 @@ fn run(gfx: &GfxState, handle: &RenderHandle) {
                 return;
             }
         };
-
-        scene.render(gfx, &frame.texture, t0.elapsed().as_secs_f32());
+        let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+        scene.render(&view);
         frame.present();
 
-        if DEMO_ANIMATE {
-            handle.request_redraw(); // vsync-paced by Fifo back-pressure
+        // Keep animating while the viewport eases (Fifo back-pressure paces it).
+        if snap.result.animating {
+            handle.request_redraw();
         }
     }
 }
 
-/// The spike's visible proof: clear to the app background + one orbiting
-/// orange quad, drawn UNDER the transparent webview DOM. Replaced by the real
-/// scene (`riptide_render::frame::render_frame`) at U15.
-struct TestScene {
-    pipeline: wgpu::RenderPipeline,
-    uniform: wgpu::Buffer,
-    bind_group: wgpu::BindGroup,
+/// Repack-frame presentation snapshot: (row layout `(y, height)`, packed-rgba
+/// colors, `(hidden, selected)` flags), each indexed by row.
+type Presentation = (Vec<(f32, f32)>, Vec<u32>, (Vec<bool>, Vec<bool>));
+
+struct FrameSnapshot {
+    result: riptide_core::engine::FrameResult,
+    /// Present only on a repack frame.
+    presentation: Option<Presentation>,
 }
 
-const TEST_SHADER: &str = r#"
-struct U { t: f32, pad0: f32, pad1: f32, pad2: f32 }
-@group(0) @binding(0) var<uniform> u: U;
+/// All GPU state for the real waveform scene: shared buffers + per-batch
+/// renderers, rebuilt from a `PackOutput` on repack and refreshed from the
+/// frame geometry every wake.
+struct Scene {
+    gpu: Gpu,
+    viewport: ViewportBuffer,
+    colors: ColorBuffer,
+    digital: DigitalContext,
+    /// Kept for its atlas metrics + as the batches' backing renderer.
+    text: TextRenderer,
 
-struct VsOut { @builtin(position) pos: vec4f }
+    line_bg: LineBatch,
+    rect_bg: RectBatch,
+    text_body: TextBatch,
+    line_fg: LineBatch,
+    pill_rect: RectBatch,
+    pill_text: TextBatch,
 
-@vertex
-fn vs_main(@builtin(vertex_index) vi: u32) -> VsOut {
-    // Unit quad (triangle strip), orbiting slowly in clip space.
-    let corner = vec2f(f32(vi & 1u) * 2.0 - 1.0, f32(vi >> 1u) * 2.0 - 1.0);
-    let center = vec2f(sin(u.t * 0.8) * 0.55, cos(u.t * 0.5) * 0.35);
-    var out: VsOut;
-    out.pos = vec4f(corner * vec2f(0.18, 0.24) + center, 0.0, 1.0);
-    return out;
+    buffers: Option<SceneBuffers>,
+    pipe_single: Option<SignalPipeline>,
+    pipe_multi: Option<SignalPipeline>,
+
+    /// The latest geometry's pill ranges (drawn per-pill for occlusion order).
+    pill_ranges: Vec<riptide_contract::geometry::PillRange>,
+    vp_uniform: ViewportUniform,
 }
 
-@fragment
-fn fs_main() -> @location(0) vec4f {
-    return vec4f(0.95, 0.55, 0.15, 1.0);
-}
-"#;
+impl Scene {
+    fn new(gfx: &GfxState, dpr: f32) -> Self {
+        // The renderers borrow a `Gpu`; build one from cloned device/queue
+        // handles (wgpu handles are cheap Arc-backed clones; same underlying
+        // device as the surface).
+        let gpu = Gpu { device: gfx.device.clone(), queue: gfx.queue.clone(), format: gfx.format() };
+        let viewport = ViewportBuffer::new(&gpu.device);
+        let colors = ColorBuffer::new(&gpu.device);
+        let digital = DigitalContext::new(&gpu);
+        let lines = LineRenderer::new(&gpu, &viewport);
+        let rects = RectRenderer::new(&gpu, &viewport);
+        let text = TextRenderer::new(&gpu, &viewport, dpr);
 
-impl TestScene {
-    fn new(gfx: &GfxState) -> Self {
-        let device = &gfx.device;
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("u1-test-scene"),
-            source: wgpu::ShaderSource::Wgsl(TEST_SHADER.into()),
-        });
-        let uniform = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("u1-test-uniform"),
-            size: 16,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("u1-test-bgl"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("u1-test-bg"),
-            layout: &bgl,
-            entries: &[wgpu::BindGroupEntry { binding: 0, resource: uniform.as_entire_binding() }],
-        });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("u1-test-layout"),
-            bind_group_layouts: &[&bgl],
-            push_constant_ranges: &[],
-        });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("u1-test-pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(gfx.format().into())],
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleStrip,
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
-        Self { pipeline, uniform, bind_group }
+        let line_bg = lines.create_batch(&gpu);
+        let rect_bg = rects.create_batch(&gpu);
+        let text_body = text.create_batch(&gpu);
+        let line_fg = lines.create_batch(&gpu);
+        let pill_rect = rects.create_batch(&gpu);
+        let pill_text = text.create_batch(&gpu);
+
+        Self {
+            gpu,
+            viewport,
+            colors,
+            digital,
+            text,
+            line_bg,
+            rect_bg,
+            text_body,
+            line_fg,
+            pill_rect,
+            pill_text,
+            buffers: None,
+            pipe_single: None,
+            pipe_multi: None,
+            pill_ranges: Vec::new(),
+            vp_uniform: ViewportUniform::new(1.0, 0.0, 1.0, 1.0, 28.0, 1.0, -1, 28.0),
+        }
     }
 
-    fn render(&self, gfx: &GfxState, target: &wgpu::Texture, t: f32) {
-        let mut data = [0u8; 16];
-        data[0..4].copy_from_slice(&t.to_le_bytes());
-        gfx.queue.write_buffer(&self.uniform, 0, &data);
+    /// Uploads this frame's data: viewport uniform, any repack (scene buffers +
+    /// digital pipelines + colors/layout/flags), and the frame geometry.
+    fn apply(&mut self, _gfx: &GfxState, snap: &FrameSnapshot) {
+        if let Some(vp) = snap.result.viewport {
+            self.vp_uniform = vp;
+            self.viewport.write(&self.gpu.queue, &vp);
+        }
 
-        let view = target.create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder = gfx
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("u1-test") });
+        if let (Some(pack), Some((layout, row_colors, (hidden, selected)))) =
+            (snap.result.repack.as_ref(), snap.presentation.as_ref())
         {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("u1-test-pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    depth_slice: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(riptide_render::frame::CLEAR_VALUE),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-            });
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.bind_group, &[]);
-            pass.draw(0..4, 0..1);
+            self.colors.write(&self.gpu.queue, row_colors);
+
+            let mut buffers = SceneBuffers::new(
+                &self.gpu.device,
+                &self.gpu.queue,
+                &pack.row_infos as &[RowInfo],
+                &pack.x0_pool,
+                &pack.x1_pool,
+            );
+            buffers.set_row_layout(&self.gpu.queue, layout);
+            buffers.set_row_flags(&self.gpu.queue, hidden, selected);
+
+            self.pipe_single = Some(self.digital.bind(
+                &self.gpu,
+                Variant::Single,
+                &pack.single as &[PackedSegment],
+                &self.viewport,
+                &self.colors,
+                &buffers,
+            ));
+            self.pipe_multi = Some(self.digital.bind(
+                &self.gpu,
+                Variant::Multi,
+                &pack.multi as &[PackedSegment],
+                &self.viewport,
+                &self.colors,
+                &buffers,
+            ));
+            self.buffers = Some(buffers);
         }
-        gfx.queue.submit(Some(encoder.finish()));
+
+        if let Some(geom) = snap.result.geometry.as_ref() {
+            self.upload_geometry(geom);
+        }
+    }
+
+    fn upload_geometry(&mut self, geom: &FrameGeometry) {
+        let q = &self.gpu.queue;
+        self.line_bg.set_lines(q, &geom.lines_bg);
+        self.rect_bg.set_rects(q, &geom.rects_bg);
+        self.text_body.set_glyphs(q, &geom.glyphs);
+        self.line_fg.set_lines(q, &geom.lines_fg);
+        self.pill_rect.set_rects(q, &geom.pill_rects);
+        self.pill_text.set_glyphs(q, &geom.pill_glyphs);
+        self.pill_ranges = geom.pill_ranges.clone();
+    }
+
+    fn render(&self, view: &wgpu::TextureView) {
+        let mut digital: Vec<&SignalPipeline> = Vec::new();
+        if let Some(p) = self.pipe_single.as_ref() {
+            digital.push(p);
+        }
+        if let Some(p) = self.pipe_multi.as_ref() {
+            digital.push(p);
+        }
+        let layers = FrameLayers {
+            lines_bg: &self.line_bg,
+            rects_bg: &self.rect_bg,
+            digital: &digital,
+            labels: None,        // deferred (see module docs)
+            labels_single: None, // deferred
+            text_body: &self.text_body,
+            lines_fg: &self.line_fg,
+            pill_rects: &self.pill_rect,
+            pill_text: &self.pill_text,
+            pill_ranges: &self.pill_ranges,
+        };
+        render_frame(&self.gpu, view, &layers, None);
     }
 }

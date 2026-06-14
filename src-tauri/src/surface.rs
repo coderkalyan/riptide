@@ -112,7 +112,15 @@ pub fn init(app: &mut App) -> Result<(), Box<dyn Error>> {
     );
 
     let gfx = Arc::new(GfxState { surface, device, queue, config: Mutex::new(config) });
-    let handle = render_loop::start(gfx);
+
+    // Share the engine + event channel with the render thread (both Arcs in the
+    // managed AppState — see state.rs). The render thread locks the engine once
+    // per frame; the command handlers lock it briefly to mutate.
+    let (engine, events) = {
+        let app_state = app.state::<crate::state::AppState>();
+        (app_state.engine.clone(), app_state.events.clone())
+    };
+    let handle = render_loop::start(gfx, engine, events, scale as f32);
 
     // Resize + scale-factor reconfigure, and render-thread shutdown when the
     // window goes away. Sizes are already physical px (tao reports physical).

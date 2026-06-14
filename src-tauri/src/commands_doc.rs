@@ -14,6 +14,7 @@ use tauri::State;
 use tauri::ipc::Channel;
 use tauri_plugin_dialog::DialogExt;
 
+use crate::render_loop::RenderHandle;
 use crate::state::AppState;
 
 /// Opens a VCD: with `path` = None shows the native file dialog. Returns None
@@ -26,6 +27,7 @@ use crate::state::AppState;
 pub async fn open_vcd(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
+    redraw: State<'_, RenderHandle>,
     path: Option<String>,
 ) -> Result<Option<TraceSummary>, String> {
     let path = match path {
@@ -35,7 +37,9 @@ pub async fn open_vcd(
             None => return Ok(None), // dialog cancelled
         },
     };
-    open_vcd_at(&state, &path).map(Some)
+    let summary = open_vcd_at(&state, &path)?;
+    redraw.request_redraw(); // draw the freshly-loaded trace
+    Ok(Some(summary))
 }
 
 /// Native file dialog filtered to `*.vcd`; None on cancel.
@@ -94,9 +98,14 @@ fn boot_info_from(args: impl IntoIterator<Item = String>, perf_env: Option<Strin
 /// Full document mirror from the JS store (see `DocSync` docs for the
 /// echo-suppression protocol).
 #[tauri::command]
-pub fn sync_doc(state: State<'_, AppState>, doc: DocSync) -> Result<(), String> {
+pub fn sync_doc(
+    state: State<'_, AppState>,
+    redraw: State<'_, RenderHandle>,
+    doc: DocSync,
+) -> Result<(), String> {
     let events = sync_doc_impl(&state, doc);
     state.emit_all(events);
+    redraw.request_redraw();
     Ok(())
 }
 
@@ -109,6 +118,7 @@ fn sync_doc_impl(state: &AppState, doc: DocSync) -> Vec<UiEvent> {
     let mut events = engine.sync_doc(doc);
     if engine.doc.timebase_clock != prev_clock || engine.doc.timebase_override != prev_override {
         let grid = resolve_clock_grid(&mut engine);
+        engine.set_clock_grid(grid); // the engine uses it for geometry + snapping
         events.push(UiEvent::ClockGridChanged { grid });
     }
     events
@@ -135,11 +145,21 @@ fn resolve_clock_grid(engine: &mut Engine) -> Option<ClockGrid> {
     riptide_core::clock::detect_clock_grid(trace, id, polarity)
 }
 
-/// Hot path: raw canvas input at event rate.
+/// Hot path: raw canvas input at event rate. Drives the engine, emits the
+/// resulting events, then wakes the render thread to draw the response.
 #[tauri::command]
-pub fn input(state: State<'_, AppState>, ev: InputEvent) -> Result<(), String> {
-    let events = state.engine.lock().expect("engine lock").on_input(ev);
+pub fn input(
+    state: State<'_, AppState>,
+    redraw: State<'_, RenderHandle>,
+    ev: InputEvent,
+) -> Result<(), String> {
+    let events = state
+        .engine
+        .lock()
+        .expect("engine lock")
+        .on_input(ev, crate::state::now_ms());
     state.emit_all(events);
+    redraw.request_redraw();
     Ok(())
 }
 
@@ -148,11 +168,13 @@ pub fn input(state: State<'_, AppState>, ev: InputEvent) -> Result<(), String> {
 #[tauri::command]
 pub fn resize(
     state: State<'_, AppState>,
+    redraw: State<'_, RenderHandle>,
     width: f32,
     height: f32,
     dpr: f32,
 ) -> Result<(), String> {
     state.engine.lock().expect("engine lock").resize(width, height, dpr);
+    redraw.request_redraw();
     Ok(())
 }
 

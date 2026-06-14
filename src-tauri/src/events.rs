@@ -12,7 +12,6 @@
 
 use riptide_contract::ipc::UiEvent;
 
-use crate::state::AppState;
 
 /// Per-frame coalescer for the hot `UiEvent`s.
 ///
@@ -85,12 +84,9 @@ impl Coalescer {
     }
 }
 
-/// Once-per-frame send: drains the state's coalescer into the JS event
-/// channel. Called by the render loop after `Engine::frame`.
-pub fn flush(state: &AppState) {
-    let events = state.coalescer.lock().expect("coalescer lock").drain();
-    state.emit_all(events);
-}
+// NOTE: the render loop currently emits hot events directly (see
+// `render_loop::run`). Wiring this `Coalescer` in to dedupe per-frame
+// ViewportChanged/HoverChanged is a follow-up optimization.
 
 #[cfg(test)]
 mod tests {
