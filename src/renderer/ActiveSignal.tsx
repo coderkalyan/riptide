@@ -54,6 +54,9 @@ export function ActiveSignal(props: ActiveSignalProps) {
     <div
       class={cls()}
       style={props.height ? { height: `${props.height}px` } : undefined}
+      // Shift-click extends the browser's text selection by default — suppress that
+      // (range-select highlights signal-row text) while keeping the click itself.
+      onMouseDown={(e) => { if (e.shiftKey) e.preventDefault(); }}
       onClick={(e) => props.onClick?.(e)}
       onContextMenu={(e) => props.onContextMenu?.(e)}
       data-tip={props.collapsed ? `${props.name} · ${props.value}` : props.tip}

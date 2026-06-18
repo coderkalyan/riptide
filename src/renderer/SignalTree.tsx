@@ -192,6 +192,9 @@ export function SignalTree() {
                 "border-radius": radius(),
                 "padding-left": e().depth > 0 ? `${4 + e().depth * 14}px` : undefined,
               }}
+              // Suppress the browser's shift-click text-selection extension (keeps
+              // the click; shift-range-select shouldn't highlight row text).
+              onMouseDown={(ev) => { if (ev.shiftKey) ev.preventDefault(); }}
               onClick={(ev) => select(e().id, ev)}
               // Double-click: signal → add it; scope → expand (convenience).
               onDblClick={(ev) => {
