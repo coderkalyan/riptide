@@ -1,5 +1,6 @@
 // Ruler / time / clock formatting — pure helpers ported verbatim from the React
-// App.tsx. Time is ns (integer ticks). Reused by the canvas ruler + (later) the
+// App.tsx. Time is integer ticks in the trace's $timescale unit (timeUnit()).
+// Reused by the canvas ruler + (later) the
 // toolbar/markers readouts.
 import { SCENE } from "../hier/scene";
 import type { Timescale, TimeUnit } from "../hier/types";
@@ -29,7 +30,7 @@ export function rulerSpacing(visibleTicks: number): number {
 
 function formatRulerLabel(t: number, spacing: number): string {
   const decimals = spacing >= 1 ? 0 : Math.max(0, -Math.floor(Math.log10(spacing)));
-  return `${t.toFixed(decimals)} ns`;
+  return `${t.toFixed(decimals)} ${timeUnit()}`;
 }
 
 export function dynamicRulerTicks(startTicks: number, visibleTicks: number): { ticks: number[]; labels: string[] } {
@@ -104,10 +105,15 @@ function timeDecimals(ts: Timescale): number {
   const exp = TIME_UNIT_EXP[ts.precision.unit] - TIME_UNIT_EXP[ts.unit];
   return Math.max(0, -exp - (String(ts.precision.value).length - 1));
 }
+// The loaded trace's time unit (from the VCD `$timescale` — ns, ps, …). A getter,
+// not a const: SCENE is reassigned by swapTrace, so reading it live makes every
+// readout follow an in-app Open VCD… to the new file's unit (was hardcoded "ns").
+export const timeUnit = (): TimeUnit => SCENE.hierarchy.timescale.unit;
+
 // Every time readout zero-pads to the file's time precision so values share one
-// decimal width. Computed once at module load (matches React's module const).
-export const TIME_DECIMALS = timeDecimals(SCENE.hierarchy.timescale);
-export const formatTime = (tick: number): string => tick.toFixed(TIME_DECIMALS);
+// decimal width. Read live (not a module const) so a swapped trace re-derives it.
+export const TIME_DECIMALS = (): number => timeDecimals(SCENE.hierarchy.timescale);
+export const formatTime = (tick: number): string => tick.toFixed(TIME_DECIMALS());
 
 // Snap to the nearest reference edge of the timebase grid (full-period spacing
 // from the phase, e.g. …,5,15,25,… for phase 5 / period 10).

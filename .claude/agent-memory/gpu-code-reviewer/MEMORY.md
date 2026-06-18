@@ -1,7 +1,9 @@
-- [Segment + RowInfo GPU layout](layout_segment.md) — PackedSegment 3×u32, RowInfo 5×u32 (byte-stride pools, bytes_per_sample+flags); Zig+digital.wgsl+labels.wgsl in sync
+- [Segment + RowInfo GPU layout](layout_segment.md) — PackedSegment 3×u32, RowInfo now 7×u32 (added y_offset/height + HIGHLIGHT flag); Zig+digital.wgsl+labels.wgsl+digital.ts in sync; CLAUDE.md stale
 - [Viewport uniform layout](layout_viewport.md) — 48B/12 slots, start_ticks split int/frac, slots 1&7 i32, slot 9 now PAD (dim→RowInfo.flags), dpr written-but-unused. 5 WGSL copies
 - [Viewport windowing (culling RESOLVED)](perf_no_viewport_culling.md) — frame loop repacks visible window + 1-screen margin via hysteresis; pan/zoom-in within margin = uniform-only; no pack cache
 - [Value-column napi cost](perf_repack_and_value_queries.md) — cursor drag = N getValueAt/frame (SolidJS createMemo per row); rAF body alloc-free, don't re-flag
 - [GpuTimer pool (FIXED)](bug_gpu_timer_pool_race.md) — begin() now reserves via free.pop(); don't re-flag
 - [Two-pipeline split](arch_two_pipelines.md) — single/multi share module+BGL+layout; UNIFIED vs_main + VARIANT override const; fs_single/fs_multi distinct
 - [Pill buffer consolidation](arch_pill_consolidation.md) — all pills share 1 rect + 1 text buffer; per-pill firstInstance draws keep painter occlusion; caret/hatch fwidth now flag-guarded
+- [Sidecar row overflow (BLOCKER)](bug_sidecar_row_overflow.md) — resolveView doesn't cap rows at MAX_ROWS=64; >64-signal sidecar → native ReleaseSafe assert panic on open
+- [Label append stale on swap](bug_label_append_stale_on_swap.md) — isAppend fast-path can reuse prev-trace glyph prefix on a swap (NodeIds restart); force full label rebuild on swap

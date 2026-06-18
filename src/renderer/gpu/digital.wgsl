@@ -313,17 +313,19 @@ fn fs_single(in: VertexData) -> @location(0) vec4f {
     let hatched = vec4f(hatch_primary.rgb, hatch_primary.a * stripe_mask);
     let fill_color = select(shade_color, hatched, enable_crosshatch);
     let fill_alpha = select(0.0, fill_color.a, enable_fill);
-    let fill = vec4f(fill_color.rgb, fill_alpha);
 
-    let color = mix(fill, line_color, stroke_mask);
-    // Composite against the canvas clear color so background draws (grid lines)
-    // don't show through signals; output stays opaque. A dimmed row (eye off)
-    // is blended ~28% toward bg in RGB rather than made transparent — so the
-    // grid underneath never reappears.
+    // The stroke (line / right edge / carets) is "border": it stays opaque and
+    // composites against the constant bg exactly as before, so the grid never
+    // shows through it. The shade fill keeps the new real transparency (grid
+    // visible under it). Blend the two by stroke coverage on rgb + alpha — no
+    // divide: where stroke covers, alpha→1 and rgb→bg-composited stroke; where
+    // it doesn't, alpha→fill alpha and rgb→fill color (straight over framebuffer).
     let bg = vec3f(0.106, 0.114, 0.129);
-    var rgb = mix(bg, color.rgb, color.a);
-    rgb = select(rgb, mix(bg, rgb, 0.28), (in.flags & F_DIM) != 0u);
-    return vec4f(rgb, 1.0);
+    let stroke_rgb = mix(bg, line_color.rgb, line_color.a);
+    let out_rgb = mix(fill_color.rgb, stroke_rgb, stroke_mask);
+    let out_a = mix(fill_alpha, 1.0, stroke_mask);
+    let dim_mul = select(1.0, 0.28, (in.flags & F_DIM) != 0u);
+    return vec4f(out_rgb, out_a * dim_mul);
 }
 
 @fragment
@@ -360,16 +362,19 @@ fn fs_multi(in: VertexData) -> @location(0) vec4f {
     let hatched = vec4f(hatch_primary.rgb, hatch_primary.a * stripe_mask);
     let fill_color = select(shade_color, hatched, enable_crosshatch);
     let fill_alpha = select(0.0, fill_color.a, enable_fill);
-    let fill = vec4f(fill_color.rgb, fill_alpha);
 
-    let final_color = line_color * border_mask + fill * fill_mask;
-    let final_alpha = border_mask + fill_color.a * fill_mask;
-    // Composite against the canvas clear color so background draws (grid lines)
-    // don't show through signals; output stays opaque. A dimmed row (eye off)
-    // is blended ~28% toward bg in RGB rather than made transparent — so the
-    // grid underneath never reappears.
+    // The pill border is "border": opaque, composited against the constant bg
+    // exactly as before, so the grid never shows through it. The shade fill keeps
+    // the new real transparency (grid visible under it). Blend the two by border
+    // coverage on rgb + alpha — no divide: where the border covers, alpha→1 and
+    // rgb→bg-composited border; elsewhere alpha→fill alpha and rgb→fill color
+    // (straight over the framebuffer). fill_alpha already folds in fill_mask
+    // coverage + the enable-fill gate.
     let bg = vec3f(0.106, 0.114, 0.129);
-    var rgb = mix(bg, final_color.rgb, final_alpha);
-    rgb = select(rgb, mix(bg, rgb, 0.28), (in.flags & F_DIM) != 0u);
-    return vec4f(rgb, 1.0);
+    let border_rgb = mix(bg, line_color.rgb, line_color.a);
+    let fa = fill_alpha * fill_mask;
+    let out_rgb = mix(fill_color.rgb, border_rgb, border_mask);
+    let out_a = mix(fa, 1.0, border_mask);
+    let dim_mul = select(1.0, 0.28, (in.flags & F_DIM) != 0u);
+    return vec4f(out_rgb, out_a * dim_mul);
 }

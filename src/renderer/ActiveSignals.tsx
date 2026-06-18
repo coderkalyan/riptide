@@ -4,6 +4,7 @@ import { getSignal } from "./hier/hierarchy";
 import { SCENE, type ActiveSignalRef } from "./hier/scene";
 import { useAppStore } from "./store/store";
 import { ActiveSignal, type ActiveSignalKind } from "./ActiveSignal";
+import { makeHoverArm } from "./hoverArm";
 import { valueAtTick, formatSegmentValue } from "./wave/value";
 import {
   ROW_HEIGHT_CSS, ROW_MIN_HEIGHT_CSS, ROW_MAX_HEIGHT_CSS,
@@ -103,6 +104,8 @@ export function ActiveSignals(props: {
           const sig = getSignal(SCENE.hierarchy, row.signalId);
           const value = createMemo(() =>
             formatSegmentValue(valueAtTick(sig.handle, s.cursorTicks), sig.bitWidth, row.radix, props.enumLabels().get(row.row)));
+          // Per-row hover-intent for the divider's resize handle (arms on press).
+          const dividerArm = makeHoverArm((e) => { e.stopPropagation(); startDividerResize(row.row, row.dividerHeight)(e); });
           return (
             <>
               <ActiveSignal
@@ -137,7 +140,9 @@ export function ActiveSignals(props: {
                 >
                   <span
                     class="s-resize"
-                    onPointerDown={(e) => { e.stopPropagation(); startDividerResize(row.row, row.dividerHeight)(e); }}
+                    onPointerEnter={dividerArm.onPointerEnter}
+                    onPointerLeave={dividerArm.onPointerLeave}
+                    onPointerDown={dividerArm.onPointerDown}
                     onDblClick={(e) => { e.stopPropagation(); s.setDividerHeight(row.row, undefined); }}
                     onClick={(e) => e.stopPropagation()}
                   />

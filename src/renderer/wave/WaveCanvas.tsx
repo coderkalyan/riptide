@@ -22,7 +22,7 @@ import {
   DIVIDER_HEIGHT_CSS,
 } from "./constants";
 import * as P from "./palette";
-import { dynamicRulerTicks, clockRulerTicks, rulerSpacing, formatTime, formatClockWhole, clockEdgesBetween, snapToClockEdge } from "./format";
+import { dynamicRulerTicks, clockRulerTicks, rulerSpacing, formatTime, formatClockWhole, clockEdgesBetween, snapToClockEdge, timeUnit } from "./format";
 
 type RectMut = { x: number; y: number; w: number; h: number; color: number; crosshatch?: boolean; rounded?: boolean; caret?: boolean; caretRight?: boolean; squareBottomLeft?: boolean; squareBottomRight?: boolean };
 type LineMut = { x: number; color: number; dashed?: boolean; fullHeight?: boolean };
@@ -607,7 +607,7 @@ export function WaveCanvas() {
               const cX = xForTick(cursor) + LINE_HALF_CSS;
               const spanLabel = clockMode
                 ? `${clockEdgesBetween(arrowMarker.tick, cursor, grid!)} clks`
-                : `${formatTime(Math.abs(cursor - arrowMarker.tick))} ns`;
+                : `${formatTime(Math.abs(cursor - arrowMarker.tick))} ${timeUnit()}`;
               const markerLeft = mX <= cX;
               const leftName = markerLeft ? arrowMarker.name : "cursor";
               const rightName = markerLeft ? "cursor" : arrowMarker.name;
@@ -706,12 +706,12 @@ export function WaveCanvas() {
           for (const m of ordered) {
             if (mi >= MAX_MARKERS) break;
             const lineX = xForTick(m.tick);
-            const mLabel = clockMode ? formatClockWhole(m.tick, grid!) : `${formatTime(m.tick)} ns`;
+            const mLabel = clockMode ? formatClockWhole(m.tick, grid!) : `${formatTime(m.tick)} ${timeUnit()}`;
             const box = addFlag(lineX, `${m.name} · ${mLabel}`, m.color);
             markerHits.push({ id: m.id, x0: box.x0, x1: box.x1, lineX: lineX + LINE_HALF_CSS });
             mi++;
           }
-          const cursorLabel = clockMode ? formatClockWhole(cursor, grid!) : `${formatTime(cursor)} ns`;
+          const cursorLabel = clockMode ? formatClockWhole(cursor, grid!) : `${formatTime(cursor)} ${timeUnit()}`;
           addFlag(xForTick(cursor), cursorLabel, P.HOT);
           pillRects.setRects(pillRectScratch, pillRectN);
           pillText.setGlyphs(pillGlyphN);

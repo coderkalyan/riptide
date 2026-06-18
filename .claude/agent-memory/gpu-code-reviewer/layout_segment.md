@@ -9,10 +9,10 @@ metadata:
 - t_start: u32, t_end: u32, row_flags: u32
 - row_flags: `[15:0]` row, `[16]` shade, `[17]` right edge, `[18]` rising, `[19]` falling, `[20]` mute, `[21]` rising-edge-left (caret right arm at left boundary). FLAG_* consts in segments.zig, F_* in digital.wgsl VertexData.flags.
 
-**RowInfo = 5×u32 = 20 bytes** (changed from the old 4×u32 word-stride layout). Declared in THREE places — keep in sync: `segments.zig` RowInfo, `digital.wgsl` RowInfo, `labels.wgsl` RowInfo (+ ROW_INFO_WORDS=5 in `digital.ts`).
-- x0_offset, x1_offset, bytes_per_sample, segment_start, flags
-- Offsets are **BYTE** offsets into the (u32-typed) pools. `bytes_per_sample = ceil(bit_width/8)` (= tide's Type.bytes()). Pools are now **byte-stride** (tide's raw byte planes memcpy'd verbatim by pack.zig setSamples — no word repack). Shader `decodeSample` byte-addresses: `bi >> 2` word index, `(bi & 3)*8` shift, `& 0xff` mask, OR-folds all bytes_per_sample bytes for whole-sample non-zeroness.
-- `flags` bit 0 = ROW_FLAG_DIM (eye toggle). Native emits 0; renderer patches via `setDimFlags` (digital.ts) — small writeBuffer, no repack, scales past 32 rows. Read by digital.wgsl (F_DIM → 50% toward bg) AND labels.wgsl (dim label).
+**RowInfo = 7×u32 = 28 bytes** (EVOLVED from 5×u32; CLAUDE.md still says 5×u32 = STALE, code is the truth). Declared in THREE places + ROW_INFO_WORDS=7 in `digital.ts` — all four agree as of this review (2026-06): `segments.zig` RowInfo, `digital.wgsl` RowInfo, `labels.wgsl` RowInfo.
+- x0_offset, x1_offset, bytes_per_sample, segment_start, flags, **y_offset, height** (the two new words: per-row vertical layout, CSS px stored as f32 BITS — shader bitcasts; native emits 0, renderer writes via `setRowLayout`).
+- Offsets are **BYTE** offsets into the (u32-typed) pools. `bytes_per_sample = ceil(bit_width/8)` (= tide's Type.bytes()). Pools are **byte-stride** (tide's raw byte planes memcpy'd verbatim by pack.zig setSamples — no word repack). Shader `decodeSample` byte-addresses: `bi >> 2` word index, `(bi & 3)*8` shift, `& 0xff` mask, OR-folds all bytes_per_sample bytes for whole-sample non-zeroness.
+- `flags` bit 0 = ROW_FLAG_DIM (eye toggle), **bit 1 = ROW_FLAG_HIGHLIGHT (selection)** — both set together by `setRowFlags` (digital.ts; renamed from setDimFlags). Small writeBuffer, no repack, scales past 32 rows. Read by digital.wgsl (F_DIM → 28% toward bg, F_HIGHLIGHT → brighter alpha) AND labels.wgsl (dim label). NOTE: viewport.selected_row is now DEAD (declared in all 5 WGSL, read nowhere — highlight moved to RowInfo.flags).
 
 Sample index for instance ii of a row = `ii - segment_start`; byte base = `x0_offset + sample_index*bps`. Each row filled by exactly ONE signal contiguously (Zig asserts `!ra.started` + `segment_start = target.items.len`). Two pipelines partition by width: `width > 1` → multi (pill), else single (line) — see main.zig getMockSegments target assignment.
 

@@ -3,7 +3,7 @@ import { Plus, X } from "lucide-solid";
 import { useAppStore } from "./store/store";
 import { EditableNum } from "./EditableNum";
 import { markerColorCss } from "./wave/palette";
-import { formatTime, formatClockWhole, clockCycleOf, clockCycleToTick } from "./wave/format";
+import { formatTime, formatClockWhole, clockCycleOf, clockCycleToTick, timeUnit } from "./wave/format";
 
 // Markers sub-bar: add-at-cursor, plus a horizontally-scrolling list of pills.
 // Each pill toggles selection, edits its time inline (ns, or cycle index in
@@ -12,6 +12,8 @@ export function MarkersBar() {
   const s = useAppStore();
   // Clock-aligned editing only when a valid timebase grid exists.
   const clockMode = () => s.clockAnchor && s.clockGrid != null && s.clockGrid.valid;
+  // Trace time unit, re-read on swap (traceNonce) — was hardcoded "ns".
+  const unit = () => { s.traceNonce; return timeUnit(); };
   const applyMarkerTick = (id: number, n: number): boolean => {
     if (!isFinite(n) || n < 0) return false;
     s.setMarkerTick(id, n);
@@ -44,7 +46,7 @@ export function MarkersBar() {
                   <EditableNum value={m.tick} format={formatTime} onCommit={(n) => applyMarkerTick(m.id, n)} />
                 )}
               </span>
-              {clockMode() ? null : <>{" "}ns</>}
+              {clockMode() ? null : <>{" "}{unit()}</>}
             </span>
             <span class="rm" data-tip="delete marker" onClick={(e) => { e.stopPropagation(); s.deleteMarker(m.id); }}>
               <X size={10} />

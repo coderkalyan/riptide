@@ -367,3 +367,19 @@ export function swapTrace(vcdPath: string): void {
   TRACE_END = SCENE.hierarchy.endTicks;          // new trace → new end (live binding)
   INITIAL = SIDECAR ? initialFromSidecar(SIDECAR, TRACE_END) : freshInitial(TRACE_END);
 }
+
+// Apply an imported sidecar against the *currently-loaded* trace (no VCD reload):
+// load + validate the JSON, re-resolve its signal paths into the live hierarchy,
+// and recompute SCENE/INITIAL. Same downstream flow as swapTrace minus loadVcd —
+// the caller (App.handleImportSidecar) calls resetForTrace to re-seed the store +
+// repack. Returns false (leaving the current view untouched) on a bad/invalid
+// file. TRACE_END is unchanged (same trace); paths missing from this trace are
+// dropped by resolveView, exactly as opening a foreign sidecar would.
+export function applySidecar(sidecarFilePath: string): boolean {
+  const sc = loadSidecar(sidecarFilePath);
+  if (!sc) return false;
+  SIDECAR = sc;
+  SCENE = buildScene(SIDECAR);
+  INITIAL = initialFromSidecar(SIDECAR, TRACE_END);
+  return true;
+}

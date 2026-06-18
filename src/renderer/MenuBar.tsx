@@ -30,6 +30,7 @@ export function MenuBar(props: {
   onOpenVcd: () => void;
   onOpenRecent: (path: string) => void;
   onExportSidecar: () => void;
+  onImportSidecar: () => void;
   getRecent: () => Promise<string[]>;
   onCloseWindow: () => void;
   onZoomIn: () => void;
@@ -85,6 +86,7 @@ export function MenuBar(props: {
       { label: "Open VCD…", kbd: "Ctrl+O", action: "open-vcd" },
       { label: "Open Recent", submenu: recentSubmenu() },
       "sep",
+      { label: "Import Sidecar…", action: "import-sidecar", disabled: idle },
       { label: "Export Sidecar…", action: "export-sidecar", disabled: idle },
       "sep",
       { label: "Reload Trace", disabled: true, unimplemented: true },
@@ -163,6 +165,7 @@ export function MenuBar(props: {
     if (it.action === "open-vcd") props.onOpenVcd();
     else if (it.action === "open-recent" && it.path) props.onOpenRecent(it.path);
     else if (it.action === "export-sidecar") props.onExportSidecar();
+    else if (it.action === "import-sidecar") props.onImportSidecar();
     else if (it.action === "close-window") props.onCloseWindow();
     else if (it.action === "zoom-in") props.onZoomIn();
     else if (it.action === "zoom-out") props.onZoomOut();

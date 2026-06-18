@@ -26,7 +26,7 @@ export const buildOptions = {
   minify: PROD,
   sourcemap: PROD ? false : "linked",
   define: { "process.env.NODE_ENV": JSON.stringify(PROD ? "production" : "development") },
-  external: ["../native/riptide.node", "../native/riptide-win.node", "fs", "path", "electron"],
+  external: ["../native/riptide.node", "../native/riptide-win.node", "fs", "path", "electron", "chokidar"],
   plugins: [solidPlugin(), tailwindPlugin()],
 };
 

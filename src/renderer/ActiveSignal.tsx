@@ -1,6 +1,7 @@
 import { Dynamic } from "solid-js/web";
 import { Activity, Eye, EyeOff, Clock, RotateCcw } from "lucide-solid";
 import { createMemo, type JSX } from "solid-js";
+import { makeHoverArm } from "./hoverArm";
 
 export type ActiveSignalKind = "clock" | "reset" | "signal";
 
@@ -47,6 +48,8 @@ const KIND_TIP: Record<ActiveSignalKind, string> = {
 export function ActiveSignal(props: ActiveSignalProps) {
   const cls = () => ["s-row", props.collapsed ? "collapsed" : "", props.sliding ? "sliding" : "", props.selected ? "sel" : ""]
     .filter(Boolean).join(" ");
+  // Reveal the resize cursor/bar only after a hover dwell (arms on press).
+  const arm = makeHoverArm((e) => { e.stopPropagation(); props.onResizeStart?.(e); });
   return (
     <div
       class={cls()}
@@ -83,7 +86,9 @@ export function ActiveSignal(props: ActiveSignalProps) {
           to reset to the default. stopPropagation so it doesn't select the row. */}
       <span
         class="s-resize"
-        onPointerDown={(e) => { e.stopPropagation(); props.onResizeStart?.(e); }}
+        onPointerEnter={arm.onPointerEnter}
+        onPointerLeave={arm.onPointerLeave}
+        onPointerDown={arm.onPointerDown}
         onDblClick={(e) => { e.stopPropagation(); props.onResizeReset?.(); }}
         onClick={(e) => e.stopPropagation()}
       />

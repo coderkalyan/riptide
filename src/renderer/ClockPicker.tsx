@@ -3,6 +3,7 @@ import { ChevronDown } from "lucide-solid";
 import { Portal } from "solid-js/web";
 import { useAppStore } from "./store/store";
 import { EditableNum } from "./EditableNum";
+import { timeUnit } from "./wave/format";
 
 // Timebase clock selector. Picks WHICH clock-format signal drives clock-aligned
 // cycle math + the grid; the on/off is a separate toolbar toggle (clockAnchor),
@@ -15,10 +16,20 @@ export function ClockPicker() {
   const s = useAppStore();
   const [open, setOpen] = createSignal<DOMRect | null>(null);
 
+  // Trace time unit, re-read on swap (traceNonce) — was hardcoded "ns".
+  const unit = () => { s.traceNonce; return timeUnit(); };
   const clocks = () => s.activeSignals.filter((r) => r.role === "clock");
+  // Only interactive when alignment is active; the trigger is greyed otherwise.
   const disabled = () => !s.clockAnchor;
   const isCustom = () => s.timebaseOverride != null;
-  const triggerLabel = () => (isCustom() ? "custom" : s.timebaseClock ? baseName(s.timebaseClock) : "—");
+  // The clock the label shows: the chosen timebase, or — when none is set yet
+  // (e.g. alignment never enabled) — the first available clock-format signal. So
+  // the label tracks the clock list (signal added/removed as clock) even while
+  // the control is disabled, instead of being stuck on "—".
+  const effectiveClock = () => s.timebaseClock ?? clocks()[0]?.path ?? null;
+  // No clock-format signals → always "—", regardless of any stale timebase/custom.
+  const triggerLabel = () =>
+    clocks().length === 0 ? "—" : isCustom() ? "custom" : effectiveClock() ? baseName(effectiveClock()!) : "—";
   // Values shown in the custom editor: the override if set, else the currently
   // detected grid (so the fields are populated even when custom isn't active).
   const customSrc = () => s.timebaseOverride ?? s.clockGrid;
@@ -87,7 +98,7 @@ export function ClockPicker() {
             <span class="clock-tick">{isCustom() ? "✓" : ""}</span>
             <span>custom</span>
             <span class="menu-clock-info clock-custom" onClick={(e) => e.stopPropagation()}>
-              <span data-tip="phase — first clock edge offset (ns)">
+              <span data-tip={`phase — first clock edge offset (${unit()})`}>
                 <EditableNum
                   value={customPhase()}
                   format={(n) => `${n}`}
@@ -95,14 +106,14 @@ export function ClockPicker() {
                 />
               </span>
               <span class="clock-custom-op">+</span>
-              <span data-tip="period — full clock cycle (ns)">
+              <span data-tip={`period — full clock cycle (${unit()})`}>
                 <EditableNum
                   value={customPeriod()}
                   format={(n) => `${n}`}
                   onCommit={(n) => { if (!(n > 0)) return false; s.setTimebaseOverride(n, customPhase()); return true; }}
                 />
               </span>
-              <span class="menu-clock-unit">ns</span>
+              <span class="menu-clock-unit">{unit()}</span>
             </span>
           </div>
         </div>

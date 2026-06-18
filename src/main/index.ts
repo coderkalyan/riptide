@@ -31,32 +31,9 @@ if (renderdoc) {
   if (renderdoc === "inproc") app.commandLine.appendSwitch("in-process-gpu");
 }
 
-// The trace this window currently shows. The "Open VCD…" menu swaps it and
-// reloads. The path is carried to the renderer in the window URL (?vcd=...) so a
-// reload re-initializes the native db, hierarchy, and sidecar-derived view from
-// scratch — no in-place reactive plumbing needed.
-//
-// The bundled mock fixture is a DEV-ONLY default: build:native copies it to
-// dist/native (so `pnpm dev` opens it) but electron-builder excludes it from the
-// shipped package (package.json "files" negation). When the mock is present
-// (dev) it's asar-UNPACKED (asarUnpack "dist/native/**") so the native tide-vcd
-// addon — which reads via raw libc IO and CANNOT see inside app.asar — can resolve
-// it. In a packaged build it's absent, so currentVcd starts empty: the window
-// opens with `?vcd=` empty and the renderer sits idle (empty tree / canvas, no
-// native queries) until the user opens a trace via File > Open VCD….
-//
-// RIPTIDE_NO_TRACE=1 forces that idle/empty boot even in dev (mock present) —
-// `pnpm dev:blank` — to exercise the no-file UI without packaging.
-const appUnpacked = app.getAppPath().replace(/app\.asar$/, "app.asar.unpacked");
-const MOCK_VCD = path.join(appUnpacked, "dist/native/mock.vcd");
-let currentVcd = process.env.RIPTIDE_NO_TRACE
-  ? ""
-  : process.env.RIPTIDE_VCD
-    ? path.resolve(process.env.RIPTIDE_VCD)
-    : (fs.existsSync(MOCK_VCD) ? MOCK_VCD : "");
-
 // Recently-opened traces, most-recent first. Persisted to userData so the list
-// survives restarts. Drives the File > Open Recent submenu.
+// survives restarts. Drives the File > Open Recent submenu AND the boot trace
+// (see currentVcd below) — declared first so that init can read it.
 const RECENT_MAX = 10;
 const recentPath = () => path.join(app.getPath("userData"), "recent.json");
 function readRecent(): string[] {
@@ -74,6 +51,29 @@ function addRecent(p: string): void {
   } catch (err) {
     console.error("[recent] write failed", err);
   }
+}
+
+// The trace this window currently shows. The "Open VCD…" menu swaps it and
+// reloads. The path is carried to the renderer in the window URL (?vcd=...) so a
+// reload re-initializes the native db, hierarchy, and sidecar-derived view from
+// scratch — no in-place reactive plumbing needed.
+//
+// Boot trace (dev AND release): the most recently opened trace that still exists
+// on disk (from the persisted recent list). First-ever launch — or one where
+// every remembered file is gone — has an empty list, so currentVcd starts empty:
+// the window opens with `?vcd=` empty and the renderer sits idle (empty tree /
+// canvas, no native queries) until the user opens a trace via File > Open VCD…
+// (which records it, so the next launch reopens it). The bundled mock fixture is
+// no longer auto-opened — open it explicitly if you want it.
+//
+// Overrides: RIPTIDE_NO_TRACE=1 forces the idle/empty boot (`pnpm dev:blank`);
+// RIPTIDE_VCD=<path> boots a specific trace. Resolved in app.whenReady (not at
+// module load) since the recent-list path needs app.getPath("userData").
+let currentVcd = "";
+function resolveBootTrace(): string {
+  if (process.env.RIPTIDE_NO_TRACE) return "";
+  if (process.env.RIPTIDE_VCD) return path.resolve(process.env.RIPTIDE_VCD);
+  return readRecent().find((p) => fs.existsSync(p)) ?? "";
 }
 
 function loadTrace(win: BrowserWindow): void {
@@ -166,9 +166,12 @@ ipcMain.handle("riptide:export-sidecar", async (e, text: string) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   if (!win) return null;
   const base = currentVcd ? path.basename(currentVcd).replace(/\.vcd$/i, "") : "view";
+  // Default the dialog into the open trace's directory (Electron resolves a full
+  // defaultPath to dir + prefilled name), so the sidecar lands next to its VCD.
+  const defaultPath = currentVcd ? path.join(path.dirname(currentVcd), `${base}.sidecar.json`) : `${base}.sidecar.json`;
   const r = await dialog.showSaveDialog(win, {
     title: "Export Sidecar",
-    defaultPath: `${base}.sidecar.json`,
+    defaultPath,
     filters: [{ name: "Riptide Sidecar", extensions: ["json"] }],
   });
   if (r.canceled || !r.filePath) return null;
@@ -176,12 +179,31 @@ ipcMain.handle("riptide:export-sidecar", async (e, text: string) => {
   return r.filePath;
 });
 
+// Renderer ("Import Sidecar…") -> native open dialog; returns the chosen path (or
+// null if cancelled). The renderer loads + validates + applies it against the
+// currently-open trace (no VCD reload). Defaults into the open trace's directory.
+ipcMain.handle("riptide:import-sidecar", async (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win) return null;
+  const r = await dialog.showOpenDialog(win, {
+    title: "Import Sidecar",
+    defaultPath: currentVcd ? path.dirname(currentVcd) : undefined,
+    properties: ["openFile"],
+    filters: [{ name: "Riptide Sidecar", extensions: ["json"] }],
+  });
+  if (r.canceled || r.filePaths.length === 0) return null;
+  return r.filePaths[0];
+});
+
 // Close the window that asked (File > Close Window).
 ipcMain.handle("riptide:close-window", (e) => {
   BrowserWindow.fromWebContents(e.sender)?.close();
 });
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  currentVcd = resolveBootTrace();
+  createWindow();
+});
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();

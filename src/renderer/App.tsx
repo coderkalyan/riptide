@@ -1,5 +1,5 @@
-import { For, Show, createSignal, createMemo, onMount, onCleanup } from "solid-js";
-import { PanelLeftClose, PanelLeftOpen, FileText, FolderOpen } from "lucide-solid";
+import { For, Show, createSignal, createMemo, createEffect, onMount, onCleanup } from "solid-js";
+import { PanelLeftClose, PanelLeftOpen, FileText, FolderOpen, RotateCw } from "lucide-solid";
 import { useAppStore, selectExportSidecarText } from "./store/store";
 import { WaveCanvas } from "./wave/WaveCanvas";
 import { ActiveSignals } from "./ActiveSignals";
@@ -15,7 +15,7 @@ import { GlobalTooltip } from "./GlobalTooltip";
 import { PerfOverlay } from "./PerfOverlay";
 import { buildEnumLabels } from "./wave/value";
 import { getSignal } from "./hier/hierarchy";
-import { SCENE, swapTrace, currentVcdPath, hasTrace } from "./hier/scene";
+import { SCENE, swapTrace, applySidecar, currentVcdPath, hasTrace } from "./hier/scene";
 import { view } from "./wave/viewport";
 import { ZOOM_STEP } from "./wave/constants";
 import * as perf from "./perf";
@@ -141,11 +141,63 @@ export function App() {
     s.resetForTrace();
   };
 
+  // Reload the trace currently open from disk — same in-place swap as Open, but
+  // re-reads the same path (used by the titlebar refresh button + after the file
+  // watcher flags a change). resetForTrace clears traceStale via freshUi.
+  const handleReload = () => {
+    const p = currentVcdPath();
+    if (!p) return;
+    perf.beginSwap();
+    swapTrace(p);
+    s.resetForTrace();
+  };
+
+  // Watch the open trace on disk (chokidar). On change we do NOT auto-reload —
+  // that would clobber the view mid-inspection — we set traceStale so the pill
+  // lights up warm and the user reloads on click. Re-armed on every trace swap
+  // (traceNonce) so it follows Open VCD…/reload to the new path. ignoreInitial +
+  // awaitWriteFinish avoid firing on our own load or on a simulator's partial
+  // mid-write flushes.
+  onMount(() => {
+    let watcher: { close(): Promise<void> | void } | null = null;
+    createEffect(() => {
+      s.traceNonce; // re-arm the watch whenever the trace (re)loads
+      const p = currentVcdPath();
+      watcher?.close();
+      watcher = null;
+      if (!p) return;
+      try {
+        // chokidar 5's FSWatcher event-map typing trips tsc on .on(); we only
+        // need watch/on/close, so type it minimally.
+        const chokidar = require("chokidar") as {
+          watch(path: string, opts?: unknown): { on(ev: string, cb: () => void): unknown; close(): Promise<void> | void };
+        };
+        const w = chokidar.watch(p, { ignoreInitial: true, awaitWriteFinish: { stabilityThreshold: 150, pollInterval: 50 } });
+        w.on("change", () => useAppStore.getState().setTraceStale(true));
+        watcher = w;
+      } catch (e) {
+        console.error("[watch] chokidar unavailable", e);
+      }
+    });
+    onCleanup(() => { watcher?.close(); });
+  });
+
   // Export the current view as a portable, UI-chrome-stripped sidecar via a
   // native save dialog (main writes the file).
   const handleExportSidecar = async () => {
     const text = selectExportSidecarText(useAppStore.getState());
     await ipc()?.invoke("riptide:export-sidecar", text);
+  };
+
+  // Import a sidecar against the open trace (no VCD reload): the main process
+  // returns the chosen path, scene.applySidecar loads/validates/re-resolves it,
+  // then resetForTrace re-seeds the store + repacks — same in-place flow as Open.
+  const handleImportSidecar = async () => {
+    const p = (await ipc()?.invoke("riptide:import-sidecar")) as string | null;
+    if (!p) return;
+    perf.beginSwap();
+    if (!applySidecar(p)) { console.error("[import] invalid or unreadable sidecar", p); return; }
+    s.resetForTrace();
   };
 
   const getRecent = async () => ((await ipc()?.invoke("riptide:recent-vcds")) as string[] | null) ?? [];
@@ -202,7 +254,7 @@ export function App() {
         <div class="title">Riptide</div>
         <MenuBar
           idle={() => !traceOpen()}
-          onOpenVcd={handleOpenVcd} onOpenRecent={handleOpenRecent} onExportSidecar={handleExportSidecar} getRecent={getRecent} onCloseWindow={closeWindow}
+          onOpenVcd={handleOpenVcd} onOpenRecent={handleOpenRecent} onExportSidecar={handleExportSidecar} onImportSidecar={handleImportSidecar} getRecent={getRecent} onCloseWindow={closeWindow}
           onZoomIn={zoomIn} onZoomOut={zoomOut} onZoomFit={zoomFit}
           treeCollapsed={() => s.panels.treeCollapsed} onToggleTree={toggleTree}
           activeCollapsed={() => s.panels.activeCollapsed} onToggleActive={toggleActive}
@@ -221,11 +273,16 @@ export function App() {
           onSignalMoveBottom={() => { const r = selSignal(); if (r) s.moveSignal(r.row, "bottom"); }}
           onSignalRemove={() => { const r = selSignal(); if (r) s.removeSignal(r.row); }}
         />
-        {/* Non-interactive pill noting the open file (multi-file tabs aren't built).
-            Hidden while idle (no trace) — nothing to name. */}
+        {/* Pill noting the open file (multi-file tabs aren't built). Hidden while
+            idle. The whole pill is the reload button (re-reads the file in place);
+            goes warm (.stale) when the watcher sees an on-disk change. */}
         <Show when={traceOpen()}>
-          <span class="pill file" data-tip={currentVcdPath()}>
-            <FileText size={12} />
+          <span
+            class={`pill file reloadable${s.traceStale ? " stale" : ""}`}
+            data-tip={s.traceStale ? "file changed on disk — click to reload" : `reload ${currentVcdPath()}`}
+            onClick={handleReload}
+          >
+            <RotateCw size={12} />
             <span class="mono">{openFile()}</span>
           </span>
         </Show>

@@ -84,6 +84,7 @@
     "@melloware/coloris": "^0.25.0",
     "@solid-primitives/keyed": "^1.5.3",
     "@tanstack/solid-virtual": "^3.13.28",
+    "chokidar": "^5.0.0",
     "lucide-solid": "^1.17.0",
     "solid-js": "^1.9.13",
     "solid-zustand": "^2.0.0",

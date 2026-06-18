@@ -3,7 +3,7 @@ import { getSignal } from "./hier/hierarchy";
 import { SCENE } from "./hier/scene";
 import { useAppStore } from "./store/store";
 import { valueAtTick, formatSegmentValue } from "./wave/value";
-import { formatTime } from "./wave/format";
+import { formatTime, timeUnit } from "./wave/format";
 
 // Status-bar live readout under the pointer. Reads store.hover reactively — a
 // pointer move re-runs only this component's value cell (fine-grained), never
@@ -19,7 +19,7 @@ export function HoverReadout(props: { enumLabels: () => Map<number, Map<number, 
         const sig = createMemo(() => { const r = ref(); return r ? getSignal(SCENE.hierarchy, r.signalId) : null; });
         return (
           <>
-            <span class="st-item"><span class="lbl-t">time </span><b>{formatTime(hover().tick)}</b><span class="unit"> ns</span></span>
+            <span class="st-item"><span class="lbl-t">time </span><b>{formatTime(hover().tick)}</b><span class="unit"> {timeUnit()}</span></span>
             <span class="sep">·</span>
             <Show when={sig() && ref()} fallback={muted}>
               <span class="st-item st-val">

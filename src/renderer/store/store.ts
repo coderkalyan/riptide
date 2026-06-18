@@ -91,6 +91,10 @@ export interface UiState {
   // reset the viewport + re-instrument perf; the repack/colors flow through the
   // normal activeSignals subscriptions since the active set changes too.
   traceNonce: number;
+  // Set by the file watcher when the on-disk trace changes — we do NOT auto-reload
+  // (that would clobber the view mid-inspection); instead the titlebar pill lights
+  // up warm so the user can click reload. Cleared on (re)load via freshUi.
+  traceStale: boolean;
 }
 
 export interface Actions {
@@ -172,6 +176,7 @@ export interface Actions {
   // Re-seed the whole document slice from the freshly-swapped SCENE/INITIAL (the
   // caller runs scene.swapTrace first). One atomic set → subscribers fire once.
   resetForTrace: () => void;
+  setTraceStale: (v: boolean) => void;
 }
 
 export type AppState = DocState & UiState & Actions;
@@ -250,7 +255,7 @@ function hydrateDoc(): DocState {
   };
 }
 
-const freshUi = (): Omit<UiState, "traceNonce"> => ({ hover: null, picker: null, ctxMenu: null, enumDialog: null, viewSaveNonce: 0 });
+const freshUi = (): Omit<UiState, "traceNonce"> => ({ hover: null, picker: null, ctxMenu: null, enumDialog: null, viewSaveNonce: 0, traceStale: false });
 
 // Renumber rows so `row` stays the contiguous 0..N-1 canvas/Y slot. Keeps each
 // surviving row's `id` (identity) so reconcile/<For> reuse its DOM.
@@ -461,6 +466,7 @@ const vanilla = createVanilla<AppState>()(
     setEnumDialog: (d) => set({ enumDialog: d }),
 
     resetForTrace: () => set((st) => ({ ...hydrateDoc(), ...freshUi(), traceNonce: st.traceNonce + 1 })),
+    setTraceStale: (v) => set({ traceStale: v }),
   })),
 );
 

@@ -6,7 +6,7 @@ import { SCENE, TRACE_END, handleForPath } from "./hier/scene";
 import { useAppStore } from "./store/store";
 import { getEdges } from "./native";
 import { view } from "./wave/viewport";
-import { formatTime, formatTimescale } from "./wave/format";
+import { formatTime, formatTimescale, timeUnit } from "./wave/format";
 import { ZOOM_STEP } from "./wave/constants";
 import { EditableNum } from "./EditableNum";
 import { ClockPicker } from "./ClockPicker";
@@ -37,6 +37,10 @@ async function saveCanvas() {
 // drive the store.
 export function WavesToolbar() {
   const s = useAppStore();
+  // Time unit + timescale label from the loaded trace, re-read on every trace
+  // swap (traceNonce) so an in-app Open VCD… updates them (was hardcoded "ns").
+  const unit = () => { s.traceNonce; return timeUnit(); };
+  const tsLabel = () => { s.traceNonce; return formatTimescale(SCENE.hierarchy.timescale); };
   // Clock-align is only meaningful when there's a clock to anchor to: a
   // role:"clock" row, an already-chosen timebase, or it's already on (so it can
   // be turned off). Without one, toggleClock silently no-ops — disable instead.
@@ -111,7 +115,7 @@ export function WavesToolbar() {
         <span class="mono">cursor at{" "}
           <span data-tip="edit cursor time" onClick={(e) => e.stopPropagation()}>
             <EditableNum value={s.cursorTicks} format={formatTime} onCommit={applyCursor} />
-          </span>{" "}ns
+          </span>{" "}{unit()}
         </span>
       </span>
       <div class="seg">
@@ -137,9 +141,9 @@ export function WavesToolbar() {
         <span class="ts-range mono">
           <EditableNum value={s.viewRange.start} format={formatTime} onCommit={(n) => applyRange(n, s.viewRange.end)} />
           {" – "}
-          <EditableNum value={s.viewRange.end} format={formatTime} onCommit={(n) => applyRange(s.viewRange.start, n)} /> ns
+          <EditableNum value={s.viewRange.end} format={formatTime} onCommit={(n) => applyRange(s.viewRange.start, n)} /> {unit()}
         </span>
-        <span class="ts-info mono">{formatTimescale(SCENE.hierarchy.timescale)}</span>
+        <span class="ts-info mono">{tsLabel()}</span>
       </div>
       <div class="divider" />
       <span class="btn icon" data-tip="undo view change" onClick={() => view.undo()}><Undo2 size={14} /></span>
