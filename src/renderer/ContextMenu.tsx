@@ -98,6 +98,20 @@ export function dividerMenu(): MenuItem[] {
   return [{ label: "Remove Divider", action: "toggle-divider" }];
 }
 
+// Right-click menu for a signal-tree node. `addCount` is the resolved signal count
+// of the current tree selection (scopes expanded) so the label says what gets added.
+// Scope-only items (recursive add, select-in-scope) are dropped for signal nodes.
+export function treeMenu(opts: { isScope: boolean; addCount: number }): MenuItem[] {
+  return [
+    { label: opts.addCount > 1 ? `Add ${opts.addCount} to View` : "Add to View", kbd: "⏎", action: "tree-add", disabled: opts.addCount === 0 },
+    ...(opts.isScope ? [{ label: "Add Scope (recursive)", action: "tree-add-recursive" }] as MenuItem[] : []),
+    "sep",
+    { label: "Expand All", action: "tree-expand-all" },
+    { label: "Collapse All", action: "tree-collapse-all" },
+    ...(opts.isScope ? [{ label: "Select All in Scope", action: "tree-select-scope" }] as MenuItem[] : []),
+  ];
+}
+
 type Leaf = Exclude<MenuItem, "sep">;
 
 // Place a popup of size w×h near (x, y), preferring down-right (top-left at the

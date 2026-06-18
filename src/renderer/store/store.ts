@@ -80,8 +80,10 @@ export interface UiState {
   // `row` anchors the swatch/Coloris; `rows` (optional) is the full set the chosen
   // color is applied to (a selection from the context menu). Defaults to [row].
   picker: { row: number; rows?: number[]; anchorRect: DOMRect } | null;
-  // `kind` distinguishes a signal-row menu from a divider menu.
-  ctxMenu: { x: number; y: number; row: number; kind?: "signal" | "divider" } | null;
+  // `kind` distinguishes a signal-row menu from a divider menu from a tree menu.
+  // The tree menu carries `nodeId` (the right-clicked hierarchy node) and uses
+  // row -1 (it acts on the tree selection, not an active row).
+  ctxMenu: { x: number; y: number; row: number; kind?: "signal" | "divider" | "tree"; nodeId?: NodeId } | null;
   enumDialog: { row: number } | null;
   // Bumped on viewport-settle (pan end / wheel / zoom-anim end) so the autosave
   // persists the final window — viewRange itself is excluded from the save
@@ -95,6 +97,10 @@ export interface UiState {
   // (that would clobber the view mid-inspection); instead the titlebar pill lights
   // up warm so the user can click reload. Cleared on (re)load via freshUi.
   traceStale: boolean;
+  // Signal-tree multi-select: hierarchy node ids (scopes + signals) the user has
+  // selected for a batch add. Ephemeral UI — NOT persisted to the sidecar; cleared
+  // on trace swap via freshUi.
+  treeSelection: NodeId[];
 }
 
 export interface Actions {
@@ -138,6 +144,16 @@ export interface Actions {
   selectRow: (row: number, opts?: { ctrl?: boolean; shift?: boolean }) => void;
   clearSelection: () => void;
 
+  // Signal-tree selection (mirrors selectRow). No modifier → replace; ctrl/meta →
+  // toggle this node; shift → range over `flatIds` (the flat-visible row order) from
+  // the anchor to this node. `flatIds` is passed in because only the tree knows the
+  // current expanded/visible ordering.
+  selectTreeNode: (id: NodeId, opts: { ctrl?: boolean; shift?: boolean }, flatIds: NodeId[]) => void;
+  // Replace the tree selection outright (e.g. "Select All in Scope"). Anchors on
+  // the last id so a follow-up shift-click ranges from there.
+  setTreeSelection: (ids: NodeId[]) => void;
+  clearTreeSelection: () => void;
+
   addMarkerAtCursor: () => void;
   deleteMarker: (id: number) => void;
   selectMarker: (id: number | null) => void;
@@ -170,7 +186,7 @@ export interface Actions {
 
   setHover: (h: { tick: number; row: number } | null) => void;
   setPicker: (p: { row: number; rows?: number[]; anchorRect: DOMRect } | null) => void;
-  setCtxMenu: (m: { x: number; y: number; row: number; kind?: "signal" | "divider" } | null) => void;
+  setCtxMenu: (m: { x: number; y: number; row: number; kind?: "signal" | "divider" | "tree"; nodeId?: NodeId } | null) => void;
   setEnumDialog: (d: { row: number } | null) => void;
 
   // Re-seed the whole document slice from the freshly-swapped SCENE/INITIAL (the
@@ -185,6 +201,7 @@ export type AppState = DocState & UiState & Actions;
 let rowSeq = 1;   // unique row id; never reused, so <For>/reconcile identity is stable
 let markerSeq = 1; // unique marker id/name; deletes never reuse a name
 let selectionAnchor = -1; // last single/ctrl-selected row; shift-range pivots here
+let treeAnchor: NodeId | null = null; // last single/ctrl-selected tree node; shift-range pivots here
 
 const withRowId = (r: ActiveSignalRef): Row => ({ ...r, id: rowSeq++ });
 
@@ -255,7 +272,7 @@ function hydrateDoc(): DocState {
   };
 }
 
-const freshUi = (): Omit<UiState, "traceNonce"> => ({ hover: null, picker: null, ctxMenu: null, enumDialog: null, viewSaveNonce: 0, traceStale: false });
+const freshUi = (): Omit<UiState, "traceNonce"> => ({ hover: null, picker: null, ctxMenu: null, enumDialog: null, viewSaveNonce: 0, traceStale: false, treeSelection: [] });
 
 // Renumber rows so `row` stays the contiguous 0..N-1 canvas/Y slot. Keeps each
 // surviving row's `id` (identity) so reconcile/<For> reuse its DOM.
@@ -385,6 +402,29 @@ const vanilla = createVanilla<AppState>()(
         ? { activeSignals: s.activeSignals.map((r) => (r.selected ? { ...r, selected: false } : r)) }
         : s
     )),
+
+    selectTreeNode: (id, opts, flatIds) => set((s) => {
+      // shift: contiguous range over the flat-visible order, anchor → this node.
+      if (opts?.shift && treeAnchor != null) {
+        const a = flatIds.indexOf(treeAnchor);
+        const b = flatIds.indexOf(id);
+        if (a >= 0 && b >= 0) {
+          const [lo, hi] = a < b ? [a, b] : [b, a];
+          return { treeSelection: flatIds.slice(lo, hi + 1) };
+        }
+      }
+      treeAnchor = id;
+      // ctrl/meta: toggle just this node, keep the rest of the selection.
+      if (opts?.ctrl) {
+        return { treeSelection: s.treeSelection.includes(id)
+          ? s.treeSelection.filter((x) => x !== id)
+          : [...s.treeSelection, id] };
+      }
+      // plain click: select only this node.
+      return { treeSelection: [id] };
+    }),
+    setTreeSelection: (ids) => set(() => { treeAnchor = ids.length ? ids[ids.length - 1] : null; return { treeSelection: ids }; }),
+    clearTreeSelection: () => set((s) => (s.treeSelection.length ? (treeAnchor = null, { treeSelection: [] }) : s)),
 
     addMarkerAtCursor: () => set((s) => {
       // Rendering caps at MAX_MARKERS (shared line/pill pools); markers past it

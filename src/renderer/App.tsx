@@ -5,9 +5,9 @@ import { WaveCanvas } from "./wave/WaveCanvas";
 import { ActiveSignals } from "./ActiveSignals";
 import { HoverReadout } from "./HoverReadout";
 import { ColorPicker } from "./ColorPicker";
-import { ContextMenu, activeSignalMenu, dividerMenu } from "./ContextMenu";
+import { ContextMenu, activeSignalMenu, dividerMenu, treeMenu } from "./ContextMenu";
 import { EnumDialog } from "./EnumDialog";
-import { SignalTree } from "./SignalTree";
+import { SignalTree, resolveAddIds, recursiveSigChildren, allScopeIds } from "./SignalTree";
 import { WavesToolbar } from "./WavesToolbar";
 import { MarkersBar } from "./MarkersBar";
 import { MenuBar } from "./MenuBar";
@@ -323,6 +323,10 @@ export function App() {
                 <div class="col-head tw:pr-[3px]">
                   <h3>Signal Tree</h3>
                   <span class="sp" />
+                  <Show when={s.treeSelection.length > 0}>
+                    <span class="hint">{resolveAddIds(s.treeSelection).length} selected</span>
+                    <span class="collapse" data-tip="clear selection" onClick={() => s.clearTreeSelection()}>×</span>
+                  </Show>
                   <span class="collapse" data-tip="collapse panel" onClick={() => toggleTree(true)}><PanelLeftClose size={14} stroke-width={1.75} /></span>
                 </div>
                 {/* Filtering isn't wired up yet — disabled so it doesn't read as a working control. */}
@@ -388,6 +392,11 @@ export function App() {
           y={m().y}
           items={(() => {
             if (m().kind === "divider") return dividerMenu();
+            if (m().kind === "tree") {
+              const nid = m().nodeId;
+              const isScope = nid != null && SCENE.hierarchy.nodes.get(nid)?.kind === "scope";
+              return treeMenu({ isScope: !!isScope, addCount: resolveAddIds(useAppStore.getState().treeSelection).length });
+            }
             const t = menuTargets();
             const active = s.activeSignals;
             const ref = active.find((r) => r.row === t.primary);
@@ -422,6 +431,17 @@ export function App() {
           })()}
           onClose={() => s.setCtxMenu(null)}
           onSelect={(it) => {
+            // Signal-tree menu actions act on the tree selection / right-clicked node.
+            if (m().kind === "tree") {
+              const sel = useAppStore.getState().treeSelection;
+              const nid = m().nodeId;
+              if (it.action === "tree-add") s.addSignals(resolveAddIds(sel));
+              else if (it.action === "tree-add-recursive" && nid != null) s.addSignals(recursiveSigChildren(nid));
+              else if (it.action === "tree-expand-all") s.setExpanded(allScopeIds());
+              else if (it.action === "tree-collapse-all") s.setExpanded([]);
+              else if (it.action === "tree-select-scope" && nid != null) s.setTreeSelection(recursiveSigChildren(nid));
+              return;
+            }
             // The divider toggle (divider menu, or the Insert/Remove Divider item)
             // acts on the single row it belongs to.
             if (it.action === "toggle-divider") { if (m().row >= 0) s.toggleDivider(m().row); return; }

@@ -789,7 +789,7 @@
         }
         .marker-pill .rm:hover { opacity: 1; }
 
-        .tree { padding: 4px 4px 12px; overflow:auto; flex:2; }/* Global scrollbar styling — thin bars, matching the signal tree.
+        .tree { padding: 4px 4px 12px; overflow:auto; flex:2; outline: none; }/* Global scrollbar styling — thin bars, matching the signal tree.
            NOTE: do NOT set the standard `scrollbar-width`/`scrollbar-color` here.
            In Chromium (this is always the renderer) those switch the element to
            the standardized scrollbar and make it IGNORE every ::-webkit-scrollbar
