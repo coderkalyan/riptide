@@ -45,10 +45,11 @@ function ClockAccessory(props: { row: number }) {
 // a multi-row target, enablement is ANY across the set: Binary stays enabled if any
 // target is 1-bit, Signed Decimal if any is multi-bit (the action then applies only
 // to the rows it fits). `anySingleBit`/`anyMultiBit` carry that across the selection.
-// `dividerOn` toggles the Insert/Remove Divider label for the (single) target row.
+// Insert Divider Above/Below always insert (back-to-back dividers allowed); a
+// divider is removed only from its own right-click menu (dividerMenu).
 export function activeSignalMenu(opts: {
   anyMultiBit: boolean; anySingleBit: boolean; clockRow: number; color?: string;
-  currentFormat?: string; dividerOn?: boolean;
+  currentFormat?: string;
   // Mute picker: 1-bit signals offered as the enable, the uniformly-set mute (if
   // any), whether every target is unmuted (ticks "None"), and whether any target
   // can be muted at all (clocks can't).
@@ -82,7 +83,8 @@ export function activeSignalMenu(opts: {
     ] },
     "sep",
     { label: "Group with Selected", disabled: true, unimplemented: true },
-    { label: opts.dividerOn ? "Remove Divider" : "Insert Divider", action: "toggle-divider" },
+    { label: "Insert Divider Above", action: "add-divider-above" },
+    { label: "Insert Divider Below", action: "add-divider-below" },
     "sep",
     { label: "Move to Top" },
     { label: "Move to Bottom" },
@@ -95,7 +97,13 @@ export function activeSignalMenu(opts: {
 
 // Right-click menu for a divider entry in the active-signal list.
 export function dividerMenu(): MenuItem[] {
-  return [{ label: "Remove Divider", action: "toggle-divider" }];
+  return [{ label: "Remove Divider", action: "remove-divider" }];
+}
+
+// Right-click menu for the empty area below the active-signal list — adds a divider
+// at the bottom (implicitly after the last row).
+export function paneMenu(): MenuItem[] {
+  return [{ label: "Insert Divider", action: "add-divider-bottom" }];
 }
 
 // Right-click menu for a signal-tree node. `addCount` is the resolved signal count

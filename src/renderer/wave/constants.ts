@@ -11,9 +11,9 @@ export const ROW_HEIGHT_CSS = 28;
 export const ROW_MIN_HEIGHT_CSS = 18;
 export const ROW_MAX_HEIGHT_CSS = 200;
 
-// Extra vertical space inserted below a row that carries `dividerBelow`. Mirrors
-// the .s-divider element height so the canvas gap stays aligned with the DOM list.
-// This is the DEFAULT; a divider can be individually resized (dividerHeight).
+// Extra vertical space inserted per divider (a row's `dividers[]` entries / the
+// top gap). Mirrors the .s-divider element height so the canvas gap stays aligned
+// with the DOM list. This is the DEFAULT (a 0 entry); a divider can be resized.
 export const DIVIDER_HEIGHT_CSS = 16;
 // Clamp for dragging a divider's resize handle.
 export const DIVIDER_MIN_HEIGHT_CSS = 6;

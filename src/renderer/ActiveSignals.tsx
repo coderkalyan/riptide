@@ -1,8 +1,8 @@
-import { For, Show, createMemo } from "solid-js";
+import { For, Index, Show, createMemo } from "solid-js";
 import { PanelLeftClose, PanelLeftOpen, Eye, EyeOff } from "lucide-solid";
 import { getSignal } from "./hier/hierarchy";
 import { SCENE, type ActiveSignalRef } from "./hier/scene";
-import { useAppStore } from "./store/store";
+import { useAppStore, type DividerTarget } from "./store/store";
 import { ActiveSignal, type ActiveSignalKind } from "./ActiveSignal";
 import { makeHoverArm } from "./hoverArm";
 import { valueAtTick, formatSegmentValue } from "./wave/value";
@@ -50,8 +50,29 @@ export function ActiveSignals(props: {
   };
   const startRowResize = (row: number, current: number | undefined) =>
     startVResize(current ?? ROW_HEIGHT_CSS, ROW_MIN_HEIGHT_CSS, ROW_MAX_HEIGHT_CSS, (h) => s.setRowHeight(row, h));
-  const startDividerResize = (row: number, current: number | undefined) =>
-    startVResize(current ?? DIVIDER_HEIGHT_CSS, DIVIDER_MIN_HEIGHT_CSS, DIVIDER_MAX_HEIGHT_CSS, (h) => s.setDividerHeight(row, h));
+  const startDividerResize = (t: DividerTarget, current: number) =>
+    startVResize(current || DIVIDER_HEIGHT_CSS, DIVIDER_MIN_HEIGHT_CSS, DIVIDER_MAX_HEIGHT_CSS, (h) => s.setDividerHeight(t, h));
+  // One divider (separator) row. `h` is its live height accessor (0 = default).
+  // Resize drags the bottom handle; right-click removes it via its own menu.
+  const renderDivider = (t: DividerTarget, h: () => number) => {
+    const arm = makeHoverArm((e) => { e.stopPropagation(); startDividerResize(t, h())(e); });
+    return (
+      <div
+        class="s-divider"
+        style={h() ? { height: `${h()}px` } : undefined}
+        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); s.setCtxMenu({ x: e.clientX, y: e.clientY, row: -1, kind: "divider", div: t }); }}
+      >
+        <span
+          class="s-resize"
+          onPointerEnter={arm.onPointerEnter}
+          onPointerLeave={arm.onPointerLeave}
+          onPointerDown={arm.onPointerDown}
+          onDblClick={(e) => { e.stopPropagation(); s.setDividerHeight(t, undefined); }}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+    );
+  };
   return (
     <div class="col">
       <div class="col-head tw:pr-[3px]">
@@ -97,15 +118,16 @@ export function ActiveSignals(props: {
       </Show>
       <div
         class="signals"
-        onContextMenu={(e) => e.preventDefault()}
+        // Right-click on the empty area below the rows → add a divider at the bottom.
+        onContextMenu={(e) => { e.preventDefault(); if (e.target === e.currentTarget) s.setCtxMenu({ x: e.clientX, y: e.clientY, row: -1, kind: "pane" }); }}
         onClick={(e) => { if (e.target === e.currentTarget) s.clearSelection(); }}
       >
+        {/* Top-gap dividers (above the first row). */}
+        <Index each={s.topDividers}>{(h, i) => renderDivider({ row: -1, index: i }, h)}</Index>
         <For each={s.activeSignals}>{(row) => {
           const sig = getSignal(SCENE.hierarchy, row.signalId);
           const value = createMemo(() =>
             formatSegmentValue(valueAtTick(sig.handle, s.cursorTicks), sig.bitWidth, row.radix, props.enumLabels().get(row.row)));
-          // Per-row hover-intent for the divider's resize handle (arms on press).
-          const dividerArm = makeHoverArm((e) => { e.stopPropagation(); startDividerResize(row.row, row.dividerHeight)(e); });
           return (
             <>
               <ActiveSignal
@@ -132,22 +154,8 @@ export function ActiveSignals(props: {
                 onResizeStart={startRowResize(row.row, row.height)}
                 onResizeReset={() => s.setRowHeight(row.row, undefined)}
               />
-              <Show when={row.dividerBelow}>
-                <div
-                  class="s-divider"
-                  style={row.dividerHeight ? { height: `${row.dividerHeight}px` } : undefined}
-                  onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); s.setCtxMenu({ x: e.clientX, y: e.clientY, row: row.row, kind: "divider" }); }}
-                >
-                  <span
-                    class="s-resize"
-                    onPointerEnter={dividerArm.onPointerEnter}
-                    onPointerLeave={dividerArm.onPointerLeave}
-                    onPointerDown={dividerArm.onPointerDown}
-                    onDblClick={(e) => { e.stopPropagation(); s.setDividerHeight(row.row, undefined); }}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                </div>
-              </Show>
+              {/* Dividers below this row (back-to-back allowed). */}
+              <Index each={row.dividers ?? []}>{(h, i) => renderDivider({ row: row.row, index: i }, h)}</Index>
             </>
           );
         }}</For>

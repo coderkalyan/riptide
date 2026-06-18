@@ -53,8 +53,10 @@ export interface ActiveSignalRef {
   clock?: ClockConfig;
   enumTable?: EnumEntry[];
   height?: number;           // per-row vertical size (CSS px); default ROW_HEIGHT_CSS
-  dividerBelow?: boolean;     // render a thin separator below this row (DOM + canvas gap)
-  dividerHeight?: number;     // resized divider height (CSS px); default DIVIDER_HEIGHT_CSS
+  // Heights (CSS px) of the separators rendered below this row, one per divider —
+  // length is the divider count, so back-to-back dividers stack. 0 = default height
+  // (DIVIDER_HEIGHT_CSS). Dividers above the first row live in Scene.topDividers.
+  dividers?: number[];
   derivedExpr?: string;
   mute?: string;             // path of a 1-bit enable signal that mutes this row while it isn't logic-1
 }
@@ -63,6 +65,9 @@ export interface Scene {
   hierarchy: Hierarchy;
   activeSignals: ActiveSignalRef[];
   initialExpanded: Set<NodeId>;
+  // Separator heights above the first row (the top gap); same encoding as a row's
+  // `dividers`. Empty in the common case.
+  topDividers: number[];
 }
 
 // ---- per-row display config --------------------------------------------
@@ -263,7 +268,7 @@ function emptyHierarchy(): Hierarchy {
   };
 }
 function emptyScene(): Scene {
-  return { hierarchy: emptyHierarchy(), activeSignals: [], initialExpanded: new Set() };
+  return { hierarchy: emptyHierarchy(), activeSignals: [], initialExpanded: new Set(), topDividers: [] };
 }
 
 function buildScene(sc: Sidecar | null): Scene {
@@ -311,9 +316,14 @@ function buildScene(sc: Sidecar | null): Scene {
     initialExpanded = new Set(hierarchy.rootIds);
   }
 
+  // Top-gap separators (above the first row) — sanitized to a number array.
+  const topDividers = sc && Array.isArray(sc.view.topDividers)
+    ? sc.view.topDividers.filter((n): n is number => typeof n === "number")
+    : [];
+
   SCENE_PACK_SPECS = specsFromActive(hierarchy, activeSignals);
   stamp("scene:end");
-  return { hierarchy, activeSignals, initialExpanded };
+  return { hierarchy, activeSignals, initialExpanded, topDividers };
 }
 
 // The trace currently loaded in the renderer. Seeded from the window URL; updated

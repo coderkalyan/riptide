@@ -5,7 +5,7 @@ import { WaveCanvas } from "./wave/WaveCanvas";
 import { ActiveSignals } from "./ActiveSignals";
 import { HoverReadout } from "./HoverReadout";
 import { ColorPicker } from "./ColorPicker";
-import { ContextMenu, activeSignalMenu, dividerMenu, treeMenu } from "./ContextMenu";
+import { ContextMenu, activeSignalMenu, dividerMenu, paneMenu, treeMenu } from "./ContextMenu";
 import { EnumDialog } from "./EnumDialog";
 import { SignalTree, resolveAddIds, recursiveSigChildren, allScopeIds } from "./SignalTree";
 import { WavesToolbar } from "./WavesToolbar";
@@ -392,6 +392,7 @@ export function App() {
           y={m().y}
           items={(() => {
             if (m().kind === "divider") return dividerMenu();
+            if (m().kind === "pane") return paneMenu();
             if (m().kind === "tree") {
               const nid = m().nodeId;
               const isScope = nid != null && SCENE.hierarchy.nodes.get(nid)?.kind === "scope";
@@ -422,7 +423,6 @@ export function App() {
                   : ref.role === "reset" ? "format-reset"
                   : `radix-${ref.radix}`
                 : undefined,
-              dividerOn: ref?.dividerBelow ?? false,
               muteOptions,
               currentMute: uniqMutes.size === 1 ? [...uniqMutes][0] : undefined,
               muteNone: mutes.every((m) => !m),
@@ -442,9 +442,12 @@ export function App() {
               else if (it.action === "tree-select-scope" && nid != null) s.setTreeSelection(recursiveSigChildren(nid));
               return;
             }
-            // The divider toggle (divider menu, or the Insert/Remove Divider item)
-            // acts on the single row it belongs to.
-            if (it.action === "toggle-divider") { if (m().row >= 0) s.toggleDivider(m().row); return; }
+            // Divider insert/remove acts positionally on the right-clicked row /
+            // divider (NOT the whole multi-selection — placement would be ambiguous).
+            if (it.action === "add-divider-above") { if (m().row >= 0) s.addDividerAbove(m().row); return; }
+            if (it.action === "add-divider-below") { if (m().row >= 0) s.addDividerBelow(m().row); return; }
+            if (it.action === "remove-divider") { const d = m().div; if (d) s.removeDivider(d); return; }
+            if (it.action === "add-divider-bottom") { s.addDividerBottom(); return; }
             const { rows, primary } = menuTargets();
             if (rows.length === 0) return;
             // Binary/Signed Decimal are enabled if ANY target fits; apply only to

@@ -47,8 +47,9 @@ export interface SidecarSignal {
   clock?: ClockConfig;
   enumTable?: EnumEntry[];
   height?: number;          // per-row vertical size (CSS px)
-  dividerBelow?: boolean;   // thin separator rendered below this row
-  dividerHeight?: number;   // resized divider height (CSS px)
+  // Heights (CSS px) of the separators below this row, one per divider (0 = default
+  // height). Length = divider count, so back-to-back dividers round-trip.
+  dividers?: number[];
   derived?: { expr: string };
   // Path of a 1-bit enable signal that mutes this row while it isn't logic-1.
   // Set via the row's "Mute" context-menu submenu. Documented in docs/sidecar.md.
@@ -69,6 +70,8 @@ export interface ViewSection {
   time: { start: number; end: number; cursor: number };
   signals: SidecarSignal[];
   markers: SidecarMarker[];
+  // Separator heights above the first row (the top gap). Omitted when empty.
+  topDividers?: number[];
 }
 
 export interface UiPanels {
@@ -249,8 +252,7 @@ export function resolveView(
       ...(s.clock ? { clock: s.clock } : {}),
       ...(s.enumTable ? { enumTable: s.enumTable } : {}),
       ...(s.height ? { height: s.height } : {}),
-      ...(s.dividerBelow ? { dividerBelow: true } : {}),
-      ...(s.dividerHeight ? { dividerHeight: s.dividerHeight } : {}),
+      ...(s.dividers && s.dividers.length ? { dividers: s.dividers.slice() } : {}),
       ...(s.derived ? { derivedExpr: s.derived.expr } : {}),
       ...(s.mute ? { mute: s.mute } : {}),
     });
@@ -278,6 +280,7 @@ export interface SidecarSnapshot {
   treeExpanded: Set<NodeId>;
   toggles: { snapCursor: boolean; clockAnchor: boolean };
   timebase: { clockPath: string | null; override: { period: number; phase: number } | null };
+  topDividers: number[];
 }
 
 // Pure. Builds the object with a fixed key order (insertion order is preserved
@@ -294,8 +297,7 @@ export function serializeSidecar(snap: SidecarSnapshot): Sidecar {
     ...(r.clock ? { clock: r.clock } : {}),
     ...(r.enumTable ? { enumTable: r.enumTable } : {}),
     ...(r.height ? { height: r.height } : {}),
-    ...(r.dividerBelow ? { dividerBelow: true } : {}),
-    ...(r.dividerHeight ? { dividerHeight: r.dividerHeight } : {}),
+    ...(r.dividers && r.dividers.length ? { dividers: r.dividers } : {}),
     ...(r.derivedExpr ? { derived: { expr: r.derivedExpr } } : {}),
     ...(r.mute ? { mute: r.mute } : {}),
   }));
@@ -320,6 +322,7 @@ export function serializeSidecar(snap: SidecarSnapshot): Sidecar {
       time: { start: snap.time.start, end: snap.time.end, cursor: snap.time.cursor },
       signals,
       markers,
+      ...(snap.topDividers.length ? { topDividers: snap.topDividers } : {}),
     },
     ui: {
       panels: snap.panels,

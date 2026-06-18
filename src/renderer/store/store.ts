@@ -55,8 +55,17 @@ export interface PanelState {
   activeCompactWidth: number | null;
 }
 
+// Identifies one divider for remove/resize: the row it sits below (by positional
+// `row` index) and its slot in that row's `dividers` array. `row === -1` targets
+// the top gap (Scene.topDividers).
+export type DividerTarget = { row: number; index: number };
+
 export interface DocState {
   activeSignals: Row[];
+  // Separator heights (CSS px; 0 = default) above the first row — the top gap.
+  // Per-row dividers live on each Row's `dividers`; this is the one gap with no row
+  // above it. Empty in the common case.
+  topDividers: number[];
   markers: Marker[];
   selectedMarkerId: number | null;
   cursorTicks: number;
@@ -83,7 +92,7 @@ export interface UiState {
   // `kind` distinguishes a signal-row menu from a divider menu from a tree menu.
   // The tree menu carries `nodeId` (the right-clicked hierarchy node) and uses
   // row -1 (it acts on the tree selection, not an active row).
-  ctxMenu: { x: number; y: number; row: number; kind?: "signal" | "divider" | "tree"; nodeId?: NodeId } | null;
+  ctxMenu: { x: number; y: number; row: number; kind?: "signal" | "divider" | "tree" | "pane"; nodeId?: NodeId; div?: DividerTarget } | null;
   enumDialog: { row: number } | null;
   // Bumped on viewport-settle (pan end / wheel / zoom-anim end) so the autosave
   // persists the final window — viewRange itself is excluded from the save
@@ -128,10 +137,17 @@ export interface Actions {
   setMute: (rows: number[], mute: string | undefined) => void;
   // Per-row vertical size (CSS px). undefined resets to the default ROW_HEIGHT_CSS.
   setRowHeight: (row: number, height: number | undefined) => void;
-  // Toggle a thin separator below `row` (DOM list + canvas gap).
-  toggleDivider: (row: number) => void;
-  // Resized divider height (CSS px). undefined resets to DIVIDER_HEIGHT_CSS.
-  setDividerHeight: (row: number, height: number | undefined) => void;
+  // Insert a separator. Below `row` appends to that row's gap; above `row` appends
+  // to the previous row's gap (or the top gap if `row` is first). Bottom appends
+  // below the last row (or the top gap when no rows). Always adds — back-to-back
+  // dividers are allowed (no toggle-to-remove).
+  addDividerBelow: (row: number) => void;
+  addDividerAbove: (row: number) => void;
+  addDividerBottom: () => void;
+  // Remove one divider by target (row + slot; row -1 = top gap).
+  removeDivider: (t: DividerTarget) => void;
+  // Resized divider height (CSS px). undefined resets to DIVIDER_HEIGHT_CSS (0).
+  setDividerHeight: (t: DividerTarget, height: number | undefined) => void;
   toggleHidden: (row: number) => void;
   // Hide every active row except `row` (which is forced visible).
   hideOthers: (row: number) => void;
@@ -186,7 +202,7 @@ export interface Actions {
 
   setHover: (h: { tick: number; row: number } | null) => void;
   setPicker: (p: { row: number; rows?: number[]; anchorRect: DOMRect } | null) => void;
-  setCtxMenu: (m: { x: number; y: number; row: number; kind?: "signal" | "divider" | "tree"; nodeId?: NodeId } | null) => void;
+  setCtxMenu: (m: { x: number; y: number; row: number; kind?: "signal" | "divider" | "tree" | "pane"; nodeId?: NodeId; div?: DividerTarget } | null) => void;
   setEnumDialog: (d: { row: number } | null) => void;
 
   // Re-seed the whole document slice from the freshly-swapped SCENE/INITIAL (the
@@ -258,6 +274,7 @@ function hydrateDoc(): DocState {
 
   return {
     activeSignals: active.map(withRowId),
+    topDividers: [...SCENE.topDividers],
     markers,
     selectedMarkerId: selIdx >= 0 ? selIdx + 1 : null,
     cursorTicks: INITIAL.time.cursor,
@@ -361,12 +378,31 @@ const vanilla = createVanilla<AppState>()(
     setRowHeight: (row, height) => set((s) => ({
       activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, height } : r)),
     })),
-    toggleDivider: (row) => set((s) => ({
-      activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, dividerBelow: !r.dividerBelow } : r)),
+    // Append a default-height (0) divider to row `row`'s gap.
+    addDividerBelow: (row) => set((s) => ({
+      activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, dividers: [...(r.dividers ?? []), 0] } : r)),
     })),
-    setDividerHeight: (row, height) => set((s) => ({
-      activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, dividerHeight: height } : r)),
-    })),
+    // Above row `row`: the previous row's gap, or the top gap when `row` is first.
+    addDividerAbove: (row) => set((s) => (
+      row <= 0
+        ? { topDividers: [...s.topDividers, 0] }
+        : { activeSignals: s.activeSignals.map((r) => (r.row === row - 1 ? { ...r, dividers: [...(r.dividers ?? []), 0] } : r)) }
+    )),
+    // Below the last row, or the top gap when there are no rows.
+    addDividerBottom: () => set((s) => {
+      const last = s.activeSignals.length - 1;
+      if (last < 0) return { topDividers: [...s.topDividers, 0] };
+      return { activeSignals: s.activeSignals.map((r) => (r.row === last ? { ...r, dividers: [...(r.dividers ?? []), 0] } : r)) };
+    }),
+    removeDivider: (t) => set((s) => {
+      if (t.row < 0) return { topDividers: s.topDividers.filter((_, i) => i !== t.index) };
+      return { activeSignals: s.activeSignals.map((r) => (r.row === t.row ? { ...r, dividers: (r.dividers ?? []).filter((_, i) => i !== t.index) } : r)) };
+    }),
+    setDividerHeight: (t, height) => set((s) => {
+      const h = height ?? 0; // 0 = default
+      if (t.row < 0) return { topDividers: s.topDividers.map((v, i) => (i === t.index ? h : v)) };
+      return { activeSignals: s.activeSignals.map((r) => (r.row === t.row ? { ...r, dividers: (r.dividers ?? []).map((v, i) => (i === t.index ? h : v)) } : r)) };
+    }),
     toggleHidden: (row) => set((s) => ({
       activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, hidden: !r.hidden } : r)),
     })),
@@ -519,6 +555,7 @@ function sidecarSnapshot(s: AppState): SidecarSnapshot {
   return {
     hierarchy: SCENE.hierarchy,
     activeSignals: s.activeSignals,
+    topDividers: s.topDividers,
     time: { start: s.viewRange.start, end: s.viewRange.end, cursor: s.cursorTicks },
     markers: s.markers.map((m) => ({
       name: m.name, tick: m.tick, color: m.color, selected: m.id === s.selectedMarkerId,
@@ -551,7 +588,7 @@ export function startAutosave(): () => void {
   let lastSaved = selectSidecarText(useAppStore.getState());
   return useAppStore.subscribe(
     (s) => [
-      s.activeSignals, s.markers, s.selectedMarkerId, s.snapCursor, s.clockAnchor,
+      s.activeSignals, s.topDividers, s.markers, s.selectedMarkerId, s.snapCursor, s.clockAnchor,
       s.timebaseClock, s.timebaseOverride,
       s.panels, s.expandedScopes, s.cursorTicks, s.viewSaveNonce,
     ] as const,
