@@ -13,7 +13,6 @@ import { VCD_PATH } from "./runtime";
 import { stamp } from "./perf";
 
 declare const require: (m: string) => unknown;
-declare const process: { platform: string } | undefined;
 
 interface RawScopeNode {
   id: number;
@@ -94,16 +93,11 @@ interface NativeModule {
 }
 
 stamp("native:require");
-// The addon ships as one binary per platform under dist/native (both are bundled;
-// only the host-matching one is ever require()d). Windows is a cross-compiled DLL
-// (riptide-win.node, see scripts/gen-win-napi-shim.mjs); every other OS uses the
-// native .so/.dylib (riptide.node). Two static specifiers so esbuild keeps both
-// external (see build-ui.mjs); the ternary only evaluates the matching one.
-const native = (
-  (typeof process !== "undefined" && process.platform === "win32")
-    ? require("../native/riptide-win.node")
-    : require("../native/riptide.node")
-) as NativeModule;
+// The addon is built per platform to a single canonical name under dist/native
+// (the build orchestrator maps .so/.dylib/.dll → riptide.node — see
+// scripts/build.mjs). An installer only ever carries its own platform's binary,
+// so one specifier suffices; esbuild keeps it external (see build-ui.mjs).
+const native = require("../native/riptide.node") as NativeModule;
 
 // Whether a trace has been loaded into the native db. False at boot when the
 // window opened with no ?vcd= (idle app). While false every query function below

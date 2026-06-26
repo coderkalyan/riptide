@@ -5,31 +5,12 @@
   "main": "dist/main/index.js",
   "packageManager": "pnpm@9.0.0",
   "scripts": {
-    "wgsl-check": "node scripts/wgsl-check.mjs",
-    "build:native": "cd native && zig build -Doptimize=ReleaseSafe && mkdir -p ../dist/native && cp zig-out/lib/libriptide.so ../dist/native/riptide.node && cp src/mock.vcd ../dist/native/ && cp -n src/mock.vcd.sidecar.json ../dist/native/",
-    "build:native:win": "node scripts/gen-win-napi-shim.mjs && cd native && zig build -Doptimize=ReleaseSafe -Dtarget=x86_64-windows && mkdir -p ../dist/native && cp zig-out/bin/riptide.dll ../dist/native/riptide-win.node && cp src/mock.vcd ../dist/native/ && cp -n src/mock.vcd.sidecar.json ../dist/native/",
-    "build:native:mac": "cd native && zig build -Doptimize=ReleaseSafe -Dtarget=aarch64-macos && mkdir -p ../dist/native && cp zig-out/lib/libriptide.dylib ../dist/native/riptide.node && cp src/mock.vcd ../dist/native/ && cp -n src/mock.vcd.sidecar.json ../dist/native/",
-    "test": "tests/run.sh",
-    "test:differential": "node --test tests/differential.test.cjs",
-    "test:visual": "tests/e2e/run-headless.sh",
-    "test:visual:update": "UPDATE_GOLDENS=1 tests/e2e/run-headless.sh",
-    "screenshot": "node scripts/screenshot.cjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
-    "build": "pnpm wgsl-check && pnpm build:native && tsc -p tsconfig.json && node scripts/build-ui.mjs",
-    "build:prod": "NODE_ENV=production pnpm build",
-    "dist": "pnpm build:prod && electron-builder",
-    "dist:linux": "pnpm build:prod && electron-builder --linux",
-    "dist:win": "pnpm build:prod && pnpm build:native:win && electron-builder --win",
-    "dist:mac": "pnpm build:prod && pnpm build:native:mac && electron-builder --mac",
-    "dist:all": "pnpm build:prod && pnpm build:native:win && electron-builder --linux --win",
-    "dist:dir": "pnpm build:prod && electron-builder --dir",
-    "dev": "pnpm build && electron .",
-    "dev:blank": "pnpm build && RIPTIDE_NO_TRACE=1 electron .",
-    "dev:ui": "pnpm wgsl-check && pnpm build:native && node scripts/dev-ui.mjs",
-    "dev:mac": "cd native && zig build -Doptimize=ReleaseSafe && mkdir -p ../dist/native && cp zig-out/lib/libriptide.dylib ../dist/native/riptide.node && cp src/mock.vcd ../dist/native/ && cp -n src/mock.vcd.sidecar.json ../dist/native/ && cd .. && tsc -p tsconfig.json && node scripts/build-ui.mjs && electron .",
-    "canvas-test": "node scripts/canvas-test/build.mjs && deno run --allow-all scripts/canvas-test/harness.bundle.mjs",
-    "canvas-test:update": "node scripts/canvas-test/build.mjs && deno run --allow-all scripts/canvas-test/harness.bundle.mjs --update",
-    "canvas-test:equiv": "node scripts/canvas-test/build.mjs && deno run --allow-all scripts/canvas-test/harness.bundle.mjs --equiv"
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs --mode=release",
+    "check": "node scripts/check.mjs",
+    "test": "node scripts/test.mjs",
+    "test:update": "node scripts/test.mjs --update",
+    "release": "node scripts/build.mjs --mode=release && electron-builder --publish never"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
@@ -45,40 +26,6 @@
     "postcss": "^8.5.15",
     "tailwindcss": "4",
     "typescript": "^5.6.0"
-  },
-  "build": {
-    "appId": "com.riptide.app",
-    "productName": "Riptide",
-    "directories": {
-      "output": "dist/installers"
-    },
-    "files": [
-      "dist/**/*",
-      "!dist/installers/**",
-      "!dist/native/mock.vcd",
-      "!dist/native/mock.vcd.sidecar.json",
-      "!dist/native/query-fixture",
-      "package.json"
-    ],
-    "asarUnpack": [
-      "dist/native/**"
-    ],
-    "linux": {
-      "target": [
-        "AppImage"
-      ],
-      "category": "Development"
-    },
-    "mac": {
-      "target": [
-        "dmg"
-      ]
-    },
-    "win": {
-      "target": [
-        "portable"
-      ]
-    }
   },
   "dependencies": {
     "@melloware/coloris": "^0.25.0",

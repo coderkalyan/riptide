@@ -40,7 +40,7 @@ VCD_TESTS_DIR=/path/to/vcd-tests tests/run.sh
 
 The three node suites are **fully headless** (`node --test`, no display, no GPU) —
 they load the production N-API addon (`dist/native/riptide.node`) directly under
-node. Run `pnpm build:native` first. The **e2e** suite drives the real Electron
+node. Run `pnpm build` first (or `node scripts/build.mjs --steps=native`). The **e2e** suite drives the real Electron
 app and needs an X display (no xvfb in this env; run under a display or
 `xvfb-run -a node --test tests/e2e/app.test.cjs`).
 

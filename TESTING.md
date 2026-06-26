@@ -1,16 +1,20 @@
 # Testing
 
-Three independent harnesses (no linter):
+Three independent harnesses (no linter), all run by `pnpm test` (each self-skips
+if its external tool — bash / sway / deno / a display — is missing). Individual
+harnesses can still be invoked directly as shown in each section below.
 
-1. **Oracle regression/integration** (`pnpm test`) — drives the deterministic
-   **vcd-tests** fixture corpus through tide → the napi addon → the app, asserting
-   values, formatting, and structure against a ground-truth answer key. Headless
-   and CI-ready. **This is the first section below.**
-2. **DOM visual regression** (`pnpm test:visual`) — proves the renderer **chrome**
-   (CSS/Tailwind, layout) is a pixel no-op against committed PNG goldens, the
-   WebGPU canvas masked. See [DOM visual regression](#dom-visual-regression).
-3. **Canvas (GPU) pixel** (`pnpm canvas-test`) — proves GPU refactors are visual
-   no-ops against a committed golden. See [Canvas (GPU) testing](#canvas-gpu-testing).
+1. **Oracle regression/integration** — drives the deterministic **vcd-tests**
+   fixture corpus through tide → the napi addon → the app, asserting values,
+   formatting, and structure against a ground-truth answer key. Headless and
+   CI-ready. **This is the first section below.**
+2. **DOM visual regression** — proves the renderer **chrome** (CSS/Tailwind,
+   layout) is a pixel no-op against committed PNG goldens, the WebGPU canvas
+   masked. See [DOM visual regression](#dom-visual-regression).
+3. **Canvas (GPU) pixel** — proves GPU refactors are visual no-ops against a
+   committed golden. See [Canvas (GPU) testing](#canvas-gpu-testing).
+
+`pnpm test --update` regenerates the visual + canvas goldens.
 
 Plus manual verification (`pnpm dev`) and ad-hoc verifiers
 (`node tests/gate-split.verify.cjs` — muted-data segment splitting).
@@ -58,9 +62,9 @@ or a *formatter* bug, never silent core/marshalling corruption.
 ### Running
 
 ```sh
-pnpm build:native        # dist/native/riptide.node (query-fixture exe → native/zig-out/bin)
-pnpm test                # == tests/run.sh: all suites (e2e only if $DISPLAY set)
-tests/run.sh seam-a      # one suite: seam-a | native | format | differential | malformed | e2e
+pnpm build               # dist/native/riptide.node (query-fixture exe → native/zig-out/bin)
+pnpm test                # build addon, then all harnesses (each self-skips on missing tool)
+tests/run.sh seam-a      # the oracle/node suites alone: seam-a | native | format | differential | malformed | e2e
 VCD_TESTS_DIR=/path tests/run.sh
 ```
 
@@ -110,8 +114,9 @@ shot is compared against a committed golden PNG; any chrome change fails.
 ### Commands
 
 ```
-pnpm test:visual          # tests/e2e/run-headless.sh: compare to goldens
-pnpm test:visual:update   # UPDATE_GOLDENS=1: (re)write goldens
+pnpm test                       # part of the full run (skipped without bash + sway)
+pnpm test --update              # regenerate these (+ canvas) goldens
+bash tests/e2e/run-headless.sh  # run this harness alone; UPDATE_GOLDENS=1 to (re)write goldens
 ```
 
 - Driver `tests/e2e/visual.test.cjs`; pixel diff `tests/e2e/pngdiff.cjs`; goldens
@@ -153,9 +158,14 @@ golden, byte-for-byte.
 ### Commands
 
 ```
-pnpm canvas-test          # render the production path, compare to golden, exit 1 on diff
-pnpm canvas-test:update   # (re)generate the golden: scripts/canvas-test/golden/scene.{bin,png}
-pnpm canvas-test:equiv    # self-contained no-op proof (see below)
+pnpm test                 # part of the full run (skipped without deno)
+pnpm test --update        # (re)generate the golden: scripts/canvas-test/golden/scene.{bin,png}
+
+# run this harness alone (builds the bundle, then drives it under deno):
+node scripts/canvas-test/build.mjs
+deno run --allow-all scripts/canvas-test/harness.bundle.mjs            # compare to golden, exit 1 on diff
+deno run --allow-all scripts/canvas-test/harness.bundle.mjs --update   # regenerate the golden
+deno run --allow-all scripts/canvas-test/harness.bundle.mjs --equiv    # self-contained no-op proof (see below)
 ```
 
 - `scene.bin` (raw RGBA, the comparison source of truth) and `scene.png` (human
@@ -167,11 +177,11 @@ pnpm canvas-test:equiv    # self-contained no-op proof (see below)
 
 ### Workflow
 
-1. **Visual change** (intended): make it, run `pnpm canvas-test:update`, commit
-   the new golden alongside the code. The PNG diff in review shows the change.
-2. **No-op change** (optimization/refactor): make it, run `pnpm canvas-test`. It
-   must `CHECK PASS` against the unchanged golden. If it fails, the change wasn't
-   a no-op.
+1. **Visual change** (intended): make it, run `pnpm test --update`, commit the
+   new golden alongside the code. The PNG diff in review shows the change.
+2. **No-op change** (optimization/refactor): make it, run `pnpm test` (or the
+   harness alone). It must `CHECK PASS` against the unchanged golden. If it fails,
+   the change wasn't a no-op.
 
 ### The scene
 

@@ -1,0 +1,21 @@
+appId: com.riptide.app
+productName: Riptide
+directories:
+  output: dist/installers
+files:
+  - dist/**/*
+  - "!dist/installers/**"
+  - package.json
+# The native addon must stay outside the asar so it can be require()d at runtime.
+asarUnpack:
+  - dist/native/**
+linux:
+  target:
+    - AppImage
+  category: Development
+mac:
+  target:
+    - dmg
+win:
+  target:
+    - portable

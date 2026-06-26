@@ -6,21 +6,17 @@ File guide for Claude Code (claude.ai/code) for repo work. See `TIDE_INTEGRATION
 
 ## Commands
 
-Run from repo root:
+Run from repo root. Six scripts, all driven by one cross-platform Node orchestrator (`scripts/build.mjs`) — no shell builtins, no per-platform script variants:
 
-- `pnpm wgsl-check` — validate all `.wgsl` files via `naga --bulk-validate` (`scripts/wgsl-check.mjs`). Runs before build + `dev:ui`.
-- `pnpm build:native` — `zig build -Doptimize=ReleaseSafe` in `native/`, copy `libriptide.so` → `dist/native/riptide.node` (the napi addon). Also copies the bundled `mock.vcd` (+ its sidecar) into `dist/native`. (The `query-fixture` test exe is no longer copied here — the differential test reads it from `native/zig-out/bin/`.)
-- `pnpm build:native:win` — cross-compile the addon for Windows (`-Dtarget=x86_64-windows`) via the napi shim (`scripts/gen-win-napi-shim.mjs`) → `dist/native/riptide-win.node` (separate name; both binaries bundle, only the host-matching one is `require`d).
-- `pnpm build:native:mac` — cross-compile the addon for macOS (`-Dtarget=aarch64-macos`) → `dist/native/riptide.node` (same name as Linux; `build.zig` allows undefined napi symbols on Mach-O via `linker_allow_shlib_undefined`). Untested — packaging the dmg still requires running electron-builder on macOS.
-- `pnpm build` — wgsl-check + build:native + compile main process (`tsc`, CommonJS → `dist/main`) + bundle renderer (`scripts/build-ui.mjs`, esbuild + Tailwind) + copy `index.html`.
-- `pnpm dev` — build + launch Electron. `pnpm dev:blank` — same but `RIPTIDE_NO_TRACE=1` (boots the idle/no-file UI even though the mock is present).
-- `pnpm dev:mac` — run-from-source path for **macOS** (the default `build:native` copies a Linux `.so`, so it can't run on a Mac): host-arch `zig build` → `libriptide.dylib` → `riptide.node`, then main + renderer (skips `wgsl-check`, so no `naga`/Rust needed) + launch. Needs `zig` + the `../tide` / `../tide-vcd` siblings, like every native build.
-- `pnpm dev:ui` — wgsl-check + build:native + renderer-only esbuild watch & live-reload at `http://localhost:5173` (`scripts/dev-ui.mjs`). Pair with Electron started under `RIPTIDE_DEV=1` to loadURL the dev server instead of `dist/renderer/index.html`.
-- `pnpm typecheck` — two tsconfigs (`tsconfig.json` main, `tsconfig.renderer.json` the renderer = SolidJS app + shared `.ts`), no emit.
-- `pnpm test` / `pnpm test:visual` / `pnpm canvas-test` — see `TESTING.md` (oracle suites; DOM screenshot regression; GPU golden).
-- `pnpm dist` / `pnpm dist:dir` — build:prod + electron-builder → `dist/installers/` (AppImage on Linux). `dist:linux` / `dist:win` / `dist:mac` / `dist:all` target specific platforms (each runs the matching `build:native:*` first; `dist:all` = linux + win). `dist/native/**` is asar-unpacked. **The `mac` (dmg) target's native addon now cross-builds (`build:native:mac`), but electron-builder can only assemble the dmg when run on macOS — so `dist:mac` is not fully buildable from Linux.**
+- `pnpm dev` — build the host-native addon + app (Debug) and launch Electron (`scripts/dev.mjs`). `pnpm dev --blank` boots the idle/no-trace UI (`RIPTIDE_NO_TRACE`).
+- `pnpm build` — release build of everything into `dist/`: native addon (`zig build -Doptimize=ReleaseSafe`, copied to `dist/native/riptide.node`) + main process (`tsc`, CommonJS → `dist/main`) + renderer (`scripts/build-ui.mjs`, esbuild + Tailwind, minified) + `index.html`.
+- `pnpm check` — all static checks (`scripts/check.mjs`): WGSL validation (`naga --bulk-validate`, skipped with a warning if `naga` absent) + both tsconfigs type-checked (`tsconfig.json` main, `tsconfig.renderer.json` renderer).
+- `pnpm test` — `scripts/test.mjs`: builds the host addon, then runs `check` + the Zig oracle & headless node suites (`tests/run.sh`) + the Electron visual regression (`run-headless.sh`) + the GPU canvas golden (deno). Suites whose tool is missing (bash / sway / deno / a display) self-skip. `pnpm test --update` regenerates the visual + canvas goldens. See `TESTING.md`.
+- `pnpm release` — `pnpm build` + electron-builder for the host platform (config in `electron-builder.yml`) → `dist/installers/`. `dist/native/**` is asar-unpacked.
 
-Requires `naga` CLI (`cargo install naga-cli`) and `zig` on PATH (build-time only — testers running a packaged build need neither). The native build pulls `tide` / `tide-vcd` as Zig deps — sibling repos at `../tide`, `../tide-vcd` (referenced from `native/build.zig.zon`). No linter; tests via `pnpm test` (oracle + visual harnesses, see `TESTING.md`).
+**The build orchestrator** (`scripts/build.mjs`): `node scripts/build.mjs [--target=<host|linux-x64|windows-x64|macos-arm64|macos-x64>] [--mode=<dev|release>] [--steps=<all|native|app>]`. `host` builds the addon natively; the explicit triples cross-compile it. One mapping table turns each target's zig output (`.so`/`.dylib`/`.dll`) into the single canonical addon name `riptide.node` (an installer is one platform, so no per-OS filenames). Windows compiles the generated napi trampoline shim (`scripts/gen-win-napi-shim.mjs`); macOS pins the old MachO linker in `build.zig` so the napi symbols resolve. The CI release workflow (`.github/workflows/release.yml`) calls this exact script on a per-runner matrix (one runner per platform) — no bash re-implementation of the build.
+
+Requires `zig` on PATH and the `tide` / `tide-vcd` sibling repos at `../tide`, `../tide-vcd` (referenced from `native/build.zig.zon`; `build.mjs` preflights both with a clear error). `naga` (`cargo install naga-cli`) is needed only for `check`/`test`'s WGSL pass. All are build-time only — testers running a packaged build need none. No linter; tests via `pnpm test`.
 
 ## Architecture
 
