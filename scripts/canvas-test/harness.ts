@@ -115,11 +115,13 @@ function buildDigital() {
   const busVals = [0x00, 0xa5, 0x10, 0x3c];
   for (let i = 0; i < 4; i++) multi.push(i * 24, (i + 1) * 24, 2 | F_SHADE);
 
-  // rowInfo: 5 u32 each (x0_offset, x1_offset, bytes_per_sample, segment_start, flags)
+  // rowInfo: 7 u32 each (x0_offset, x1_offset, bytes_per_sample, segment_start,
+  // flags, y_offset, height) — y_offset/height are f32-bit words, written after
+  // scene creation via renderer.setRowLayout (mirrors WaveCanvas).
   const rowInfo = new Uint32Array([
-    0, 0, 1, 0, 0,   // row0: 8 samples at pool byte 0
-    8, 8, 1, 8, 0,   // row1: 8 samples at pool byte 8, single-pipeline instance 8
-    16, 16, 1, 0, 0, // row2: 4 samples at pool byte 16, multi-pipeline instance 0
+    0, 0, 1, 0, 0, 0, 0,   // row0: 8 samples at pool byte 0
+    8, 8, 1, 8, 0, 0, 0,   // row1: 8 samples at pool byte 8, single-pipeline instance 8
+    16, 16, 1, 0, 0, 0, 0, // row2: 4 samples at pool byte 16, multi-pipeline instance 0
   ]);
   // sample pools (LSB / MSB), one byte per sample (bps=1). (m,l): (0,0)=0 (0,1)=1
   // (1,0)=x (1,1)=z. MSB nonzero → vertex sets F_CROSSHATCH.
@@ -223,7 +225,8 @@ async function main() {
   const scene = renderer.createSceneBuffers(dig.rowInfo.buffer as ArrayBuffer, dig.x0, dig.x1);
   const singlePipe: SignalPipeline = await renderer.buildPipelineFromPacked("single", dig.single, dig.single.length / 3, colorBuf, scene);
   const multiPipe: SignalPipeline = await renderer.buildPipelineFromPacked("multi", dig.multi, dig.multi.length / 3, colorBuf, scene);
-  renderer.setDimFlags(scene, () => false);
+  renderer.setRowFlags(scene, () => false, () => false);
+  renderer.setRowLayout(scene, () => ROW_H, WAVE_Y);
 
   // static layers (identical across both pill paths)
   const linesBg = lineR.createBatch();
@@ -231,6 +234,7 @@ async function main() {
   const rectsBg = rectR.createBatch();
   const textBody = textR.createBatch();
   const labels = labelR.createBatch(); // left empty (bindGroup null) → skipped
+  const labelsSingle = labelR.createBatch(); // likewise empty
 
   const grid: LineSpec[] = [];
   for (let t = 0; t <= 96; t += 12) grid.push({ x: xForTick(t), color: C.GRID, dashed: true });
@@ -285,7 +289,7 @@ async function main() {
   function renderProduction(): void {
     fillSharedPills();
     renderFrame(gpu, renderer, pipelines, {
-      linesBg, rectsBg, labels, linesFg, textBody,
+      linesBg, rectsBg, labels, labelsSingle, linesFg, textBody,
       pillRects, pillText, pillRanges, pillRangeCount: descs.length,
     }, vp);
   }
