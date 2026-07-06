@@ -33,6 +33,11 @@ export function MenuBar(props: {
   onImportSidecar: () => void;
   getRecent: () => Promise<string[]>;
   onCloseWindow: () => void;
+  // Linux-only: toggle between the custom in-app title bar (frameless) and the
+  // native WM frame. Hidden on other platforms.
+  linux: () => boolean;
+  frameStyle: () => "custom" | "native";
+  onToggleFrame: () => void;
   onZoomIn: () => void;
   onZoomOut: () => void;
   onZoomFit: () => void;
@@ -106,6 +111,9 @@ export function MenuBar(props: {
       { label: "Align Grid to Clock", checked: props.clockOn(), action: "toggle-clock", disabled: idle || !props.clockAvailable() },
       "sep",
       { label: "Reset Layout", disabled: true, unimplemented: true },
+      ...(props.linux()
+        ? ["sep" as MenuItem, { label: "System Title Bar", checked: props.frameStyle() === "native", action: "toggle-frame" } as MenuItem]
+        : []),
     ] },
     { name: "Signals", items: [
       { label: props.signalHidden() ? "Show Signal" : "Hide Signal", action: "signal-hide", disabled: idle || !props.signalSelected() },
@@ -167,6 +175,7 @@ export function MenuBar(props: {
     else if (it.action === "export-sidecar") props.onExportSidecar();
     else if (it.action === "import-sidecar") props.onImportSidecar();
     else if (it.action === "close-window") props.onCloseWindow();
+    else if (it.action === "toggle-frame") props.onToggleFrame();
     else if (it.action === "zoom-in") props.onZoomIn();
     else if (it.action === "zoom-out") props.onZoomOut();
     else if (it.action === "zoom-fit") props.onZoomFit();

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, Menu, dialog, ipcMain } from "electron";
 import * as path from "node:path";
 import fs from 'fs';
 
@@ -53,6 +53,37 @@ function addRecent(p: string): void {
   }
 }
 
+// Window frame style (Linux only). "custom" = frameless window + in-app drawn
+// window controls (default; the app already has its own titlebar row). "native" =
+// the WM/OS draws the frame + buttons (a tiling WM strips them entirely — the
+// "give me nothing" escape hatch). Persisted to userData so the choice survives
+// restarts. Consulted ONLY on Linux; mac/Windows keep the Electron default frame.
+type FrameStyle = "custom" | "native";
+const framePrefPath = () => path.join(app.getPath("userData"), "frame.json");
+function readFrameStyle(): FrameStyle {
+  try {
+    return JSON.parse(fs.readFileSync(framePrefPath(), "utf8")) === "native" ? "native" : "custom";
+  } catch {
+    return "custom";
+  }
+}
+function writeFrameStyle(s: FrameStyle): void {
+  try {
+    fs.writeFileSync(framePrefPath(), JSON.stringify(s));
+  } catch (err) {
+    console.error("[frame] write failed", err);
+  }
+}
+
+// Chrome param carried to the renderer (Linux + custom frame only) so it draws the
+// in-app window controls. Empty on native frame or other platforms — the renderer
+// then draws no controls (WM/OS owns the frame). The controls live left, where the
+// title-bar dots sat; no side/order negotiation needed.
+function chromeSearch(): string {
+  if (process.platform !== "linux" || readFrameStyle() !== "custom") return "";
+  return "&chrome=custom";
+}
+
 // The trace this window currently shows. The "Open VCD…" menu swaps it and
 // reloads. The path is carried to the renderer in the window URL (?vcd=...) so a
 // reload re-initializes the native db, hierarchy, and sidecar-derived view from
@@ -77,7 +108,7 @@ function resolveBootTrace(): string {
 }
 
 function loadTrace(win: BrowserWindow): void {
-  const search = `vcd=${encodeURIComponent(currentVcd)}`;
+  const search = `vcd=${encodeURIComponent(currentVcd)}${chromeSearch()}`;
   if (process.env.RIPTIDE_DEV) {
     win.loadURL(`http://localhost:5173/?${search}`);
   } else {
@@ -86,10 +117,14 @@ function loadTrace(win: BrowserWindow): void {
 }
 
 function createWindow(): void {
+  // Linux "custom" frame → frameless; the app draws its own titlebar + controls.
+  // Everywhere else (and Linux "native") keeps Electron's default OS frame.
+  const frameless = process.platform === "linux" && readFrameStyle() === "custom";
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
     title: "riptide",
+    frame: !frameless,
     autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: true,
@@ -100,6 +135,11 @@ function createWindow(): void {
   });
   win.webContents.on("will-navigate", (e) => e.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  // Keep the custom titlebar's maximize/restore glyph in sync with the real window
+  // state (the WM can also (un)maximize, e.g. double-click or a keybind).
+  const sendMax = () => win.webContents.send("riptide:maximized", win.isMaximized());
+  win.on("maximize", sendMax);
+  win.on("unmaximize", sendMax);
   loadTrace(win);
   // win.webContents.openDevTools({ mode: "detach" });
   //
@@ -200,7 +240,34 @@ ipcMain.handle("riptide:close-window", (e) => {
   BrowserWindow.fromWebContents(e.sender)?.close();
 });
 
+// Custom-titlebar (frameless Linux) window controls.
+ipcMain.handle("riptide:minimize-window", (e) => {
+  BrowserWindow.fromWebContents(e.sender)?.minimize();
+});
+ipcMain.handle("riptide:toggle-maximize", (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  if (!win) return;
+  if (win.isMaximized()) win.unmaximize();
+  else win.maximize();
+});
+ipcMain.handle("riptide:is-maximized", (e) => BrowserWindow.fromWebContents(e.sender)?.isMaximized() ?? false);
+
+// Toggle the Linux frame style (custom in-app controls <-> native WM frame).
+// Persist, then recreate the window so the new frame takes effect. currentVcd is
+// module state and the view is autosaved to the sidecar, so the same trace + view
+// reloads in the fresh window.
+ipcMain.handle("riptide:set-frame-style", (e, style: FrameStyle) => {
+  if (process.platform !== "linux") return;
+  writeFrameStyle(style === "native" ? "native" : "custom");
+  const old = BrowserWindow.fromWebContents(e.sender);
+  createWindow();
+  old?.close();
+});
+
 app.whenReady().then(() => {
+  // The app draws its own MenuBar; drop the native/GTK application menu so no
+  // stray menu bar wraps at the top of the window on Linux.
+  Menu.setApplicationMenu(null);
   currentVcd = resolveBootTrace();
   createWindow();
 });

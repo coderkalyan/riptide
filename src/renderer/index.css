@@ -187,6 +187,36 @@
             background: var(--border-strong);
         }
         .dots i.r { background:#E86A5A; } .dots i.y{ background:#E6B14E;} .dots i.g{ background:#57C88A;}
+        /* Frameless Linux (custom title bar): the whole bar drags the window;
+           interactive children opt back out so clicks/menus still work. */
+        .titlebar.draggable { -webkit-app-region: drag; }
+        .titlebar.draggable .menubar,
+        .titlebar.draggable .m,
+        .titlebar.draggable .pill,
+        .titlebar.draggable .win-controls { -webkit-app-region: no-drag; }
+        /* In-app window controls (close / maximize / minimize). Dots, like the old
+           traffic-light placeholder they replace, but neutral (no mac-style
+           red/yellow/green) — the glyph is always shown; hover just brightens. */
+        .win-controls {
+            @apply tw:flex tw:items-center tw:shrink-0;
+            gap: 6px;
+        }
+        .win-controls .wc {
+            @apply tw:inline-flex tw:items-center tw:justify-center;
+            width: 13px;
+            height: 13px;
+            padding: 0;
+            border: none;
+            border-radius: 9999px;
+            background: var(--border-strong);
+            color: var(--muted);
+            cursor: default;
+            outline: none;
+            transition: background .1s ease, color .1s ease;
+        }
+        .win-controls .wc:focus, .win-controls .wc:focus-visible { outline: none; box-shadow: none; }
+        .win-controls .wc:hover { background: var(--text-2); color: var(--bg); }
+        .win-controls .wc.close:hover { background: #E5484D; color: #fff; }
         .title { font-weight: 600; font-size: var(--text-sm); letter-spacing:.1px; }
         .title .sub { color: var(--muted); font-weight: 400; margin-left:6px; }
         /* Tabs hug the bottom of the titlebar (squared bottom corners sit on the
@@ -905,6 +935,21 @@
         .s-row.sel {
             @apply tw:bg-accent-soft;
         }
+        /* Drag-to-reorder (wave/dragReorder.ts). The lifted row tracks the pointer
+           with no transition; the flowing rows ease into the gap. Transition is
+           applied only while a drag is active (.dragflow) so clearing the
+           transforms at commit/cancel snaps cleanly with no stray animation. */
+        .s-row { cursor: grab; }
+        .s-row.dragflow { transition: transform 140ms ease; }
+        .s-row.dragging {
+            cursor: grabbing;
+            z-index: 5;
+            position: relative;
+            user-select: none;
+            background: var(--panel-2);
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+        }
+        .s-row .pin { cursor: pointer; }
         /* User-inserted separator below a row. Height MUST equal DIVIDER_HEIGHT_CSS
            (wave/constants.ts) so the canvas gap stays row-aligned. Styled like the
            menu separator: a centered 1px line inset from both edges. A faint band +

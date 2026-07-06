@@ -1,5 +1,5 @@
 import { For, Show, createSignal, createMemo, createEffect, onMount, onCleanup } from "solid-js";
-import { PanelLeftClose, PanelLeftOpen, FileText, FolderOpen, RotateCw } from "lucide-solid";
+import { PanelLeftClose, PanelLeftOpen, FileText, FolderOpen, RotateCw, Minus, Square, Copy, X } from "lucide-solid";
 import { useAppStore, selectExportSidecarText } from "./store/store";
 import { WaveCanvas } from "./wave/WaveCanvas";
 import { ActiveSignals } from "./ActiveSignals";
@@ -35,6 +35,29 @@ function ipc(): { invoke(channel: string, ...args: unknown[]): Promise<unknown> 
 
 async function openVcdDialog(): Promise<string | null> {
   return ((await ipc()?.invoke("riptide:open-vcd")) as string | null) ?? null;
+}
+
+// Window-chrome config from the URL (set by the main process). On Linux "custom"
+// frame the window is frameless and the app draws its own controls; `chrome` is
+// absent on native-frame Linux and all other platforms (WM/OS owns the frame).
+const CHROME_CUSTOM = new URLSearchParams(location.search).get("chrome") === "custom";
+const IS_LINUX = (() => {
+  try { return (require("os") as { platform(): string }).platform() === "linux"; } catch { return false; }
+})();
+
+// Frameless-Linux window controls, sitting where the title-bar dots were. Styled as
+// dots (like the old traffic-light placeholder) but neutral — no mac-style
+// red/yellow/green — with the glyph always shown. Order: close, maximize, minimize.
+function WindowControls(props: { maximized: () => boolean; onMin: () => void; onMax: () => void; onClose: () => void }) {
+  return (
+    <div class="win-controls">
+      <button class="wc close" data-tip="close" onClick={props.onClose}><X size={9} /></button>
+      <button class="wc" data-tip={props.maximized() ? "restore" : "maximize"} onClick={props.onMax}>
+        {props.maximized() ? <Copy size={8} /> : <Square size={7} />}
+      </button>
+      <button class="wc" data-tip="minimize" onClick={props.onMin}><Minus size={9} /></button>
+    </div>
+  );
 }
 
 const TREE_MIN_PX = 160;
@@ -202,6 +225,23 @@ export function App() {
 
   const getRecent = async () => ((await ipc()?.invoke("riptide:recent-vcds")) as string[] | null) ?? [];
   const closeWindow = () => { ipc()?.invoke("riptide:close-window"); };
+  const minimizeWindow = () => { ipc()?.invoke("riptide:minimize-window"); };
+  const toggleMaximize = () => { ipc()?.invoke("riptide:toggle-maximize"); };
+  // Track real maximize state so the control swaps maximize <-> restore. Seed from
+  // the current state, then follow main's push events (the WM can (un)maximize too).
+  const [maximized, setMaximized] = createSignal(false);
+  onMount(() => {
+    if (!CHROME_CUSTOM) return;
+    ipc()?.invoke("riptide:is-maximized").then((v) => setMaximized(!!v));
+    try {
+      const { ipcRenderer } = require("electron") as { ipcRenderer: { on(c: string, l: (e: unknown, v: boolean) => void): void; removeListener(c: string, l: (e: unknown, v: boolean) => void): void } };
+      const on = (_e: unknown, v: boolean) => setMaximized(!!v);
+      ipcRenderer.on("riptide:maximized", on);
+      onCleanup(() => ipcRenderer.removeListener("riptide:maximized", on));
+    } catch (e) { console.error("[ipc] maximize subscribe failed", e); }
+  });
+  // Flip Linux frame style; main persists it and recreates the window.
+  const toggleFrame = () => { ipc()?.invoke("riptide:set-frame-style", CHROME_CUSTOM ? "native" : "custom"); };
 
   const zoomIn = () => view.zoomBy(1 / ZOOM_STEP);
   const zoomOut = () => view.zoomBy(ZOOM_STEP);
@@ -249,12 +289,21 @@ export function App() {
 
   return (
     <div class="app">
-      <div class="titlebar">
-        <div class="dots"><i class="r" /><i class="y" /><i class="g" /></div>
+      <div class={`titlebar${CHROME_CUSTOM ? " draggable" : ""}`}>
+        {/* Left slot (where the dots sat): custom window controls on frameless
+            Linux, else the mac/Windows decorative dots. Native-frame Linux shows
+            neither — the WM draws the frame. */}
+        <Show when={CHROME_CUSTOM}>
+          <WindowControls maximized={maximized} onMin={minimizeWindow} onMax={toggleMaximize} onClose={closeWindow} />
+        </Show>
+        <Show when={!IS_LINUX}>
+          <div class="dots"><i class="r" /><i class="y" /><i class="g" /></div>
+        </Show>
         <div class="title">Riptide</div>
         <MenuBar
           idle={() => !traceOpen()}
           onOpenVcd={handleOpenVcd} onOpenRecent={handleOpenRecent} onExportSidecar={handleExportSidecar} onImportSidecar={handleImportSidecar} getRecent={getRecent} onCloseWindow={closeWindow}
+          linux={() => IS_LINUX} frameStyle={() => (CHROME_CUSTOM ? "custom" : "native")} onToggleFrame={toggleFrame}
           onZoomIn={zoomIn} onZoomOut={zoomOut} onZoomFit={zoomFit}
           treeCollapsed={() => s.panels.treeCollapsed} onToggleTree={toggleTree}
           activeCollapsed={() => s.panels.activeCollapsed} onToggleActive={toggleActive}
