@@ -67,14 +67,17 @@ the **MSB**: the top nibble takes 4 bits, the bottom gets the leftover 3.
   identical to the seam-C pill divergence.
 - Fixtures: `format: hier_balanced_soc` ✖ (opcode, width 7), `e2e` ✖.
 
-### B3 — `getValueAt` on an `event` signal aborts the process
-`feat_var_types` `types.an_event` (VCD `event` type) → SIGABRT, "reached
-unreachable code" in `pack.valueAt` / `db.query`. A cursor/hover over an active
-event row in-app would crash the renderer.
+### B3 — `getValueAt` on an `event` signal aborts the process  *(FIXED)*
+**Fixed:** verified 2026-07-06 — `getValueAt` on `types.an_event` now returns
+`null` at every tick (no samples land for the event var), and `feat_var_types`
+passes all four suites (`native`/`format`/`differential`/`e2e`).
+
+Original report: `feat_var_types` `types.an_event` (VCD `event` type) → SIGABRT,
+"reached unreachable code" in `pack.valueAt` / `db.query`. A cursor/hover over an
+active event row in-app would crash the renderer.
 
 - Found by the differential's exhaustive per-signal sweep; the oracle-sampled
   `native` test missed it (it didn't query that signal at those ticks).
-- Fixtures: `differential: feat_var_types` ✖ (surfaces as a query-fixture crash).
 
 ### B4 — malformed input: crash or silent accept, never diagnosed
 METHODOLOGY §9 wants survived + diagnosed + partially-correct. riptide has no

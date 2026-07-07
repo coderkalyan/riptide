@@ -600,20 +600,51 @@ export function selectExportSidecarText(s: AppState): string {
 // thrash the file) but INCLUDING viewSaveNonce (the pan/zoom settle trigger).
 // subscribe doesn't fire on initial state, so the first fire is a real change;
 // lastSaved seeds from the hydrated state. Returns the unsubscribe fn.
+//
+// The write is debounced: continuous gestures that live in the selector
+// (cursor scrub, marker drag, panel/row resize) fire per pointermove, and a
+// synchronous serialize + writeFileSync on each would run on the render
+// thread. State is snapshotted at flush time, not at the triggering event, so
+// the file always gets the latest state. Flushes on beforeunload; trace swaps
+// flush explicitly (flushAutosave) before the path changes.
+const AUTOSAVE_DEBOUNCE_MS = 400;
+let autosaveFlush: (() => void) | null = null;
+
+// Write any pending (debounced) sidecar change now. Call before swapping
+// traces so the outgoing trace's last edits land in ITS sidecar — after the
+// swap, the pending write would serialize the new trace to the new path.
+export function flushAutosave(): void {
+  autosaveFlush?.();
+}
+
 export function startAutosave(): () => void {
   let lastSaved = selectSidecarText(useAppStore.getState());
-  return useAppStore.subscribe(
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const flush = () => {
+    if (timer != null) { clearTimeout(timer); timer = null; }
+    const text = selectSidecarText(useAppStore.getState());
+    if (text === lastSaved) return;
+    lastSaved = text;
+    writeSidecarFile(sidecarPath(), text);
+  };
+  autosaveFlush = flush;
+  window.addEventListener("beforeunload", flush);
+  const unsub = useAppStore.subscribe(
     (s) => [
       s.activeSignals, s.topDividers, s.markers, s.selectedMarkerId, s.snapCursor, s.clockAnchor,
       s.timebaseClock, s.timebaseOverride,
       s.panels, s.expandedScopes, s.cursorTicks, s.viewSaveNonce,
     ] as const,
     () => {
-      const text = selectSidecarText(useAppStore.getState());
-      if (text === lastSaved) return;
-      lastSaved = text;
-      writeSidecarFile(sidecarPath(), text);
+      if (timer != null) clearTimeout(timer);
+      timer = setTimeout(flush, AUTOSAVE_DEBOUNCE_MS);
     },
     { equalityFn: shallow },
   );
+  return () => {
+    flush();
+    window.removeEventListener("beforeunload", flush);
+    autosaveFlush = null;
+    unsub();
+  };
 }

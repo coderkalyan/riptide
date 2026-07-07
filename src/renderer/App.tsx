@@ -1,12 +1,13 @@
 import { For, Show, createSignal, createMemo, createEffect, onMount, onCleanup } from "solid-js";
 import { PanelLeftClose, PanelLeftOpen, FileText, FolderOpen, RotateCw, Minus, Square, Copy, X } from "lucide-solid";
-import { useAppStore, selectExportSidecarText } from "./store/store";
+import { useAppStore, selectExportSidecarText, flushAutosave } from "./store/store";
 import { WaveCanvas } from "./wave/WaveCanvas";
 import { ActiveSignals } from "./ActiveSignals";
 import { HoverReadout } from "./HoverReadout";
 import { ColorPicker } from "./ColorPicker";
 import { ContextMenu, activeSignalMenu, dividerMenu, paneMenu, treeMenu } from "./ContextMenu";
 import { EnumDialog } from "./EnumDialog";
+import { AboutDialog } from "./AboutDialog";
 import { SignalTree, resolveAddIds, recursiveSigChildren, allScopeIds } from "./SignalTree";
 import { WavesToolbar } from "./WavesToolbar";
 import { MarkersBar } from "./MarkersBar";
@@ -150,6 +151,7 @@ export function App() {
   const handleOpenVcd = async () => {
     const p = await openVcdDialog();
     if (!p) return;
+    flushAutosave(); // pending debounced write must land in the OLD sidecar
     perf.beginSwap();
     swapTrace(p);
     s.resetForTrace();
@@ -159,6 +161,7 @@ export function App() {
   // then swap in place — same path as handleOpenVcd minus the dialog.
   const handleOpenRecent = async (p: string) => {
     await ipc()?.invoke("riptide:open-recent", p);
+    flushAutosave();
     perf.beginSwap();
     swapTrace(p);
     s.resetForTrace();
@@ -170,6 +173,7 @@ export function App() {
   const handleReload = () => {
     const p = currentVcdPath();
     if (!p) return;
+    flushAutosave(); // swap re-hydrates from the on-disk sidecar — don't lose a pending write
     perf.beginSwap();
     swapTrace(p);
     s.resetForTrace();
@@ -230,6 +234,7 @@ export function App() {
   // Track real maximize state so the control swaps maximize <-> restore. Seed from
   // the current state, then follow main's push events (the WM can (un)maximize too).
   const [maximized, setMaximized] = createSignal(false);
+  const [showAbout, setShowAbout] = createSignal(false);
   onMount(() => {
     if (!CHROME_CUSTOM) return;
     ipc()?.invoke("riptide:is-maximized").then((v) => setMaximized(!!v));
@@ -321,6 +326,7 @@ export function App() {
           onSignalMoveTop={() => { const r = selSignal(); if (r) s.moveSignal(r.row, "top"); }}
           onSignalMoveBottom={() => { const r = selSignal(); if (r) s.moveSignal(r.row, "bottom"); }}
           onSignalRemove={() => { const r = selSignal(); if (r) s.removeSignal(r.row); }}
+          onAbout={() => setShowAbout(true)}
         />
         {/* Pill noting the open file (multi-file tabs aren't built). Hidden while
             idle. The whole pill is the reload button (re-reads the file in place);
@@ -535,6 +541,9 @@ export function App() {
       <Show when={s.enumDialog}>{(d) => (
         <EnumDialog row={d().row} onClose={() => s.setEnumDialog(null)} />
       )}</Show>
+      <Show when={showAbout()}>
+        <AboutDialog onClose={() => setShowAbout(false)} />
+      </Show>
       </Show>
       <GlobalTooltip />
       <PerfOverlay />

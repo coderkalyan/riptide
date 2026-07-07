@@ -20,7 +20,7 @@ const EDIT_HELP: { name: string; items: MenuItem[] }[] = [
     { label: "Documentation", disabled: true, unimplemented: true },
     { label: "Keyboard Shortcuts", disabled: true, unimplemented: true },
     "sep",
-    { label: "About Riptide", disabled: true, unimplemented: true },
+    { label: "About Riptide", action: "about" },
   ] },
 ];
 
@@ -66,6 +66,7 @@ export function MenuBar(props: {
   onSignalMoveTop: () => void;
   onSignalMoveBottom: () => void;
   onSignalRemove: () => void;
+  onAbout: () => void;
 }) {
   const [open, setOpen] = createSignal<{ name: string; rect: DOMRect } | null>(null);
   // Frozen snapshot of the last-open menu — stays mounted while `open` is null so
@@ -116,7 +117,9 @@ export function MenuBar(props: {
         : []),
     ] },
     { name: "Signals", items: [
-      { label: props.signalHidden() ? "Show Signal" : "Hide Signal", action: "signal-hide", disabled: idle || !props.signalSelected() },
+      // "Dim", not "Hide": the eye toggle dims the row (RowInfo dim flag), it
+      // doesn't remove it — matches the row tooltip + context-menu wording.
+      { label: props.signalHidden() ? "Undim Signal" : "Dim Signal", action: "signal-hide", disabled: idle || !props.signalSelected() },
       { label: "Change Color…", action: "signal-color", disabled: idle || !props.signalSelected() },
       "sep",
       { label: "Move to Top", action: "signal-top", disabled: idle || !props.signalSelected() },
@@ -193,6 +196,7 @@ export function MenuBar(props: {
     else if (it.action === "signal-top") props.onSignalMoveTop();
     else if (it.action === "signal-bottom") props.onSignalMoveBottom();
     else if (it.action === "signal-remove") props.onSignalRemove();
+    else if (it.action === "about") props.onAbout();
   };
 
   const renderItem = (it: MenuItem, isSub: boolean) =>

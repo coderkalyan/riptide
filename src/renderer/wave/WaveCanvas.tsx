@@ -629,15 +629,19 @@ export function WaveCanvas() {
           rectsBg.setRects(rectsBgScratch, bgRectN);
 
           // Dashed grid, on the ruler's exact step (`gridStepTicks`, computed with
-          // the ruler above). In clock mode it lands on detected cycle edges
-          // (phase + k·period); in absolute mode it's a plain "nice" time grid.
-          const gridEdge0 = clockMode ? grid!.phase : 0;
+          // the ruler above). In clock mode the ruler labels cycle c at
+          // phase + (c−1)·period (clockRulerTicks), so the grid origin is one
+          // period LEFT of the phase — phase itself would put every line one
+          // period right of its labeled notch whenever cycleStep > 1. In
+          // absolute mode it's a plain "nice" time grid from 0.
+          const gridEdge0 = clockMode ? grid!.phase - grid!.period : 0;
           const gridVisEnd = startTicks + visibleTicks;
           const gridEps = gridStepTicks * 1e-6;
           let bgLineN = 0;
           for (let gk = Math.max(0, Math.floor((startTicks - gridEdge0) / gridStepTicks)); ; gk++) {
             const t = gridEdge0 + gk * gridStepTicks;
             if (t > gridVisEnd + gridEps) break;
+            if (t < 0) continue; // clock origin can sit left of t=0 (phase < period)
             const l = getLine(linesBgScratch, bgLineN++);
             l.x = xForTick(t); l.color = P.GRID_GRAY; l.dashed = true;
           }

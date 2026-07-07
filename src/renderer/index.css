@@ -361,6 +361,19 @@
             @apply tw:justify-between;
         }
 
+        /* About dialog — static info card (Help ▸ About Riptide). */
+        .about-modal { width: 300px; text-align: center; }
+        .about-mark {
+            @apply tw:flex tw:justify-center;
+            color: var(--accent);
+            margin: 4px 0 10px;
+        }
+        .about-name { font-size: 18px; font-weight: 600; color: var(--text); }
+        .about-version { font-size: var(--text-sm); color: var(--muted); margin-top: 2px; }
+        .about-desc { font-size: var(--text-sm); color: var(--text-2); margin-top: 10px; }
+        .about-meta { font-size: var(--text-xs); color: var(--muted); margin-top: 8px; }
+        .about-modal .modal-actions { @apply tw:justify-center; margin-top: 14px; }
+
         /* Enum table editor — borderless cells inside one ruled table. */
         .enum-modal { width: 340px; } /* fixed so the dialog doesn't widen on first entry */
         .enum-table { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; margin-bottom: 14px; }

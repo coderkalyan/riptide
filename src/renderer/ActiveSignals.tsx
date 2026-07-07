@@ -186,7 +186,7 @@ export function ActiveSignals(props: {
               return (
                 <span
                   class={"eye head" + (anyDimmed() ? " off" : "")}
-                  data-tip={anyDimmed() ? "show all signals" : "dim all signals"}
+                  data-tip={anyDimmed() ? "undim all signals" : "dim all signals"}
                   onClick={() => s.toggleAllHidden()}
                 >
                   {anyDimmed() ? <EyeOff size={12} /> : <Eye size={12} />}

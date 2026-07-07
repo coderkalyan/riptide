@@ -97,7 +97,7 @@ export function ActiveSignal(props: ActiveSignalProps) {
           <span class="v">{props.value}</span>
           <span
             class={"eye" + (props.hidden ? " off" : "")}
-            data-tip={props.hidden ? "show signal" : "dim signal"}
+            data-tip={props.hidden ? "undim signal" : "dim signal"}
             onClick={(e) => { e.stopPropagation(); props.onToggleVisible?.(e); }}
           >
             {props.hidden ? <EyeOff size={12} /> : <Eye size={12} />}
