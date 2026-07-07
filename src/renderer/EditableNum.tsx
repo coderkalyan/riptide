@@ -29,7 +29,9 @@ export function EditableNum(props: {
           ref={inputRef}
           class={`num-input${err() ? " err" : ""}`}
           value={draft()}
-          style={{ width: `${Math.max(2, draft().length + 1)}ch` }}
+          // box-sizing is border-box (global reset), so the 8px padding + 2px
+          // border eat into the width — add them back or long numbers clip.
+          style={{ width: `calc(${Math.max(2, draft().length + 1)}ch + 10px)` }}
           onInput={(e) => { setDraft(e.currentTarget.value); setErr(false); }}
           onKeyDown={(e) => {
             if (e.key === "Enter") { if (tryCommit()) setEditing(false); else setErr(true); }
@@ -40,7 +42,9 @@ export function EditableNum(props: {
       ) : (
         <span
           class="num-edit"
-          onClick={() => { setDraft(String(props.editValue ?? props.value)); setErr(false); setEditing(true); }}
+          // Seed the field at the display precision (e.g. "5.00", not "5"). When a
+          // distinct edit unit is given (clock cycles), that's an integer — seed raw.
+          onClick={() => { setDraft(props.editValue != null ? String(props.editValue) : props.format(props.value)); setErr(false); setEditing(true); }}
         >{props.format(props.value)}</span>
       )}
     </>

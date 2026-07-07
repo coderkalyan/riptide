@@ -123,6 +123,9 @@ export interface Actions {
   removeSignals: (rows: number[]) => void;
   moveSignal: (row: number, to: "top" | "bottom") => void;
   moveSignals: (rows: number[], to: "top" | "bottom") => void;
+  // Drag-to-reorder commit: pull the row at `from` (a row index) and insert it at
+  // slot `to` in the remaining list (0..n-1). See wave/dragReorder.ts.
+  reorderSignal: (from: number, to: number) => void;
   setColor: (row: number, color: string) => void;
   setRadix: (row: number, radix: Radix) => void;
   setRole: (row: number, role: ActiveRole | undefined) => void;
@@ -345,6 +348,19 @@ const vanilla = createVanilla<AppState>()(
       const rest = s.activeSignals.filter((r) => !move.has(r.row));
       // Moved rows keep their relative order; whole block goes to top/bottom.
       return { activeSignals: renumber(to === "top" ? [...picked, ...rest] : [...rest, ...picked]) };
+    }),
+    reorderSignal: (from, to) => set((s) => {
+      const arr = s.activeSignals;
+      if (from < 0 || from >= arr.length) return s;
+      // Track the shift anchor by object identity so it survives the renumber.
+      const anchorRef = selectionAnchor >= 0 && selectionAnchor < arr.length ? arr[selectionAnchor] : null;
+      const moved = arr[from];
+      const without = arr.filter((_, i) => i !== from);
+      const at = Math.max(0, Math.min(to, without.length));
+      without.splice(at, 0, moved);
+      if (at === from) return s; // dropped back where it started — no-op
+      if (anchorRef) selectionAnchor = without.indexOf(anchorRef);
+      return { activeSignals: renumber(without) };
     }),
     setColor: (row, color) => set((s) => ({
       activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, color } : r)),

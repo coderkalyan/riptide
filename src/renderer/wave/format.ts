@@ -16,25 +16,46 @@ export interface ClockGrid {
   valid: boolean;
 }
 
-// "Nice" ruler-tick spacing — multiples of {1,2,5} × 10^n — so the visible range
-// gets ~8 labels.
-export function rulerSpacing(visibleTicks: number): number {
-  const target = visibleTicks / 8;
+// "Nice" tick spacing on a fixed *pixel* cadence: the smallest {1,2,5}×10^n whose
+// on-screen gap is >= minGapPx. Pixel-targeted (not a fixed label count) so ticks
+// stay evenly spaced and never crowd when the window narrows — resize now rescales
+// the count, matching zoom. `visibleUnits` is ticks (absolute mode) or cycles
+// (clock mode); the caller divides timelinePx by the same unit basis.
+export function rulerSpacing(visibleUnits: number, timelinePx: number, minGapPx: number): number {
+  const perPx = visibleUnits / Math.max(1, timelinePx);
+  const target = Math.max(1e-9, minGapPx * perPx);
   const exp = Math.floor(Math.log10(target));
   const base = Math.pow(10, exp);
-  const m = target / base;
-  if (m < 2) return base;
-  if (m < 5) return 2 * base;
-  return 5 * base;
+  const m = target / base; // round *up* to the next nice value so the gap is a hard floor
+  if (m <= 1) return base;
+  if (m <= 2) return 2 * base;
+  if (m <= 5) return 5 * base;
+  return 10 * base;
 }
+
+// Padding (px) between a label's right edge and the next tick — includes the +5px
+// draw inset used when the label text is written.
+const RULER_LABEL_PAD_PX = 14;
 
 function formatRulerLabel(t: number, spacing: number): string {
   const decimals = spacing >= 1 ? 0 : Math.max(0, -Math.floor(Math.log10(spacing)));
   return `${t.toFixed(decimals)} ${timeUnit()}`;
 }
 
-export function dynamicRulerTicks(startTicks: number, visibleTicks: number): { ticks: number[]; labels: string[] } {
-  const spacing = rulerSpacing(visibleTicks);
+// Absolute-time ruler. Spacing is label-width-aware: the pixel gap is forced to
+// exceed the widest visible label (the right-most tick has the most digits), so
+// labels never overlap regardless of window width. `charWidthPx` = the ruler
+// font's per-char CSS advance. Returns `spacing` (in ticks) so the caller can
+// draw the dashed grid on the exact same lines.
+export function dynamicRulerTicks(
+  startTicks: number, visibleTicks: number, timelinePx: number, charWidthPx: number,
+): { ticks: number[]; labels: string[]; spacing: number } {
+  const far = startTicks + visibleTicks; // widest value → most digits
+  const gapFor = (sp: number) => formatRulerLabel(far, sp).length * charWidthPx + RULER_LABEL_PAD_PX;
+  // Two passes: wider spacing ⇒ fewer decimals ⇒ the label can only shrink, so
+  // one refinement converges (the gap estimate is monotone in spacing).
+  let spacing = rulerSpacing(visibleTicks, timelinePx, gapFor(rulerSpacing(visibleTicks, timelinePx, RULER_LABEL_PAD_PX)));
+  spacing = rulerSpacing(visibleTicks, timelinePx, gapFor(spacing));
   const first = Math.ceil(startTicks / spacing) * spacing;
   const ticks: number[] = [];
   const labels: string[] = [];
@@ -43,7 +64,7 @@ export function dynamicRulerTicks(startTicks: number, visibleTicks: number): { t
     ticks.push(t);
     labels.push(formatRulerLabel(t, spacing));
   }
-  return { ticks, labels };
+  return { ticks, labels, spacing };
 }
 
 // Clock math is parameterized by the timebase ClockGrid: cycle c's reference edge
@@ -75,10 +96,16 @@ export function formatClockWhole(tick: number, g: ClockGrid): string {
 }
 
 // Clock-anchored ruler: ticks land on clock reference edges, labels count cycles.
-export function clockRulerTicks(startTicks: number, visibleTicks: number, g: ClockGrid): { ticks: number[]; labels: string[] } {
+export function clockRulerTicks(
+  startTicks: number, visibleTicks: number, g: ClockGrid, timelinePx: number, charWidthPx: number,
+): { ticks: number[]; labels: string[]; stepTicks: number } {
   const edge0 = g.phase;
   const visibleCycles = visibleTicks / g.period;
-  const cycleStep = Math.max(1, Math.round(rulerSpacing(visibleCycles)));
+  // Widest label is "#" + the highest visible cycle number's digits.
+  const farCycle = Math.max(1, clockCycleOf(startTicks + visibleTicks, g) + 1);
+  const labelWidthPx = (1 + String(farCycle).length) * charWidthPx + RULER_LABEL_PAD_PX;
+  // ceil (not round) keeps the pixel gap a hard floor after snapping to whole cycles.
+  const cycleStep = Math.max(1, Math.ceil(rulerSpacing(visibleCycles, timelinePx, labelWidthPx)));
   const startCycle = (startTicks - edge0) / g.period + 1;
   let c = Math.max(cycleStep, Math.ceil(startCycle / cycleStep) * cycleStep);
   const ticks: number[] = [];
@@ -90,7 +117,7 @@ export function clockRulerTicks(startTicks: number, visibleTicks: number, g: Clo
     ticks.push(t);
     labels.push(`#${c}`);
   }
-  return { ticks, labels };
+  return { ticks, labels, stepTicks: cycleStep * g.period };
 }
 
 // Verilog-style timescale label: `<unit> / <precision>` (precision optional).

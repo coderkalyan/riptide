@@ -22,7 +22,7 @@ import {
   DIVIDER_HEIGHT_CSS,
 } from "./constants";
 import * as P from "./palette";
-import { dynamicRulerTicks, clockRulerTicks, rulerSpacing, formatTime, formatClockWhole, clockEdgesBetween, snapToClockEdge, timeUnit } from "./format";
+import { dynamicRulerTicks, clockRulerTicks, formatTime, formatClockWhole, clockEdgesBetween, snapToClockEdge, timeUnit } from "./format";
 
 type RectMut = { x: number; y: number; w: number; h: number; color: number; crosshatch?: boolean; rounded?: boolean; caret?: boolean; caretRight?: boolean; squareBottomLeft?: boolean; squareBottomRight?: boolean };
 type LineMut = { x: number; color: number; dashed?: boolean; fullHeight?: boolean };
@@ -431,9 +431,18 @@ export function WaveCanvas() {
           const notchY = rulerHeightCSS - NOTCH_HEIGHT;
           const bottomRulerH = BOTTOM_RULER_HEIGHT;
           const bottomRulerTop = canvasH - bottomRulerH;
-          const { ticks: rulerTicks, labels: rulerLabels } = clockMode
-            ? clockRulerTicks(startTicks, visibleTicks, grid!)
-            : dynamicRulerTicks(startTicks, visibleTicks);
+          // Pixel-cadenced ruler: spacing is chosen so labels keep an even
+          // on-screen gap and never overlap, at any window width. `gridStepTicks`
+          // is the same step (in ticks) so the dashed grid lands on ruler ticks.
+          const rulerCharW = textRenderer.cellSm.widthPx;
+          let rulerTicks: number[], rulerLabels: string[], gridStepTicks: number;
+          if (clockMode) {
+            const r = clockRulerTicks(startTicks, visibleTicks, grid!, timelinePx, rulerCharW);
+            rulerTicks = r.ticks; rulerLabels = r.labels; gridStepTicks = r.stepTicks;
+          } else {
+            const r = dynamicRulerTicks(startTicks, visibleTicks, timelinePx, rulerCharW);
+            rulerTicks = r.ticks; rulerLabels = r.labels; gridStepTicks = r.spacing;
+          }
           const rulerArrowLabels: { x: number; y: number; text: string; color: number }[] = [];
           let bgRectN = 0;
           {
@@ -619,13 +628,10 @@ export function WaveCanvas() {
           }
           rectsBg.setRects(rectsBgScratch, bgRectN);
 
-          // Dashed grid, decimated like the ruler. In clock mode it lands on the
-          // detected cycle edges (phase + k·period); in absolute mode it's a plain
-          // time grid on "nice" ns spacing.
+          // Dashed grid, on the ruler's exact step (`gridStepTicks`, computed with
+          // the ruler above). In clock mode it lands on detected cycle edges
+          // (phase + k·period); in absolute mode it's a plain "nice" time grid.
           const gridEdge0 = clockMode ? grid!.phase : 0;
-          const gridStepTicks = clockMode
-            ? Math.max(1, Math.round(rulerSpacing(visibleTicks / grid!.period))) * grid!.period
-            : rulerSpacing(visibleTicks);
           const gridVisEnd = startTicks + visibleTicks;
           const gridEps = gridStepTicks * 1e-6;
           let bgLineN = 0;
