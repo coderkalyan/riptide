@@ -1,5 +1,6 @@
 appId: com.riptide.app
 productName: Riptide
+copyright: Copyright © 2026 Kalyan Sriram
 directories:
   output: dist/installers
 files:
@@ -16,6 +17,16 @@ linux:
 mac:
   target:
     - dmg
+  # Ad-hoc signature (no Apple Developer ID yet): arm64 macOS kills binaries
+  # with no signature at all, so beta builds must be at least ad-hoc signed.
+  # Hardened runtime is off — it breaks Electron's frameworks under an ad-hoc
+  # identity and buys nothing without notarization.
+  identity: "-"
+  hardenedRuntime: false
+  category: public.app-category.developer-tools
 win:
   target:
     - portable
+  # Default portable name contains a space ("Riptide 0.1.0….exe"), which GitHub
+  # mangles into dots when attached to a release.
+  artifactName: ${name}-${version}-portable.${ext}

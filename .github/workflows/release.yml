@@ -30,9 +30,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # No `version:` here — this job checks out at the workspace root, so the
+      # action reads package.json's `packageManager` field; specifying both
+      # errors ("Multiple versions of pnpm specified"). The build jobs check out
+      # under `path:` (no root package.json) and *must* pass `version:`.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 9
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -47,10 +49,12 @@ jobs:
     name: ${{ matrix.name }}
     needs: check
     runs-on: ${{ matrix.os }}
-    env:
-      # Alpha builds are unsigned: stop electron-builder discovering (and failing
-      # on) a macOS signing identity. Harmless on Linux/Windows.
-      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    # macOS signing: beta builds are ad-hoc signed (mac.identity "-" in
+    # electron-builder.yml) — arm64 macOS kills binaries with *no* signature, so
+    # skipping signing outright is not an option. Users still approve the app
+    # once in System Settings (no notarization). Don't set
+    # CSC_IDENTITY_AUTO_DISCOVERY=false here: it's the skip-signing switch and
+    # fights the explicit ad-hoc identity.
     strategy:
       fail-fast: false
       matrix:
@@ -71,7 +75,8 @@ jobs:
             eb: --mac --arm64
             artifact: riptide-macos-arm64
           - name: macos-x64
-            os: macos-13
+            # Last Intel runner image; macos-13 was retired in Dec 2025.
+            os: macos-15-intel
             target: macos-x64
             eb: --mac --x64
             artifact: riptide-macos-x64
@@ -124,11 +129,16 @@ jobs:
         working-directory: riptide
         run: pnpm exec electron-builder ${{ matrix.eb }} --publish never
 
+      # Explicit installer globs only — the output dir also holds electron-builder
+      # debug yamls and the full *-unpacked/ trees, which must not become assets.
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: riptide/dist/installers/*
+          path: |
+            riptide/dist/installers/*.AppImage
+            riptide/dist/installers/*.exe
+            riptide/dist/installers/*.dmg
           if-no-files-found: error
 
   release:
@@ -156,6 +166,12 @@ jobs:
           set -euo pipefail
           ver=$(node -p "require('./riptide/package.json').version")
           if [ "${{ github.ref_type }}" = "tag" ]; then
+            # The installers are named from package.json, not the tag — refuse to
+            # publish a release whose tag disagrees with what's inside it.
+            if [ "${{ github.ref_name }}" != "v${ver}" ]; then
+              echo "tag ${{ github.ref_name }} != package.json version v${ver}" >&2
+              exit 1
+            fi
             echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
             echo "draft=false" >> "$GITHUB_OUTPUT"
             echo "name=Riptide ${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
@@ -172,5 +188,8 @@ jobs:
           name: ${{ steps.meta.outputs.name }}
           draft: ${{ steps.meta.outputs.draft }}
           prerelease: true
-          files: artifacts/**/*
+          files: |
+            artifacts/**/*.AppImage
+            artifacts/**/*.exe
+            artifacts/**/*.dmg
           fail_on_unmatched_files: true

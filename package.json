@@ -1,7 +1,10 @@
 {
   "name": "riptide",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-beta.1",
   "private": true,
+  "description": "GPU-accelerated digital waveform viewer",
+  "author": "Kalyan Sriram",
+  "license": "Apache-2.0",
   "main": "dist/main/index.js",
   "packageManager": "pnpm@9.0.0",
   "scripts": {
@@ -20,7 +23,7 @@
     "@webgpu/types": "^0.1.50",
     "babel-preset-solid": "^1.9.12",
     "electron": "^41.0.0",
-    "electron-builder": "^25.1.8",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.28.0",
     "playwright-core": "^1.60.0",
     "postcss": "^8.5.15",
