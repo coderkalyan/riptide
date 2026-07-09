@@ -1,0 +1,6 @@
+[submodule "tide"]
+	path = tide
+	url = https://github.com/coderkalyan/tide.git
+[submodule "tide-vcd"]
+	path = tide-vcd
+	url = https://github.com/coderkalyan/tide-vcd.git

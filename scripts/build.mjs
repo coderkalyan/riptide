@@ -63,14 +63,14 @@ function resolveTarget(name) {
 }
 
 function buildNative({ target, mode }) {
-  // Preflight: zig + the two sibling repos the addon depends on. A clear message
+  // Preflight: zig + the two submodules the addon depends on. A clear message
   // here beats a cryptic zig "dependency not found" / "command not found".
   if (!hasCmd("zig", ["version"])) {
     fail("zig not found on PATH — install Zig 0.16.x (https://ziglang.org/download)");
   }
-  for (const sib of ["tide", "tide-vcd"]) {
-    if (!existsSync(resolve(root, "..", sib))) {
-      fail(`sibling repo ../${sib} missing — clone coderkalyan/${sib} next to riptide/`);
+  for (const sub of ["tide", "tide-vcd"]) {
+    if (!existsSync(resolve(root, sub, "build.zig"))) {
+      fail(`submodule ${sub}/ not populated — run: git submodule update --init --recursive`);
     }
   }
 
