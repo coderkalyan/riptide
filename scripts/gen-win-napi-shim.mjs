@@ -65,9 +65,9 @@ const shims = names.map((n) => `RIPTIDE_NAPI_SHIM(${n})`).join("\n");
 
 const resolver = `
 
-// Runs during DLL_PROCESS_ATTACH (before napi_register_module_v1 is called).
+// Called by napi_register_module_v1 before the first napi trampoline can run.
 // Binds every trampoline pointer to the host-exported implementation.
-__attribute__((constructor)) static void riptide_resolve_napi(void) {
+void riptide_resolve_napi(void) {
   HMODULE host = GetModuleHandleW(NULL);
 #define RIPTIDE_NAPI_RESOLVE(name) riptide_p_##name = (void *)GetProcAddress(host, #name);
 ${names.map((n) => `  RIPTIDE_NAPI_RESOLVE(${n})`).join("\n")}

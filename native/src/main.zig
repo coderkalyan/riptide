@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const c = @cImport({
     @cInclude("node_api.h");
 });
@@ -10,6 +11,8 @@ const hier = @import("hier.zig");
 const label = @import("label.zig");
 
 const page = std.heap.page_allocator;
+
+extern fn riptide_resolve_napi() callconv(.c) void;
 
 // ---- ArrayBuffer helpers ------------------------------------------------
 // V8's sandbox in Electron rejects external pointers, so we allocate via
@@ -590,6 +593,7 @@ fn registerFn(env: c.napi_env, exports: c.napi_value, name: [*:0]const u8, cb: c
 }
 
 export fn napi_register_module_v1(env: c.napi_env, exports: c.napi_value) c.napi_value {
+    if (builtin.os.tag == .windows) riptide_resolve_napi();
     registerFn(env, exports, "loadVcd", loadVcd);
     registerFn(env, exports, "getMockSegments", getMockSegments);
     registerFn(env, exports, "getHierarchy", getHierarchy);
