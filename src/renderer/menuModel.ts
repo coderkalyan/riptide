@@ -38,7 +38,7 @@ const EDIT_HELP: { name: string; items: MenuItem[] }[] = [
     { label: "Documentation", disabled: true, unimplemented: true },
     { label: "Keyboard Shortcuts", disabled: true, unimplemented: true },
     "sep",
-    { label: "About Riptide", disabled: true, unimplemented: true },
+    { label: "About Riptide", action: "about" },
   ] },
 ];
 
@@ -84,7 +84,9 @@ export function buildMenus(s: MenuState, recent: string[]): { name: string; item
         : []),
     ] },
     { name: "Signals", items: [
-      { label: s.signalHidden ? "Show Signal" : "Hide Signal", action: "signal-hide", disabled: idle || !s.signalSelected },
+      // "Dim", not "Hide": the eye toggle dims the row (RowInfo dim flag), it
+      // doesn't remove it — matches the row tooltip + context-menu wording.
+      { label: s.signalHidden ? "Undim Signal" : "Dim Signal", action: "signal-hide", disabled: idle || !s.signalSelected },
       { label: "Change Color…", action: "signal-color", disabled: idle || !s.signalSelected },
       "sep",
       { label: "Move to Top", action: "signal-top", disabled: idle || !s.signalSelected },

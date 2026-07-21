@@ -8,10 +8,10 @@ name: Release builds
 # `scripts/build.mjs --target=<triple>` — the exact script developers run locally —
 # then packages with electron-builder. No bash re-implementation of the build.
 #
-# The native addon (Zig napi) pulls two sibling repos referenced by
-# native/build.zig.zon as ../../tide and ../../tide-vcd, so all three repos are
-# checked out side-by-side under the workspace root. All three are public, so the
-# default GITHUB_TOKEN can read them — no PAT needed.
+# The native addon (Zig napi) depends on tide and tide-vcd, vendored as git
+# submodules at repo root (native/build.zig.zon references them as ../tide,
+# ../tide-vcd). All three repos are public, so the default GITHUB_TOKEN can read
+# them — no PAT needed.
 
 on:
   push:
@@ -85,20 +85,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: riptide
-
-      - name: Checkout tide
-        uses: actions/checkout@v4
-        with:
-          repository: coderkalyan/tide
-          ref: main
-          path: tide
-
-      - name: Checkout tide-vcd
-        uses: actions/checkout@v4
-        with:
-          repository: coderkalyan/tide-vcd
-          ref: main
-          path: tide-vcd
+          submodules: true
 
       - name: Setup Zig
         uses: mlugg/setup-zig@v2

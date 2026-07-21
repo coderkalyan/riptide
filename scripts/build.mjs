@@ -26,8 +26,15 @@ const TSC = resolve(root, "node_modules/typescript/bin/tsc");
 // Windows lands in bin/ (a DLL), every other OS in lib/ (.so / .dylib). All of
 // them are copied to the single canonical addon name `riptide.node` — an
 // installer is one platform, so there's no reason to disambiguate by filename.
+// linux-x64 pins a glibc version (2.31 = Ubuntu 20.04 baseline) rather than the
+// bare "x86_64-linux" triple: with no version, zig 0.16's cross-linker emits a
+// NEEDED entry of literal "libc.so" instead of the real soname "libc.so.6" (the
+// former is only a linker script, not a loadable object) — the addon then fails
+// to dlopen at runtime with "libc.so: invalid ELF header" (surfaced obscurely via
+// Electron's console). Pinning any concrete glibc version fixes the soname; 2.31
+// is chosen for broad distro compatibility, not because it's otherwise special.
 const TARGETS = {
-  "linux-x64": { zig: "x86_64-linux", out: "lib/libriptide.so" },
+  "linux-x64": { zig: "x86_64-linux-gnu.2.31", out: "lib/libriptide.so" },
   "windows-x64": { zig: "x86_64-windows", out: "bin/riptide.dll" },
   "macos-arm64": { zig: "aarch64-macos", out: "lib/libriptide.dylib" },
   "macos-x64": { zig: "x86_64-macos", out: "lib/libriptide.dylib" },
@@ -63,14 +70,14 @@ function resolveTarget(name) {
 }
 
 function buildNative({ target, mode }) {
-  // Preflight: zig + the two sibling repos the addon depends on. A clear message
+  // Preflight: zig + the two submodules the addon depends on. A clear message
   // here beats a cryptic zig "dependency not found" / "command not found".
   if (!hasCmd("zig", ["version"])) {
     fail("zig not found on PATH — install Zig 0.16.x (https://ziglang.org/download)");
   }
-  for (const sib of ["tide", "tide-vcd"]) {
-    if (!existsSync(resolve(root, "..", sib))) {
-      fail(`sibling repo ../${sib} missing — clone coderkalyan/${sib} next to riptide/`);
+  for (const sub of ["tide", "tide-vcd"]) {
+    if (!existsSync(resolve(root, sub, "build.zig"))) {
+      fail(`submodule ${sub}/ not populated — run: git submodule update --init --recursive`);
     }
   }
 

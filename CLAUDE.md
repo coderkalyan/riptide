@@ -16,7 +16,7 @@ Run from repo root. Six scripts, all driven by one cross-platform Node orchestra
 
 **The build orchestrator** (`scripts/build.mjs`): `node scripts/build.mjs [--target=<host|linux-x64|windows-x64|macos-arm64|macos-x64>] [--mode=<dev|release>] [--steps=<all|native|app>]`. `host` builds the addon natively; the explicit triples cross-compile it. One mapping table turns each target's zig output (`.so`/`.dylib`/`.dll`) into the single canonical addon name `riptide.node` (an installer is one platform, so no per-OS filenames). Windows compiles the generated napi trampoline shim (`scripts/gen-win-napi-shim.mjs`); macOS pins the old MachO linker in `build.zig` so the napi symbols resolve. The CI release workflow (`.github/workflows/release.yml`) calls this exact script on a per-runner matrix (one runner per platform) — no bash re-implementation of the build.
 
-Requires `zig` on PATH and the `tide` / `tide-vcd` sibling repos at `../tide`, `../tide-vcd` (referenced from `native/build.zig.zon`; `build.mjs` preflights both with a clear error). `naga` (`cargo install naga-cli`) is needed only for `check`/`test`'s WGSL pass. All are build-time only — testers running a packaged build need none. No linter; tests via `pnpm test`.
+Requires `zig` on PATH and the `tide` / `tide-vcd` git submodules at repo root (`./tide`, `./tide-vcd`, referenced from `native/build.zig.zon`; `build.mjs` preflights both with a clear error — run `git submodule update --init --recursive` after cloning). `naga` (`cargo install naga-cli`) is needed only for `check`/`test`'s WGSL pass. All are build-time only — testers running a packaged build need none. No linter; tests via `pnpm test`.
 
 ## Architecture
 

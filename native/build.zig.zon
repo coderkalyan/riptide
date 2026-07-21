@@ -4,8 +4,8 @@
     .fingerprint = 0x29cc0a9b2e3d24a5,
     .minimum_zig_version = "0.15.2",
     .dependencies = .{
-        .tide = .{ .path = "../../tide" },
-        .tide_vcd = .{ .path = "../../tide-vcd" },
+        .tide = .{ .path = "../tide" },
+        .tide_vcd = .{ .path = "../tide-vcd" },
     },
     .paths = .{
         "build.zig",

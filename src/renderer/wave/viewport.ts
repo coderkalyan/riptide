@@ -8,6 +8,12 @@ import { ZOOM_ANIM_MS } from "./constants";
 
 const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
 
+// Fit-zoom span. Floored to 1 tick: a valid trace whose only activity is at
+// t=0 (e.g. a constants dump) has TRACE_END == 0, and dividing by timelinePx
+// would make ticksPerPixel 0 — NaN clip coords in the shaders and a zoom that
+// multiplies from zero (permanently stuck).
+const fitSpan = () => Math.max(1, TRACE_END);
+
 interface ZoomAnim {
   tpp0: number; start0: number; tppT: number; startT: number; t0: number; releaseFit: boolean;
 }
@@ -64,7 +70,7 @@ export const view = {
       }
     }
     if (!this.userInteracted || this.ticksPerPixel <= 0) {
-      this.ticksPerPixel = TRACE_END / this.timelinePx;
+      this.ticksPerPixel = fitSpan() / this.timelinePx;
       this.startTicks = 0;
     }
   },
@@ -119,7 +125,7 @@ export const view = {
   zoomBy(factor: number): void {
     this.pushHistory();
     this.userInteracted = true;
-    const tpp0 = this.ticksPerPixel > 0 ? this.ticksPerPixel : TRACE_END / this.timelinePx;
+    const tpp0 = this.ticksPerPixel > 0 ? this.ticksPerPixel : fitSpan() / this.timelinePx;
     const start0 = this.startTicks;
     const centerX = this.timelinePx * 0.5;
     const worldTickAtCenter = start0 + centerX * tpp0;
@@ -132,9 +138,9 @@ export const view = {
 
   fitView(): void {
     this.pushHistory();
-    const tpp0 = this.ticksPerPixel > 0 ? this.ticksPerPixel : TRACE_END / this.timelinePx;
+    const tpp0 = this.ticksPerPixel > 0 ? this.ticksPerPixel : fitSpan() / this.timelinePx;
     this.userInteracted = true; // hold off auto-fit until the animation lands
-    this.zoomAnim = { tpp0, start0: this.startTicks, tppT: TRACE_END / this.timelinePx, startT: 0, t0: performance.now(), releaseFit: true };
+    this.zoomAnim = { tpp0, start0: this.startTicks, tppT: fitSpan() / this.timelinePx, startT: 0, t0: performance.now(), releaseFit: true };
   },
 
   // Pan so the cursor sits at the left edge, keeping zoom (tppT == tpp0).

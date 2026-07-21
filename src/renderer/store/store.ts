@@ -123,6 +123,9 @@ export interface Actions {
   removeSignals: (rows: number[]) => void;
   moveSignal: (row: number, to: "top" | "bottom") => void;
   moveSignals: (rows: number[], to: "top" | "bottom") => void;
+  // Drag-to-reorder commit: pull the row at `from` (a row index) and insert it at
+  // slot `to` in the remaining list (0..n-1). See wave/dragReorder.ts.
+  reorderSignal: (from: number, to: number) => void;
   setColor: (row: number, color: string) => void;
   setRadix: (row: number, radix: Radix) => void;
   setRole: (row: number, role: ActiveRole | undefined) => void;
@@ -345,6 +348,19 @@ const vanilla = createVanilla<AppState>()(
       const rest = s.activeSignals.filter((r) => !move.has(r.row));
       // Moved rows keep their relative order; whole block goes to top/bottom.
       return { activeSignals: renumber(to === "top" ? [...picked, ...rest] : [...rest, ...picked]) };
+    }),
+    reorderSignal: (from, to) => set((s) => {
+      const arr = s.activeSignals;
+      if (from < 0 || from >= arr.length) return s;
+      // Track the shift anchor by object identity so it survives the renumber.
+      const anchorRef = selectionAnchor >= 0 && selectionAnchor < arr.length ? arr[selectionAnchor] : null;
+      const moved = arr[from];
+      const without = arr.filter((_, i) => i !== from);
+      const at = Math.max(0, Math.min(to, without.length));
+      without.splice(at, 0, moved);
+      if (at === from) return s; // dropped back where it started — no-op
+      if (anchorRef) selectionAnchor = without.indexOf(anchorRef);
+      return { activeSignals: renumber(without) };
     }),
     setColor: (row, color) => set((s) => ({
       activeSignals: s.activeSignals.map((r) => (r.row === row ? { ...r, color } : r)),
@@ -584,20 +600,51 @@ export function selectExportSidecarText(s: AppState): string {
 // thrash the file) but INCLUDING viewSaveNonce (the pan/zoom settle trigger).
 // subscribe doesn't fire on initial state, so the first fire is a real change;
 // lastSaved seeds from the hydrated state. Returns the unsubscribe fn.
+//
+// The write is debounced: continuous gestures that live in the selector
+// (cursor scrub, marker drag, panel/row resize) fire per pointermove, and a
+// synchronous serialize + writeFileSync on each would run on the render
+// thread. State is snapshotted at flush time, not at the triggering event, so
+// the file always gets the latest state. Flushes on beforeunload; trace swaps
+// flush explicitly (flushAutosave) before the path changes.
+const AUTOSAVE_DEBOUNCE_MS = 400;
+let autosaveFlush: (() => void) | null = null;
+
+// Write any pending (debounced) sidecar change now. Call before swapping
+// traces so the outgoing trace's last edits land in ITS sidecar — after the
+// swap, the pending write would serialize the new trace to the new path.
+export function flushAutosave(): void {
+  autosaveFlush?.();
+}
+
 export function startAutosave(): () => void {
   let lastSaved = selectSidecarText(useAppStore.getState());
-  return useAppStore.subscribe(
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const flush = () => {
+    if (timer != null) { clearTimeout(timer); timer = null; }
+    const text = selectSidecarText(useAppStore.getState());
+    if (text === lastSaved) return;
+    lastSaved = text;
+    writeSidecarFile(sidecarPath(), text);
+  };
+  autosaveFlush = flush;
+  window.addEventListener("beforeunload", flush);
+  const unsub = useAppStore.subscribe(
     (s) => [
       s.activeSignals, s.topDividers, s.markers, s.selectedMarkerId, s.snapCursor, s.clockAnchor,
       s.timebaseClock, s.timebaseOverride,
       s.panels, s.expandedScopes, s.cursorTicks, s.viewSaveNonce,
     ] as const,
     () => {
-      const text = selectSidecarText(useAppStore.getState());
-      if (text === lastSaved) return;
-      lastSaved = text;
-      writeSidecarFile(sidecarPath(), text);
+      if (timer != null) clearTimeout(timer);
+      timer = setTimeout(flush, AUTOSAVE_DEBOUNCE_MS);
     },
     { equalityFn: shallow },
   );
+  return () => {
+    flush();
+    window.removeEventListener("beforeunload", flush);
+    autosaveFlush = null;
+    unsub();
+  };
 }

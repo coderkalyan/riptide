@@ -34,6 +34,14 @@ export interface ActiveSignalProps {
   onContextMenu?: (e: MouseEvent) => void;
   onResizeStart?: (e: PointerEvent) => void; // drag the bottom handle to resize
   onResizeReset?: () => void;                // double-click handle → default height
+  // Drag-to-reorder (see wave/dragReorder.ts). `dragging` = this is the lifted
+  // row; `dragActive` = some row is being dragged (so non-dragged rows flow with
+  // a transition); `dragTransform` = its translateY (px). onDragStart begins the
+  // press-and-threshold gesture from the row body.
+  dragging?: boolean;
+  dragActive?: boolean;
+  dragTransform?: number;
+  onDragStart?: (e: PointerEvent) => void;
 }
 
 const KIND_ICON: Record<ActiveSignalKind, (p: { size: number }) => JSX.Element> = {
@@ -46,14 +54,25 @@ const KIND_TIP: Record<ActiveSignalKind, string> = {
 // Presentational row. Reads props.* directly (no destructuring) so Solid keeps
 // each access reactive — selected/hidden/color/value toggles patch in place.
 export function ActiveSignal(props: ActiveSignalProps) {
-  const cls = () => ["s-row", props.collapsed ? "collapsed" : "", props.sliding ? "sliding" : "", props.selected ? "sel" : ""]
+  const cls = () => ["s-row",
+    props.collapsed ? "collapsed" : "", props.sliding ? "sliding" : "", props.selected ? "sel" : "",
+    props.dragging ? "dragging" : "", props.dragActive && !props.dragging ? "dragflow" : ""]
     .filter(Boolean).join(" ");
+  // Height + drag translateY, merged. Transform is absent at rest so it never
+  // collides with the collapse-slide animations.
+  const style = () => {
+    const st: JSX.CSSProperties = {};
+    if (props.height) st.height = `${props.height}px`;
+    if (props.dragTransform) st.transform = `translateY(${props.dragTransform}px)`;
+    return st;
+  };
   // Reveal the resize cursor/bar only after a hover dwell (arms on press).
   const arm = makeHoverArm((e) => { e.stopPropagation(); props.onResizeStart?.(e); });
   return (
     <div
       class={cls()}
-      style={props.height ? { height: `${props.height}px` } : undefined}
+      style={style()}
+      onPointerDown={(e) => props.onDragStart?.(e)}
       // Shift-click extends the browser's text selection by default — suppress that
       // (range-select highlights signal-row text) while keeping the click itself.
       onMouseDown={(e) => { if (e.shiftKey) e.preventDefault(); }}
@@ -78,7 +97,7 @@ export function ActiveSignal(props: ActiveSignalProps) {
           <span class="v">{props.value}</span>
           <span
             class={"eye" + (props.hidden ? " off" : "")}
-            data-tip={props.hidden ? "show signal" : "dim signal"}
+            data-tip={props.hidden ? "undim signal" : "dim signal"}
             onClick={(e) => { e.stopPropagation(); props.onToggleVisible?.(e); }}
           >
             {props.hidden ? <EyeOff size={12} /> : <Eye size={12} />}

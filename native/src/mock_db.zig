@@ -189,7 +189,11 @@ pub fn load(gpa: Allocator, path: []const u8) !Loaded {
 
     // 1. Mirror the hierarchy (and fill `widths`).
     var hb: hier.Builder = .init(gpa);
-    errdefer hb.arena.deinit();
+    // build() moves the arena into the Hierarchy by copy, so exactly one of the
+    // two errdefers below may own it — an unconditional builder errdefer would
+    // deinit the same arena twice when a later step fails (double free).
+    var hier_built = false;
+    errdefer if (!hier_built) hb.arena.deinit();
     var roots = p.childScopes(.root);
     while (roots.next()) |s| {
         _ = try hb.openScope(s.local_id, mapScopeType(s.type));
@@ -197,6 +201,7 @@ pub fn load(gpa: Allocator, path: []const u8) !Loaded {
         hb.closeScope();
     }
     var hierarchy = try hb.build();
+    hier_built = true;
     errdefer hierarchy.deinit();
 
     // 2. One tide.Builder per signal, fed from the value-change stream.
