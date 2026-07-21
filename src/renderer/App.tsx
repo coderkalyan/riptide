@@ -12,6 +12,7 @@ import { SignalTree, resolveAddIds, recursiveSigChildren, allScopeIds } from "./
 import { WavesToolbar } from "./WavesToolbar";
 import { MarkersBar } from "./MarkersBar";
 import { MenuBar } from "./MenuBar";
+import { buildMenus, type MenuState } from "./menuModel";
 import { GlobalTooltip } from "./GlobalTooltip";
 import { PerfOverlay } from "./PerfOverlay";
 import { buildEnumLabels } from "./wave/value";
@@ -25,9 +26,15 @@ declare const require: (m: string) => unknown;
 
 // Ask the main process to show the Open-VCD dialog. Returns the chosen path (or
 // null if cancelled); the renderer then swaps the trace in place — no reload.
-function ipc(): { invoke(channel: string, ...args: unknown[]): Promise<unknown> } | null {
+type IpcRenderer = {
+  invoke(channel: string, ...args: unknown[]): Promise<unknown>;
+  send(channel: string, ...args: unknown[]): void;
+  on(channel: string, listener: (e: unknown, ...args: unknown[]) => void): void;
+  removeListener(channel: string, listener: (e: unknown, ...args: unknown[]) => void): void;
+};
+function ipc(): IpcRenderer | null {
   try {
-    return (require("electron") as { ipcRenderer: { invoke(channel: string, ...args: unknown[]): Promise<unknown> } }).ipcRenderer;
+    return (require("electron") as { ipcRenderer: IpcRenderer }).ipcRenderer;
   } catch (e) {
     console.error("[ipc] unavailable", e);
     return null;
@@ -44,6 +51,11 @@ async function openVcdDialog(): Promise<string | null> {
 const CHROME_CUSTOM = new URLSearchParams(location.search).get("chrome") === "custom";
 const IS_LINUX = (() => {
   try { return (require("os") as { platform(): string }).platform() === "linux"; } catch { return false; }
+})();
+// macOS uses the native window frame + the system menu bar (built in the main process
+// from the shared menuModel). The custom in-app titlebar/menu is hidden there.
+const IS_MAC = (() => {
+  try { return (require("os") as { platform(): string }).platform() === "darwin"; } catch { return false; }
 })();
 
 // Frameless-Linux window controls, sitting where the title-bar dots were. Styled as
@@ -274,12 +286,86 @@ export function App() {
     s.setPicker({ row: r.row, anchorRect: rect });
   };
 
+  // Menu state snapshot (labels + enabled/checked flags), shared by the in-app MenuBar
+  // and the native macOS menu (see menuModel). Reactive: re-derives on any store change.
+  const menuState = createMemo<MenuState>(() => ({
+    idle: !traceOpen(),
+    treeCollapsed: s.panels.treeCollapsed,
+    activeCollapsed: s.panels.activeCollapsed,
+    snapOn: s.snapCursor,
+    clockOn: s.clockAnchor,
+    clockAvailable: s.clockAnchor || s.timebaseClock != null || s.activeSignals.some((r) => r.role === "clock"),
+    markerCount: s.markers.length,
+    markerSelected: s.selectedMarkerId != null,
+    signalSelected: s.activeSignals.some((r) => r.selected),
+    signalHidden: selSignal()?.hidden ?? false,
+    linux: IS_LINUX,
+    frameStyle: CHROME_CUSTOM ? "custom" : "native",
+  }));
+
+  // Single dispatch for a menu action string — both the in-app MenuBar and native
+  // macOS menu clicks route here (keeps the action→handler mapping in one place).
+  const runMenuAction = (action: string, path?: string) => {
+    switch (action) {
+      case "open-vcd": handleOpenVcd(); break;
+      case "open-recent": if (path) handleOpenRecent(path); break;
+      case "reload-trace": handleReload(); break;
+      case "import-sidecar": handleImportSidecar(); break;
+      case "export-sidecar": handleExportSidecar(); break;
+      case "close-window": closeWindow(); break;
+      case "toggle-frame": toggleFrame(); break;
+      case "zoom-in": zoomIn(); break;
+      case "zoom-out": zoomOut(); break;
+      case "zoom-fit": zoomFit(); break;
+      case "toggle-tree": toggleTree(!s.panels.treeCollapsed); break;
+      case "toggle-active": toggleActive(!s.panels.activeCollapsed); break;
+      case "toggle-snap": s.toggleSnap(); break;
+      case "toggle-clock": s.toggleClock(); break;
+      case "marker-add": s.addMarkerAtCursor(); break;
+      case "marker-delete": deleteSelMarker(); break;
+      case "marker-clear": s.clearMarkers(); break;
+      case "marker-next": s.cycleMarker(1); break;
+      case "marker-prev": s.cycleMarker(-1); break;
+      case "signal-hide": { const r = selSignal(); if (r) s.toggleHidden(r.row); break; }
+      case "signal-color": onSignalColor(); break;
+      case "signal-top": { const r = selSignal(); if (r) s.moveSignal(r.row, "top"); break; }
+      case "signal-bottom": { const r = selSignal(); if (r) s.moveSignal(r.row, "bottom"); break; }
+      case "signal-remove": { const r = selSignal(); if (r) s.removeSignal(r.row); break; }
+      case "about": setShowAbout(true); break;
+    }
+  };
+
+  // macOS native menu: the app menu lives in the main process. Push the shared menu
+  // tree whenever state/recent changes (main renders it), and route native menu clicks
+  // back through runMenuAction. Recent is main-owned, so re-fetch after each trace swap.
+  const [macRecent, setMacRecent] = createSignal<string[]>([]);
+  onMount(() => {
+    if (!IS_MAC) return;
+    const r = ipc();
+    const on = (_e: unknown, msg: unknown) => {
+      const m = msg as { action: string; path?: string };
+      runMenuAction(m.action, m.path);
+    };
+    r?.on("riptide:menu-action", on);
+    onCleanup(() => r?.removeListener("riptide:menu-action", on));
+  });
+  createEffect(() => {
+    if (!IS_MAC) return;
+    s.traceNonce; // re-fetch recent after any open/reload (opens bump the list)
+    getRecent().then(setMacRecent);
+  });
+  createEffect(() => {
+    if (!IS_MAC) return;
+    ipc()?.send("riptide:menu-descriptor", buildMenus(menuState(), macRecent()));
+  });
+
   // Global keyboard shortcuts mirroring the File/View menus.
   onMount(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!e.ctrlKey || e.altKey) return;
       const k = e.key.toLowerCase();
       if (!e.shiftKey && k === "o") { e.preventDefault(); handleOpenVcd(); }
+      else if (!e.shiftKey && k === "r") { e.preventDefault(); handleReload(); }
       // Zoom shortcuts only matter with a trace open (the canvas is unmounted when
       // idle). Ctrl+= / Ctrl++ zoom in, Ctrl+- zoom out, Ctrl+0 fit. "=" is the
       // unshifted "+" key, so accept both; the numpad sends "Add"/"Subtract".
@@ -294,9 +380,13 @@ export function App() {
 
   return (
     <div class="app">
+      {/* macOS hides the custom titlebar entirely: the native window frame owns the
+          window controls + title, and the menu lives in the system menu bar (built in
+          the main process from the shared menuModel). Linux/Windows draw it in-app. */}
+      <Show when={!IS_MAC}>
       <div class={`titlebar${CHROME_CUSTOM ? " draggable" : ""}`}>
         {/* Left slot (where the dots sat): custom window controls on frameless
-            Linux, else the mac/Windows decorative dots. Native-frame Linux shows
+            Linux, else the Windows decorative dots. Native-frame Linux shows
             neither — the WM draws the frame. */}
         <Show when={CHROME_CUSTOM}>
           <WindowControls maximized={maximized} onMin={minimizeWindow} onMax={toggleMaximize} onClose={closeWindow} />
@@ -305,32 +395,11 @@ export function App() {
           <div class="dots"><i class="r" /><i class="y" /><i class="g" /></div>
         </Show>
         <div class="title">Riptide</div>
-        <MenuBar
-          idle={() => !traceOpen()}
-          onOpenVcd={handleOpenVcd} onOpenRecent={handleOpenRecent} onExportSidecar={handleExportSidecar} onImportSidecar={handleImportSidecar} getRecent={getRecent} onCloseWindow={closeWindow}
-          linux={() => IS_LINUX} frameStyle={() => (CHROME_CUSTOM ? "custom" : "native")} onToggleFrame={toggleFrame}
-          onZoomIn={zoomIn} onZoomOut={zoomOut} onZoomFit={zoomFit}
-          treeCollapsed={() => s.panels.treeCollapsed} onToggleTree={toggleTree}
-          activeCollapsed={() => s.panels.activeCollapsed} onToggleActive={toggleActive}
-          snapOn={() => s.snapCursor} onToggleSnap={() => s.toggleSnap()}
-          clockOn={() => s.clockAnchor}
-          clockAvailable={() => s.clockAnchor || s.timebaseClock != null || s.activeSignals.some((r) => r.role === "clock")}
-          onToggleClock={() => s.toggleClock()}
-          markerCount={() => s.markers.length} markerSelected={() => s.selectedMarkerId != null}
-          onMarkerAdd={() => s.addMarkerAtCursor()} onMarkerDelete={deleteSelMarker}
-          onMarkerClear={() => s.clearMarkers()} onMarkerNext={() => s.cycleMarker(1)} onMarkerPrev={() => s.cycleMarker(-1)}
-          signalSelected={() => s.activeSignals.some((r) => r.selected)}
-          signalHidden={() => selSignal()?.hidden ?? false}
-          onSignalHide={() => { const r = selSignal(); if (r) s.toggleHidden(r.row); }}
-          onSignalColor={onSignalColor}
-          onSignalMoveTop={() => { const r = selSignal(); if (r) s.moveSignal(r.row, "top"); }}
-          onSignalMoveBottom={() => { const r = selSignal(); if (r) s.moveSignal(r.row, "bottom"); }}
-          onSignalRemove={() => { const r = selSignal(); if (r) s.removeSignal(r.row); }}
-          onAbout={() => setShowAbout(true)}
-        />
+        <MenuBar state={menuState} onAction={runMenuAction} getRecent={getRecent} />
         {/* Pill noting the open file (multi-file tabs aren't built). Hidden while
             idle. The whole pill is the reload button (re-reads the file in place);
-            goes warm (.stale) when the watcher sees an on-disk change. */}
+            goes warm (.stale) when the watcher sees an on-disk change. On macOS the
+            reload lives in File ▸ Reload File instead (no titlebar). */}
         <Show when={traceOpen()}>
           <span
             class={`pill file reloadable${s.traceStale ? " stale" : ""}`}
@@ -343,6 +412,7 @@ export function App() {
         </Show>
         <div class="sp" />
       </div>
+      </Show>
 
       <Show
         when={traceOpen()}

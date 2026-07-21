@@ -1,72 +1,15 @@
 import { For, createSignal, createEffect, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
 import type { MenuItem } from "./ContextMenu";
-
-// Basename of a path (cross-platform-ish: split on both separators).
-const baseName = (p: string) => p.split(/[\\/]/).pop() || p;
-
-// Static menu definitions. File items that depend on runtime state (Open Recent)
-// are injected in `menus()` below. Linux keyboard shortcuts, plain text only.
-// Edit + Help are static (state-independent). Signals/View/Markers depend on
-// runtime state and are built in `menus()`.
-const EDIT_HELP: { name: string; items: MenuItem[] }[] = [
-  // Unimplemented items intentionally carry no `kbd` — advertising a shortcut
-  // that does nothing reads as broken. Add the hint back when the action lands.
-  { name: "Edit", items: [
-    { label: "Undo", disabled: true, unimplemented: true }, { label: "Redo", disabled: true, unimplemented: true }, "sep",
-    { label: "Cut", disabled: true, unimplemented: true }, { label: "Copy", disabled: true, unimplemented: true }, { label: "Paste", disabled: true, unimplemented: true }, "sep", { label: "Find…", disabled: true, unimplemented: true },
-  ] },
-  { name: "Help", items: [
-    { label: "Documentation", disabled: true, unimplemented: true },
-    { label: "Keyboard Shortcuts", disabled: true, unimplemented: true },
-    "sep",
-    { label: "About Riptide", action: "about" },
-  ] },
-];
+import { buildMenus, type MenuState } from "./menuModel";
 
 export function MenuBar(props: {
-  // No trace loaded: disable everything except File ▸ Open / Open Recent / Close.
-  idle: () => boolean;
-  onOpenVcd: () => void;
-  onOpenRecent: (path: string) => void;
-  onExportSidecar: () => void;
-  onImportSidecar: () => void;
+  // Document/UI state driving labels + enabled/checked flags (see menuModel).
+  state: () => MenuState;
+  // Dispatches a menu action string (shared with the native macOS menu via App.tsx
+  // `runMenuAction`). `path` carries the target for Open Recent.
+  onAction: (action: string, path?: string) => void;
   getRecent: () => Promise<string[]>;
-  onCloseWindow: () => void;
-  // Linux-only: toggle between the custom in-app title bar (frameless) and the
-  // native WM frame. Hidden on other platforms.
-  linux: () => boolean;
-  frameStyle: () => "custom" | "native";
-  onToggleFrame: () => void;
-  onZoomIn: () => void;
-  onZoomOut: () => void;
-  onZoomFit: () => void;
-  treeCollapsed: () => boolean;
-  onToggleTree: (collapsed: boolean) => void;
-  activeCollapsed: () => boolean;
-  onToggleActive: (collapsed: boolean) => void;
-  snapOn: () => boolean;
-  onToggleSnap: () => void;
-  clockOn: () => boolean;
-  // False when there's no clock-format signal to anchor to — disables the toggle.
-  clockAvailable: () => boolean;
-  onToggleClock: () => void;
-  markerCount: () => number;
-  markerSelected: () => boolean;
-  onMarkerAdd: () => void;
-  onMarkerDelete: () => void;
-  onMarkerClear: () => void;
-  onMarkerNext: () => void;
-  onMarkerPrev: () => void;
-  // Signals menu operates on the currently selected active-signal row.
-  signalSelected: () => boolean;
-  signalHidden: () => boolean;
-  onSignalHide: () => void;
-  onSignalColor: () => void;
-  onSignalMoveTop: () => void;
-  onSignalMoveBottom: () => void;
-  onSignalRemove: () => void;
-  onAbout: () => void;
 }) {
   const [open, setOpen] = createSignal<{ name: string; rect: DOMRect } | null>(null);
   // Frozen snapshot of the last-open menu — stays mounted while `open` is null so
@@ -77,67 +20,7 @@ export function MenuBar(props: {
   const [subPop, setSubPop] = createSignal<{ rect: DOMRect; items: MenuItem[] } | null>(null);
   const [recent, setRecent] = createSignal<string[]>([]);
 
-  const recentSubmenu = (): MenuItem[] =>
-    recent().length === 0
-      ? [{ label: "No Recent Traces", disabled: true }]
-      : recent().map((p) => ({ label: baseName(p), action: "open-recent", path: p }));
-
-  const menus = (): { name: string; items: MenuItem[] }[] => {
-    // Idle (no trace): only File ▸ Open / Open Recent / Close Window stay live;
-    // everything that operates on a loaded trace is disabled.
-    const idle = props.idle();
-    return [
-    { name: "File", items: [
-      { label: "New Window", disabled: true, unimplemented: true },
-      { label: "Open VCD…", kbd: "Ctrl+O", action: "open-vcd" },
-      { label: "Open Recent", submenu: recentSubmenu() },
-      "sep",
-      { label: "Import Sidecar…", action: "import-sidecar", disabled: idle },
-      { label: "Export Sidecar…", action: "export-sidecar", disabled: idle },
-      "sep",
-      { label: "Reload Trace", disabled: true, unimplemented: true },
-      "sep",
-      { label: "Close Window", kbd: "Ctrl+W", action: "close-window" },
-    ] },
-    EDIT_HELP[0], // Edit
-    { name: "View", items: [
-      { label: "Zoom In", kbd: "Ctrl+=", action: "zoom-in", disabled: idle },
-      { label: "Zoom Out", kbd: "Ctrl+-", action: "zoom-out", disabled: idle },
-      { label: "Zoom to Fit", kbd: "Ctrl+0", action: "zoom-fit", disabled: idle },
-      "sep",
-      { label: props.treeCollapsed() ? "Expand Signal Tree" : "Collapse Signal Tree", action: "toggle-tree", disabled: idle },
-      { label: props.activeCollapsed() ? "Expand Active Signals" : "Compact Active Signals", action: "toggle-active", disabled: idle },
-      "sep",
-      { label: "Grid Snap", checked: props.snapOn(), action: "toggle-snap", disabled: idle },
-      { label: "Align Grid to Clock", checked: props.clockOn(), action: "toggle-clock", disabled: idle || !props.clockAvailable() },
-      "sep",
-      { label: "Reset Layout", disabled: true, unimplemented: true },
-      ...(props.linux()
-        ? ["sep" as MenuItem, { label: "System Title Bar", checked: props.frameStyle() === "native", action: "toggle-frame" } as MenuItem]
-        : []),
-    ] },
-    { name: "Signals", items: [
-      // "Dim", not "Hide": the eye toggle dims the row (RowInfo dim flag), it
-      // doesn't remove it — matches the row tooltip + context-menu wording.
-      { label: props.signalHidden() ? "Undim Signal" : "Dim Signal", action: "signal-hide", disabled: idle || !props.signalSelected() },
-      { label: "Change Color…", action: "signal-color", disabled: idle || !props.signalSelected() },
-      "sep",
-      { label: "Move to Top", action: "signal-top", disabled: idle || !props.signalSelected() },
-      { label: "Move to Bottom", action: "signal-bottom", disabled: idle || !props.signalSelected() },
-      "sep",
-      { label: "Remove from View", action: "signal-remove", disabled: idle || !props.signalSelected() },
-    ] },
-    { name: "Markers", items: [
-      { label: "Add Marker at Cursor", kbd: "M", action: "marker-add", disabled: idle },
-      { label: "Delete Marker", kbd: "Backspace", action: "marker-delete", disabled: idle || !props.markerSelected() },
-      { label: "Clear All Markers", action: "marker-clear", disabled: idle || props.markerCount() === 0 },
-      "sep",
-      { label: "Next Marker", kbd: "]", action: "marker-next", disabled: idle || props.markerCount() === 0 },
-      { label: "Previous Marker", kbd: "[", action: "marker-prev", disabled: idle || props.markerCount() === 0 },
-    ] },
-    EDIT_HELP[1], // Help
-    ];
-  };
+  const menus = () => buildMenus(props.state(), recent());
 
   createEffect(() => {
     const o = open();
@@ -173,30 +56,7 @@ export function MenuBar(props: {
   const activate = (it: Exclude<MenuItem, "sep">) => {
     if (it.disabled || it.submenu) return;
     setOpen(null);
-    if (it.action === "open-vcd") props.onOpenVcd();
-    else if (it.action === "open-recent" && it.path) props.onOpenRecent(it.path);
-    else if (it.action === "export-sidecar") props.onExportSidecar();
-    else if (it.action === "import-sidecar") props.onImportSidecar();
-    else if (it.action === "close-window") props.onCloseWindow();
-    else if (it.action === "toggle-frame") props.onToggleFrame();
-    else if (it.action === "zoom-in") props.onZoomIn();
-    else if (it.action === "zoom-out") props.onZoomOut();
-    else if (it.action === "zoom-fit") props.onZoomFit();
-    else if (it.action === "toggle-tree") props.onToggleTree(!props.treeCollapsed());
-    else if (it.action === "toggle-active") props.onToggleActive(!props.activeCollapsed());
-    else if (it.action === "toggle-snap") props.onToggleSnap();
-    else if (it.action === "toggle-clock") props.onToggleClock();
-    else if (it.action === "marker-add") props.onMarkerAdd();
-    else if (it.action === "marker-delete") props.onMarkerDelete();
-    else if (it.action === "marker-clear") props.onMarkerClear();
-    else if (it.action === "marker-next") props.onMarkerNext();
-    else if (it.action === "marker-prev") props.onMarkerPrev();
-    else if (it.action === "signal-hide") props.onSignalHide();
-    else if (it.action === "signal-color") props.onSignalColor();
-    else if (it.action === "signal-top") props.onSignalMoveTop();
-    else if (it.action === "signal-bottom") props.onSignalMoveBottom();
-    else if (it.action === "signal-remove") props.onSignalRemove();
-    else if (it.action === "about") props.onAbout();
+    if (it.action) props.onAction(it.action, it.path);
   };
 
   const renderItem = (it: MenuItem, isSub: boolean) =>

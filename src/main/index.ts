@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu, dialog, ipcMain } from "electron";
 import * as path from "node:path";
 import fs from 'fs';
+import { installNativeMenu } from "./menu";
 
 app.commandLine.appendSwitch("enable-unsafe-webgpu");
 if (process.platform === "linux") {
@@ -116,6 +117,14 @@ function loadTrace(win: BrowserWindow): void {
   }
 }
 
+// Native window title: "<file> — Riptide" (or just "Riptide" when idle). On macOS the
+// in-app titlebar + reload pill are hidden, so the native title bar is where the open
+// file's name shows. Derived from currentVcd, so it must be re-applied on each swap.
+function windowTitle(): string {
+  const name = currentVcd ? path.basename(currentVcd) : "";
+  return name ? `${name} — Riptide` : "Riptide";
+}
+
 function createWindow(): void {
   // Linux "custom" frame → frameless; the app draws its own titlebar + controls.
   // Everywhere else (and Linux "native") keeps Electron's default OS frame.
@@ -135,6 +144,9 @@ function createWindow(): void {
   });
   win.webContents.on("will-navigate", (e) => e.preventDefault());
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  // The window title tracks the open trace, not the page's static <title> — override
+  // the page-driven update (fires on load) with our own.
+  win.on("page-title-updated", (e) => { e.preventDefault(); win.setTitle(windowTitle()); });
   // Keep the custom titlebar's maximize/restore glyph in sync with the real window
   // state (the WM can also (un)maximize, e.g. double-click or a keybind).
   const sendMax = () => win.webContents.send("riptide:maximized", win.isMaximized());
@@ -170,6 +182,7 @@ ipcMain.handle("riptide:open-vcd", async (e) => {
   // a navigation. loadTrace is still used by createWindow for the initial load.
   currentVcd = r.filePaths[0];
   addRecent(currentVcd);
+  win.setTitle(windowTitle());
   return currentVcd;
 });
 
@@ -178,9 +191,10 @@ ipcMain.handle("riptide:recent-vcds", () => readRecent());
 
 // Renderer opened a recent trace; bump it to the top of the list and track it as
 // the current trace. The renderer swaps in place (no reload) after this returns.
-ipcMain.handle("riptide:open-recent", (_e, p: string) => {
+ipcMain.handle("riptide:open-recent", (e, p: string) => {
   currentVcd = p;
   addRecent(p);
+  BrowserWindow.fromWebContents(e.sender)?.setTitle(windowTitle());
   return p;
 });
 
@@ -252,6 +266,13 @@ ipcMain.handle("riptide:toggle-maximize", (e) => {
 });
 ipcMain.handle("riptide:is-maximized", (e) => BrowserWindow.fromWebContents(e.sender)?.isMaximized() ?? false);
 
+// macOS native menu: the renderer ships the shared menu tree (menuModel.buildMenus)
+// here whenever it changes; rebuild the system menu from it. No-op off macOS (those
+// platforms draw the in-app MenuBar and never register a native menu).
+ipcMain.on("riptide:menu-descriptor", (_e, sections: Parameters<typeof installNativeMenu>[0]) => {
+  if (process.platform === "darwin") installNativeMenu(sections);
+});
+
 // Toggle the Linux frame style (custom in-app controls <-> native WM frame).
 // Persist, then recreate the window so the new frame takes effect. currentVcd is
 // module state and the view is autosaved to the sidecar, so the same trace + view
@@ -265,9 +286,12 @@ ipcMain.handle("riptide:set-frame-style", (e, style: FrameStyle) => {
 });
 
 app.whenReady().then(() => {
-  // The app draws its own MenuBar; drop the native/GTK application menu so no
-  // stray menu bar wraps at the top of the window on Linux.
-  Menu.setApplicationMenu(null);
+  // macOS uses the native system menu bar: install a bootstrap menu (just the Riptide
+  // app menu) now; the renderer pushes the full tree over `riptide:menu-descriptor`
+  // once it mounts. Linux/Windows draw their own in-app MenuBar, so drop the native
+  // menu entirely (no stray GTK menu bar at the top of the window).
+  if (process.platform === "darwin") installNativeMenu([]);
+  else Menu.setApplicationMenu(null);
   currentVcd = resolveBootTrace();
   createWindow();
 });
