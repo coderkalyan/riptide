@@ -1,6 +1,8 @@
 appId: com.riptide.app
 productName: Riptide
-copyright: Copyright © 2026 Kalyan Sriram
+# Lands in the artifacts' own metadata (Windows LegalCopyright, macOS
+# NSHumanReadableCopyright), so a shipped binary states its own terms.
+copyright: Copyright © 2026 Kalyan Sriram — AGPL-3.0-or-later
 directories:
   output: dist/installers
 files:

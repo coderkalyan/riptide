@@ -45,7 +45,11 @@ export function AboutDialog(props: { onClose: () => void }) {
           <div class="about-version">Version {pkg.version}</div>
           {pkg.description && <div class="about-desc">{pkg.description}</div>}
           {runtimeLine && <div class="about-meta">{runtimeLine}</div>}
-          <div class="about-meta">Copyright © 2026 Kalyan Sriram · Apache-2.0</div>
+          <div class="about-meta">Copyright © 2026 Kalyan Sriram · AGPL-3.0-or-later</div>
+          {/* AGPL expects users to be told where the source lives. Plain text,
+              not a link: the renderer has no external-link handler, and an
+              <a href> here would navigate the app window away. */}
+          <div class="about-meta">github.com/coderkalyan/riptide</div>
           <div class="modal-actions">
             <button class="btn primary" onClick={props.onClose}>Close</button>
           </div>
