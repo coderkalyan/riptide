@@ -1,0 +1,229 @@
+# Riptide
+
+A waveform viewer for RTL debugging — GPU-rendered, built for traces that are too big for the tools you're used to.
+
+![Riptide showing a decoder trace: signal tree, active signals, and aligned waveforms](docs/screenshot.png)
+
+Riptide opens a VCD, draws it on your graphics card, and stays smooth while you pan and zoom
+through millions of transitions. Point it at your clock and the timeline counts cycles instead of
+nanoseconds. Buses decode into the radix you actually want. And every bit of that setup lives in a
+small JSON file next to the trace — so the view you built survives the next simulation run, and
+can be handed to whoever reviews the bug.
+
+> **Alpha.** Version 0.1.0-alpha.2 reads VCD and nothing else, and the builds are unsigned.
+> It's usable for real debugging today; expect rough edges and read
+> [What doesn't work yet](#what-doesnt-work-yet) before you rely on it.
+
+---
+
+## Install
+
+Grab the build for your machine from the [latest release](https://github.com/coderkalyan/riptide/releases).
+There's no package manager entry yet — Linux and Windows ship a single file you run, macOS ships a
+disk image.
+
+| Platform | File | First run |
+|---|---|---|
+| Linux x64 | `Riptide-<version>.AppImage` | `chmod +x` it, then run it |
+| macOS (Apple silicon) | `Riptide-<version>-arm64.dmg` | Open, drag to Applications, then **right-click ▸ Open** |
+| macOS (Intel) | `Riptide-<version>.dmg` (no `-arm64`) | Same as above |
+| Windows x64 | `riptide-<version>-portable.exe` | Run it; at the SmartScreen prompt pick **More info ▸ Run anyway** |
+
+There's no arm64 build for Linux or Windows — arm64 is macOS-only.
+
+**Why the extra clicks.** These builds aren't signed by a paid developer certificate, so macOS
+Gatekeeper and Windows SmartScreen both object the first time. Right-click ▸ Open (macOS) and
+More info ▸ Run anyway (Windows) are the standard one-time overrides. After that they launch
+normally.
+
+**What your machine needs.** Riptide draws the waveform on your GPU and has no software fallback.
+Any reasonably modern discrete or integrated graphics will do. If the GPU can't be used, the app
+still opens and the rest of the UI works, but the waveform area shows *"WebGPU unavailable"* with
+the specific reason — usually a driver or hardware-acceleration problem. On Linux you'll also want
+working Vulkan drivers, and the AppImage is built against glibc 2.31, so distributions older than
+roughly Ubuntu 20.04 won't run it.
+
+## Opening a trace
+
+Press <kbd>Ctrl</kbd>+<kbd>O</kbd> (<kbd>Cmd</kbd>+<kbd>O</kbd> on macOS), or **File ▸ Open VCD…**.
+Riptide reopens your most recent trace on launch, and **File ▸ Open Recent** keeps the last ten.
+
+There's **no command line yet** — no `riptide` command is installed, `.vcd` files aren't associated
+with the app, and dragging a file onto the window does nothing. For scripts and CI, set an
+environment variable on the executable itself:
+
+```sh
+# Linux
+RIPTIDE_VCD=/path/to/sim.vcd ./Riptide-0.1.0-alpha.2.AppImage
+
+# macOS
+RIPTIDE_VCD=/path/to/sim.vcd /Applications/Riptide.app/Contents/MacOS/Riptide
+
+# Windows (PowerShell)
+$env:RIPTIDE_VCD="C:\path\to\sim.vcd"; .\riptide-0.1.0-alpha.2-portable.exe
+```
+
+| Variable | Effect |
+|---|---|
+| `RIPTIDE_VCD` | Boot straight into this trace |
+| `RIPTIDE_NO_TRACE` | Boot empty, ignoring the recent list (wins over `RIPTIDE_VCD`) |
+| `RIPTIDE_SIDECAR` | Load and save the view from this file instead of the default |
+
+While a trace is open Riptide watches it on disk. When your simulator rewrites the file, the reload
+pill in the title bar goes warm — it deliberately does *not* reload underneath you. Press
+<kbd>Ctrl</kbd>+<kbd>R</kbd> when you're ready. (macOS has no in-app title bar, so use
+**File ▸ Reload File**.)
+
+## Working with a trace
+
+The window is three panes: the **signal tree** (your design hierarchy), **active signals** (the rows
+you've chosen, with their value at the cursor), and the **waveform canvas**.
+
+**Add signals** by double-clicking them in the tree, or select several and press <kbd>Enter</kbd>.
+Right-click a scope for **Add Scope (recursive)** to pull in everything beneath it.
+
+**Change how a value is drawn** by right-clicking its row ▸ **Format**: Binary, Boolean, Signed
+Decimal, Unsigned Decimal, Hex, or Enum. Two roles live in the same menu — **Clock** and **Reset** —
+which change how a 1-bit signal is drawn. Unknown (`X`) and high-impedance (`Z`) values are always
+drawn as distinct hatched bands, so you can't miss them.
+
+**Name your encodings.** Pick **Format ▸ Enum** and the gear opens a table where you type
+`value → name` pairs. VCD carries no enum information at all, so this is how `2` becomes `BUSY`.
+The table is saved with the view.
+
+**Cycles, not nanoseconds.** Mark a 1-bit signal as your clock (right-click ▸ **Format ▸ Clock**)
+and Riptide measures its period and phase for you. Turn on **View ▸ Align Grid to Clock** and the
+timeline rules on clock edges and numbers the cycles instead of counting nanoseconds; that menu item
+is greyed out until a clock exists. **View ▸ Grid Snap** makes the cursor land exactly on edges
+rather than between them — it needs a clock too, though it stays clickable without one. If the
+measurement comes out wrong, the row's Clock entry lets you set the edge polarity and period by
+hand, and the clock picker in the toolbar has a **custom** option for period and phase together.
+
+**Mark the interesting moments.** Press <kbd>M</kbd> to drop a marker at the cursor (up to 16), then
+<kbd>[</kbd> and <kbd>]</kbd> to jump between them. Drag a marker along the canvas to move it, or
+click its time in the MARKERS bar to type an exact one — a cycle number when the grid is
+clock-aligned. The distance from the selected marker to the cursor is shown as you move.
+
+**Tidy the list.** Rows can be recolored, resized, dragged into any order, and separated with
+dividers (right-click ▸ **Insert Divider Above/Below**). Rows you're finished with can be dimmed
+(**Dim**, or **Dim Others** to dim everything else). And any row can be *muted* by another signal —
+right-click ▸ **Mute On…**, pick a 1-bit enable, and the row fades wherever that enable is low, so
+gated logic stops competing for your attention.
+
+### Keyboard
+
+| Keys | Action |
+|---|---|
+| <kbd>Ctrl</kbd>+<kbd>O</kbd> | Open a VCD |
+| <kbd>Ctrl</kbd>+<kbd>R</kbd> | Reload the open trace from disk |
+| <kbd>Ctrl</kbd>+<kbd>=</kbd> / <kbd>Ctrl</kbd>+<kbd>-</kbd> | Zoom in / out |
+| <kbd>Ctrl</kbd>+<kbd>0</kbd> | Zoom to fit |
+| <kbd>M</kbd> | Add a marker at the cursor |
+| <kbd>[</kbd> / <kbd>]</kbd> | Previous / next marker |
+| <kbd>Backspace</kbd> or <kbd>Delete</kbd> | Delete the selected marker |
+| <kbd>Enter</kbd> | Add the tree selection to the view |
+| <kbd>Esc</kbd> | Clear the tree selection |
+
+On macOS these are <kbd>Cmd</kbd> chords. <kbd>Enter</kbd> and <kbd>Esc</kbd> act on the signal tree
+and need it focused — click a row in it first. `Ctrl+W` appears in the File menu but only works as a
+shortcut on macOS; elsewhere use **File ▸ Close Window**.
+
+### Mouse
+
+| Gesture | Action |
+|---|---|
+| Click or drag on the canvas | Place and scrub the cursor |
+| Scroll | Pan through time (does nothing while the whole trace fits on screen) |
+| <kbd>Ctrl</kbd>+scroll | Zoom around the pointer |
+| Drag a marker | Move it |
+| Drag a row in the active list | Reorder it |
+| Drag a row's bottom edge | Change its height |
+| Drag a pane edge | Resize the pane (double-click to reset) |
+
+## The sidecar: your view, saved next to the trace
+
+Everything you set up — which signals, in what order, their colors, radixes, enum tables, heights,
+dividers, muting, the clock you picked, your markers, and where the cursor sits — is written to a
+small JSON file beside the trace:
+
+```
+sim.vcd
+sim.vcd.sidecar.json
+```
+
+It saves itself as you work, so there's no project to create and nothing to remember. Delete the
+file to start from a blank view.
+
+The useful part: **signals are keyed by hierarchical path, not by index**, so the same sidecar opens
+correctly against a *different run* of the same design. Re-run the simulation, reopen the trace, and
+your window comes back exactly as you left it. Anything the file references that no longer exists is
+quietly skipped rather than failing the load.
+
+That makes it a way to hand off a bug. Attach the VCD and its sidecar to the ticket and the reviewer
+lands on the failing cycle with the right signals already on screen. A CI job can write one directly
+— the format is documented in [docs/sidecar.md](docs/sidecar.md) with a JSON schema in
+[docs/sidecar.schema.json](docs/sidecar.schema.json).
+
+**File ▸ Export Sidecar…** writes a copy with this window's own UI state stripped out — pane sizes,
+which scopes are expanded, the grid toggles, and the selected timebase — so the recipient keeps
+their own layout. Signals, colors, radixes, enum tables, row heights, dividers, muting, markers and
+the cursor all travel. Note the default export name is `sim.sidecar.json`, *not* the
+`sim.vcd.sidecar.json` that gets loaded automatically, so use **File ▸ Import Sidecar…** to apply
+one you've been given.
+
+## What doesn't work yet
+
+Being blunt, so you can judge whether it fits your flow:
+
+- **VCD only.** No FST, WLF, or GHW. Large traces are handled well, but they have to be VCD.
+- **No live simulator control.** Riptide reads dumps; it doesn't run or step your simulator.
+  Verilator, Icarus and Vivado xsim are what the parser is tested against, not integrations.
+- **No derived signals.** You can't yet build a row from an expression like `valid & ready`.
+- **No search.** No "find this pattern", no signal-name filtering, and no assertion or glitch
+  flagging.
+- **No signal groups.** You can order, color and divide rows, but not collapse a handshake into one
+  bundle. Undo/redo, cut/copy/paste, New Window and Reset Layout are also unimplemented menu entries.
+- **No command line, no file associations, no drag-and-drop.**
+
+## Building from source
+
+You need **Node 22**, **pnpm 9**, and **Zig 0.16.0** (what CI builds with; the addon manifest accepts
+0.15.2 and up). The waveform database and VCD parser are git submodules, and the build fails without
+them.
+
+```sh
+git clone https://github.com/coderkalyan/riptide.git
+cd riptide
+git submodule update --init --recursive
+pnpm install
+pnpm dev
+```
+
+| Command | What it does |
+|---|---|
+| `pnpm dev` | Debug build of the native addon and app, then launches it (`pnpm dev --blank` starts with no trace) |
+| `pnpm build` | Release build into `dist/` |
+| `pnpm check` | Typechecks both TypeScript projects and validates the WGSL shaders |
+| `pnpm test` | Runs the test suites; each self-skips if its tooling is absent |
+| `pnpm release` | Release build plus a packaged installer for your platform in `dist/installers/` |
+
+Shader validation needs `naga-cli` (`cargo install naga-cli --locked`) and is skipped with a warning
+if it's missing. The test corpus isn't vendored — see [TESTING.md](TESTING.md), which also records
+which suites are currently red. Architecture notes live in [CLAUDE.md](CLAUDE.md).
+
+## Contributing
+
+Issues and pull requests are welcome. If you're reporting a rendering or performance problem, the
+trace matters — a VCD that reproduces it (or a script that generates one) is worth far more than a
+description.
+
+## License
+
+[AGPL-3.0-or-later](LICENSE). You may use, modify and redistribute Riptide freely; if you distribute
+a modified version, or run one as a network service, those changes have to be available under the
+same terms.
+
+The published `v0.1.0-alpha.1` and `v0.1.0-alpha.2` releases predate the relicense and remain
+available under Apache-2.0.
+
+Copyright © 2026 Kalyan Sriram

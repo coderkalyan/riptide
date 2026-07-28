@@ -9,7 +9,9 @@ still owns the hierarchy and samples.
 Riptide loads the sidecar on start and rewrites it whenever viewer state
 changes. There is no "open project" / "save project" step.
 
-- **Default path:** `riptide.sidecar.json` in the working directory.
+- **Default path:** `<trace>.sidecar.json` next to the trace — `sim.vcd` pairs
+  with `sim.vcd.sidecar.json` (the extension is appended, not replaced). With no
+  trace open this falls back to `riptide.sidecar.json` in the working directory.
 - **Override:** set `RIPTIDE_SIDECAR=/path/to/file.json` (the CI hook).
 - **Delete it** and Riptide opens the trace fresh (every signal, plain styling,
   no markers, fit zoom).
@@ -133,10 +135,12 @@ with open(sys.argv[1] if len(sys.argv) > 1 else "riptide.sidecar.json", "w") as 
     json.dump(sidecar, f, indent=2)
 ```
 
-Run Riptide against it with:
+Run Riptide against it by setting the override on the executable — there is no
+`riptide` command on `PATH`:
 
 ```sh
-RIPTIDE_SIDECAR=/path/to/failure.sidecar.json riptide   # opens zoomed to the bug
+RIPTIDE_SIDECAR=/path/to/failure.sidecar.json \
+  ./Riptide-0.1.0-alpha.2.AppImage            # opens zoomed to the bug
 ```
 
 ## Validate in CI

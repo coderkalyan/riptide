@@ -8,5 +8,7 @@ zig-out/
 .mcp.json
 .preview/
 release/
+# Bare pattern: matches at any depth, so the README hero needs an explicit negation.
 screenshot.png
+!docs/screenshot.png
 scripts/canvas-test/harness.bundle.mjs
