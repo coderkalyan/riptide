@@ -12,3 +12,5 @@ release/
 screenshot.png
 !docs/screenshot.png
 scripts/canvas-test/harness.bundle.mjs
+# Written beside the golden when a visual test fails; a diff aid, never committed.
+*.actual.png
