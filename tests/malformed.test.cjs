@@ -63,7 +63,7 @@ after(() => {
       "",
       "── malformed-input outcomes (survival asserted; diagnosis not yet implemented) ──",
       ...rows,
-      "  legend: threw=graceful JS error | crashed=Zig panic/abort | loaded=parsed w/o complaint | HANG=fail",
+      "  legend: threw=graceful JS error | crashed=native panic/abort | loaded=parsed w/o complaint | HANG=fail",
       "",
     ].join("\n"),
   );

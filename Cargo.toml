@@ -1,0 +1,11 @@
+[workspace]
+resolver = "3"
+members = ["native"]
+exclude = ["tide"]
+
+# tide is a submodule at ./tide, with its own workspace, so it is excluded from
+# this one; native/Cargo.toml path-depends on two of its crates.
+
+[profile.release]
+lto = true
+strip = "symbols"

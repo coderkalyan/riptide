@@ -1,12 +1,14 @@
-// Per-signal value formatting — the CPU-side value column + hover readout. Ports
-// App.tsx's valueAtTick / formatSegmentValue / buildEnumLabels verbatim. (This is
-// a byte-for-byte sibling of the native label.zig formatter — keep in sync.)
+// Per-signal value formatting — the CPU-side value column + hover readout.
+// Byte-for-byte sibling of the native formatter in native/src/label.rs — keep
+// the two in sync.
 import { getValueAt } from "../native";
 import { enumTableForRef, type ActiveSignalRef, type Radix } from "../hier/scene";
 
-// Decoded (lsb, msb) value of a signal at a tick via the native tide query.
-// lsb/msb are little-endian u32 word arrays (one word per 32 bits of width).
-export type SegValueLM = { lsb: number[]; msb: number[] };
+// Decoded value of a signal at a tick via the native tide query, as
+// little-endian u32 word arrays (one word per 32 bits of width): `lsb` is the
+// value with every unknown bit read as 0, `msb` marks the unknown bits, and `z`
+// says which of those are high impedance rather than x.
+export type SegValueLM = { lsb: number[]; msb: number[]; z: number[] };
 export function valueAtTick(handle: string, tick: number): SegValueLM | undefined {
   return getValueAt(handle, Math.floor(tick)) ?? undefined;
 }
@@ -36,16 +38,14 @@ export function formatSegmentValue(
   }
   let hasX = false, hasZ = false;
   for (let w = 0; w < value.msb.length; w++) {
-    const m = value.msb[w] >>> 0, l = value.lsb[w] >>> 0;
-    if ((m & ~l) >>> 0) hasX = true;
-    if ((m & l) >>> 0) hasZ = true;
+    const unknown = value.msb[w] >>> 0, impedance = (value.z?.[w] ?? 0) >>> 0;
+    if ((unknown & ~impedance) >>> 0) hasX = true;
+    if ((unknown & impedance) >>> 0) hasZ = true;
   }
   if (hasX || hasZ) {
     const bitChar = (bit: number): string => {
-      const l = bitOfWords(value.lsb, bit);
-      const m = bitOfWords(value.msb, bit);
-      if (m === 0) return l === 0 ? "0" : "1";
-      return l === 0 ? "X" : "Z";
+      if (bitOfWords(value.msb, bit) === 0) return bitOfWords(value.lsb, bit) ? "1" : "0";
+      return bitOfWords(value.z ?? [], bit) ? "Z" : "X";
     };
     if (bitWidth === 1) return bitChar(0);
     let anyX = false, anyZ = false, anyDef = false;

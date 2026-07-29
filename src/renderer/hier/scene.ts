@@ -168,7 +168,7 @@ function lookupByPath(h: Hierarchy, path: string): NodeId {
   return found!;
 }
 
-// Per-row enum int→label table for the native label formatter (label.zig). Built
+// Per-row enum int→label table for the native label formatter (label.rs). Built
 // from the signal's overlaid enumTypeId (see buildScene); empty for non-enum rows.
 // value = parseInt(member.raw, 2), matching the old JS buildEnumLabels key.
 function enumsForSignal(h: Hierarchy, signalId: NodeId): EnumEntry[] {

@@ -1,9 +1,9 @@
 "use strict";
 // Per-fixture worker for the seam-B/C native checks. Runs in its own process so a
-// Zig @panic in the addon (which abort()s) only takes down this fixture, not the
-// whole suite. Prints a single `RESULT:<json>` line; exits 0 even when assertions
-// fail (failures travel in the JSON). A nonzero exit / missing RESULT line means
-// the addon crashed or hung — the parent reports that as a crash.
+// crash in the addon only takes down this fixture, not the whole suite. Prints a
+// single `RESULT:<json>` line; exits 0 even when assertions fail (failures travel
+// in the JSON). A nonzero exit / missing RESULT line means the addon crashed or
+// hung — the parent reports that as a crash.
 //
 // argv[2] = absolute path to oracle/<fixture>.json
 
@@ -12,7 +12,11 @@ const { U32_MAX, decodeBits, buildPathMap, isBitString } = require("./decode.cjs
 
 const o = loadOracle(process.argv[2]);
 const errors = [];
-const skips = { overU32Time: 0, realValue: 0, nullValue: 0 };
+const skips = { overU32Time: 0, realValue: 0, nullValue: 0, unrepresentable: 0 };
+
+// An event is an occurrence rather than a value, so tide has no type for it and
+// leaves it out of the hierarchy entirely. Nothing here can check one.
+const unrepresentable = (type) => type === "event";
 
 const native = loadAddon();
 native.loadVcd(o._vcdPath); // may panic -> process abort, caught by parent
@@ -23,7 +27,8 @@ const { signals } = buildPathMap(h);
 for (const hn of o.hierarchy) {
   const sig = signals.get(hn.path);
   if (!sig) {
-    errors.push(`hierarchy: missing path ${hn.path}`);
+    if (unrepresentable(hn.type)) skips.unrepresentable++;
+    else errors.push(`hierarchy: missing path ${hn.path}`);
     continue;
   }
   if (sig.width !== hn.width) {
@@ -36,7 +41,8 @@ for (const c of o.cases) {
   for (const [path, s] of Object.entries(c.signals)) {
     const sig = signals.get(path);
     if (!sig) {
-      errors.push(`${c.name}: unresolved path ${path}`);
+      if (unrepresentable(s.type)) skips.unrepresentable++;
+      else errors.push(`${c.name}: unresolved path ${path}`);
       continue;
     }
     for (const samp of s.samples) {

@@ -1,0 +1,32 @@
+[package]
+name = "riptide-native"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# The addon is copied to dist/native/riptide.node by scripts/build.mjs; the file
+# name is what src/renderer/native.ts requires, and `.node` is the only part
+# Electron's loader cares about (the entry point is napi_register_module_v1).
+[lib]
+name = "riptide"
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "query-fixture"
+path = "src/bin/query_fixture.rs"
+
+[dependencies]
+# `dyn-symbols` (a napi default) resolves the Node-API entry points at module
+# init through the running host image instead of at link time. Without it the
+# query-fixture binary and the oracle test, which link the same rlib, fail to
+# link against symbols only Electron provides.
+napi = { version = "3.12", features = ["napi9"] }
+napi-derive = "3.6"
+tide-core = { path = "../tide/crates/tide-core" }
+tide-vcd = { path = "../tide/crates/tide-vcd" }
+
+[build-dependencies]
+napi-build = "2.4"
+
+[dev-dependencies]
+serde_json = "1.0.151"

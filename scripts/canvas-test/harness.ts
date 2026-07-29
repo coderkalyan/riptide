@@ -90,7 +90,7 @@ function proceduralAtlas(displayPx: number, dpr: number): AtlasBuild {
 const ATLAS_LAST_IDX = 0x7e - 0x20; // last ASCII cell index
 
 // ----- synthetic waveform: rows 0,1 single-bit (clock-ish), row 2 multi-bit bus.
-// Layouts per CLAUDE.md / digital.wgsl / segments.zig. The fixture deliberately
+// Layouts per CLAUDE.md / digital.wgsl / segments.rs. The fixture deliberately
 // covers BOTH sides of every flat-flag fragment branch (4.1): shaded vs unshaded
 // rows, x/z samples (→ crosshatch), and a rising-edge caret pair. -----
 const F_SHADE = 1 << 16;

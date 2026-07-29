@@ -4,7 +4,7 @@ import WGSL from "./digital.wgsl";
 
 type ShaderVariant = "multi" | "single";
 
-// RowInfo is 7×u32 (see segments.zig / digital.wgsl): x0_offset, x1_offset,
+// RowInfo is 7×u32 (see segments.rs / digital.wgsl): x0_offset, x1_offset,
 // bytes_per_sample, segment_start, flags, y_offset, height. Word 4 is the per-row
 // flags (bit 0 = dim); words 5/6 are the vertical layout (CSS px as f32 bits),
 // both patched directly by the renderer (no repack). ROW_FLAG_DIM must match

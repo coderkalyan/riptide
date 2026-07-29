@@ -27,7 +27,11 @@ function sh(cmd, args, env) {
 }
 
 // Everything below needs the addon (+ query-fixture) and the renderer bundle.
-await build({ target: "host", mode: "dev" });
+// Release, not dev: an unoptimized Rust addon walks the corpus an order of
+// magnitude slower, which pushes the heaviest fixtures past the harness
+// timeouts, and it is not the configuration anyone ships. The span and scene
+// invariants are plain `assert!`, so they stay live either way.
+await build({ target: "host", mode: "release" });
 
 if (update) {
   if (have("sway", ["--version"]) && have("bash"))

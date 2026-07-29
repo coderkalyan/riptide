@@ -8,17 +8,19 @@
 
 const U32_MAX = 0xffffffff;
 
-// Decode a getValueAt() {lsb, msb} word pair into an MSB-first 4-state bit string
-// of `width` chars. Per bit (m,l): (0,0)=0 (0,1)=1 (1,0)=x (1,1)=z — the same
-// LSB/MSB convention the shader and formatSegmentValue use.
+// Decode a getValueAt() {lsb, msb, z} word triple into an MSB-first 4-state bit
+// string of `width` chars. `msb` marks the unknown bits, `lsb` is the value with
+// those read as 0, and `z` says which unknowns are high impedance — the same
+// split formatSegmentValue uses.
 function decodeBits(v, width) {
   let s = "";
   for (let i = width - 1; i >= 0; i--) {
     const wi = (i / 32) | 0;
     const bit = i % 32;
-    const l = (v.lsb[wi] >>> bit) & 1;
-    const m = (v.msb[wi] >>> bit) & 1;
-    s += m ? (l ? "z" : "x") : l ? "1" : "0";
+    const value = (v.lsb[wi] >>> bit) & 1;
+    const unknown = (v.msb[wi] >>> bit) & 1;
+    const impedance = ((v.z?.[wi] ?? 0) >>> bit) & 1;
+    s += unknown ? (impedance ? "z" : "x") : value ? "1" : "0";
   }
   return s;
 }

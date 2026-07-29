@@ -2,7 +2,7 @@
 // Seam C worker — formatting + packing. For each multi-bit (width > 1), non-real
 // signal in each case, ask the addon to pack it over the case viewport, decode the
 // native pill labels, and compare each covering label to the oracle's `formatted`
-// string at every sample tick. This exercises label.zig's formatter (hex/dec/bin/
+// string at every sample tick. This exercises label.rs's formatter (hex/dec/bin/
 // enum) AND the segment packing boundaries in one shot.
 //
 // Single signal per getMockSegments call (row 0) so label index aligns with the
@@ -21,7 +21,7 @@ const xzDiverge = []; // x/z hex rendering differs from oracle spec (bits preser
 const skips = { realValue: 0, overU32: 0, noLabel: 0, unsupportedRadix: 0 };
 let checked = 0;
 
-// riptide's native pill formatter (label.zig / NativePackSpec.radix) only knows
+// riptide's native pill formatter (label.rs / NativePackSpec.radix) only knows
 // these. Oracle radices outside the set (oct, dec-signed, real) can't even be
 // requested — recorded as a capability gap, not a mismatch.
 const SUPPORTED = new Set(["bin", "hex", "dec", "enum"]);

@@ -15,7 +15,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-run_seam_a()       { ( cd native && zig build test ); }
+run_seam_a()       { cargo test --release -p riptide-native --test oracle -- --nocapture; }
 run_native()       { node --test tests/native.test.cjs; }
 run_format()       { node --test tests/format.test.cjs; }
 run_differential() { node --test tests/differential.test.cjs; }

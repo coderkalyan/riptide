@@ -57,7 +57,7 @@ export interface NativePackSpec {
   // Handle of a 1-bit enable signal that mutes this row while it isn't logic-1
   // (null = no muting). Resolved from the row's sidecar `mute` path.
   muteHandle: string | null;
-  // How the native side formats the value label (label.zig). bin = no label
+  // How the native side formats the value label (label.rs). bin = no label
   // (single line); boolean = single line + true/false label; the rest are pills.
   radix: "bin" | "hex" | "dec" | "sdec" | "enum" | "boolean";
   // Per-row enum int→label table (empty for non-enum rows). value = the integer
@@ -83,7 +83,7 @@ interface NativeModule {
     endTicks: number;
   };
   getHierarchy(): RawHierarchy;
-  getValueAt(handle: string, tick: number): { lsb: number[]; msb: number[] } | null;
+  getValueAt(handle: string, tick: number): { lsb: number[]; msb: number[]; z: number[] } | null;
   getEdges(handle: string, startTick: number, count: number): {
     ticks: ArrayBuffer;
     lsb: ArrayBuffer;
@@ -196,11 +196,15 @@ export function getMockSegments(
   };
 }
 
-// Decoded (lsb, msb) of a signal at a tick — the CPU-side value lookup that
-// replaces scanning a JS segment list. lsb/msb are little-endian u32 word arrays
+// Decoded planes of a signal at a tick — the CPU-side value lookup that
+// replaces scanning a JS segment list. lsb (value, unknowns read as 0), msb
+// (unknown mask) and z (high impedance) are little-endian u32 word arrays
 // (one word per 32 bits of declared width), so signals wider than 32 bits are
 // carried in full. Returns null off the end of the trace.
-export function getValueAt(handle: string, tick: number): { lsb: number[]; msb: number[] } | null {
+export function getValueAt(
+  handle: string,
+  tick: number,
+): { lsb: number[]; msb: number[]; z: number[] } | null {
   if (!traceLoaded) return null;
   return native.getValueAt(handle, tick);
 }
@@ -211,7 +215,7 @@ export function getValueAt(handle: string, tick: number): { lsb: number[]; msb: 
 // period/phase and a reset's held interval (see wave/clock.ts). Null if the
 // handle is unknown.
 export interface NativeEdges {
-  // f64 ticks (full u64 range, exact to 2^53) — see getEdges in native/src/main.zig.
+  // f64 ticks (full u64 range, exact to 2^53) — see getEdges in native/src/lib.rs.
   ticks: Float64Array<ArrayBuffer>;
   lsb: Uint8Array<ArrayBuffer>;
   msb: Uint8Array<ArrayBuffer>;

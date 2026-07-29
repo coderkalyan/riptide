@@ -8,10 +8,10 @@ name: Release builds
 # `scripts/build.mjs --target=<triple>` — the exact script developers run locally —
 # then packages with electron-builder. No bash re-implementation of the build.
 #
-# The native addon (Zig napi) depends on tide and tide-vcd, vendored as git
-# submodules at repo root (native/build.zig.zon references them as ../tide,
-# ../tide-vcd). All three repos are public, so the default GITHUB_TOKEN can read
-# them — no PAT needed.
+# The native addon is a Rust cdylib (napi-rs) over the tide crates, vendored as a
+# git submodule at repo root (`native/Cargo.toml` path-depends on
+# `../tide/crates/tide-core` and `../tide/crates/tide-vcd`). tide is public, so
+# the default GITHUB_TOKEN can read it — no PAT needed.
 
 on:
   push:
@@ -87,10 +87,13 @@ jobs:
           path: riptide
           submodules: true
 
-      - name: Setup Zig
-        uses: mlugg/setup-zig@v2
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
         with:
-          version: 0.16.0
+          workspaces: riptide
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4

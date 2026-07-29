@@ -22,7 +22,7 @@ screen of over-fetch margin)**. The items below are what remains on top of that.
 ## Load / memory (scales with trace size — revisit on the first big real trace)
 
 ### Whole-VCD slurp + full in-RAM db (no size cap, no streaming)
-`mock_db.zig` `readFileAllocOptions(…, .unlimited, …)` reads the entire VCD into
+`trace.rs` `std::fs::read` reads the entire VCD into
 RAM, then tide builds a full in-memory db on top — no size ceiling, no
 backpressure. A multi-GB VCD OOMs at load (surfaces as a thrown JS error, so it
 doesn't corrupt, but it can't open). Trigger to revisit: first multi-hundred-MB /
@@ -51,7 +51,7 @@ sub-pixel runs during pack, or a per-row draw budget.
 
 ## Many active rows — Y-axis windowing (the row cap is now 65535)
 
-The active-row cap was raised 64 → 65535 (`gpu/colors.ts` + `segments.zig` Scene
+The active-row cap was raised 64 → 65535 (`gpu/colors.ts` + `segments.rs` Scene
 rows made dynamic). Correctness scales, but per-row work does not — the three items
 below all violate the "scales with what's on screen" principle on the **Y** axis,
 the same way the time window already solves it on the X axis. Trigger: a view with

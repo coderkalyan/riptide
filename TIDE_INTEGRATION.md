@@ -1,13 +1,13 @@
 # Tide → Riptide integration — remaining shims
 
-Riptide reads a real VCD via tide-vcd → `tide.Database`. The items below are the
+Riptide reads a real VCD via tide-vcd → `tide_core::Trace`. The items below are the
 **temporary mocks/overlays still in place** — delete each as the stack grows the
 capability. Everything else (pool/pack pipeline, windowed packing,
 open-file/sidecar flow) is wired up; see the code. Todo-only: once an item is
 real, remove it from this file rather than recording it as resolved.
 
-Siblings: `tide` at `../tide`, `tide-vcd` at `../tide-vcd` (`native/build.zig.zon`
-→ `../../tide`, `../../tide-vcd`).
+Submodule: the `tide` Rust workspace at `./tide` (`native/Cargo.toml` →
+`../tide/crates/tide-core`, `../tide/crates/tide-vcd`).
 
 Each item is binned by *why* it's still mocked:
 
@@ -20,23 +20,12 @@ Each item is binned by *why* it's still mocked:
 
 ## ⚠ Crash / leak consequences of these shims (fix before release)
 
-The shims below mostly *degrade* gracefully, but these specific consequences
-currently **break** the app on a real (non-mock) trace — promoted here so they
-aren't buried:
-
-- [ ] **`getMockSegments` still hard-panics on a missing signal.** real / string /
-  never-assigned signals are dropped at load (see "real/string" + "Fine var-type"
-  below); the renderer marks them `supported: false` (native db-membership, in
-  `getHierarchy`) so the tree disables them and `store.addSignal`/`addSignals` +
-  sidecar `resolveView` skip them — closing the common real/string one-click crash.
-  `event` vars used to abort in `getValueAt`/`pack.valueAt`; that is fixed —
-  they now read as no samples, and `feat_var_types` passes `native`, `format`,
-  `differential` and `e2e`. What remains is the raw backstop
-  `db.query(...) orelse @panic("missing signal")` (`native/src/main.zig:356`).
-  Durable fix: turn that `@panic` into a skip (emit an empty packed signal).
-
-  *(Resolved: the hardcoded `trace.id: "keysched"` + `"keysched.vcd"` tab-label
-  leaks into foreign sidecars — both removed.)*
+*(Resolved with the Rust addon. `getMockSegments` no longer aborts on a signal
+the database never stored: an unknown or unsupported handle packs to an empty
+row, and a bad `loadVcd` throws a JS error instead of calling `abort`. The
+renderer still marks real / never-assigned signals `supported: false` from
+native db membership, so the tree disables them, but that is now a nicety rather
+than the only thing between a click and a dead process.)*
 
 ## Not in the VCD (no source to read)
 
@@ -45,19 +34,21 @@ aren't buried:
   carries no enum members. The overlay is path-scoped (try/catch), so it correctly
   no-ops on a non-matching trace. → when a VCD convention (`$comment`/translate) or
   tide's hierarchy starts carrying them.
-- [ ] **Signal direction.** VCD `$var` lines carry no port direction, so `walkInto`
-  never sets one and `hier.zig` defaults every signal to `.implicit` — the
-  renderer's `Direction` enum never sees its other cases. Not surfaced in the UI
-  yet, so it's a latent stub. → when tide-vcd (or a VCD convention) supplies port
-  direction.
-- [ ] **`package` scope kind.** VCD scope types are module/task/function/begin/fork
-  only; the fixture declares the package as a plain `module`, and `scene.ts`
-  overlays the `package` kind onto the `derived` root. Foot-gun: `scene.ts:292`
-  restyles *any* root scope literally named `derived`, so a foreign design with a
-  top-level module of that name is mislabeled. → when the source format
-  distinguishes it *and* tide-vcd grows the scope kind.
+- [ ] **Signal direction.** VCD `$var` lines carry no port direction, so tide's
+  hierarchy models none and `lib.rs` emits the literal `"implicit"` for every
+  signal — the renderer's `Direction` enum never sees its other cases. Not
+  surfaced in the UI yet, so it's a latent stub. → when tide-vcd (or a VCD
+  convention) supplies port direction.
+- [ ] **Scope kind fidelity.** tide's `ScopeKind` is format-agnostic
+  (`Instance`/`Block`/`Procedure`/`Container`/`Other`), so `hierarchy.rs` reports
+  a VCD `function` as `"task"` and a `fork` as `"begin"` — the pairs collapse. No
+  VCD scope maps to `package` at all; the fixture declares its package as a plain
+  `module` and `scene.ts` overlays the kind onto the `derived` root. Foot-gun:
+  `scene.ts:292` restyles *any* root scope literally named `derived`, so a
+  foreign design with a top-level module of that name is mislabeled. → when tide
+  carries the source spelling alongside its own axis.
 - [ ] **Timescale precision — applied unconditionally to every trace.** Value+unit
-  are real (`mock_db.zig` maps `p.header.timescale` → `Loaded.timescale`), but VCD
+  are real (`trace.rs` reads them off `LoadReport::timescale`), but VCD
   `$timescale` carries no precision magnitude, and `scene.ts:281` overlays a
   fabricated `{10, ps}` precision onto **every** loaded trace (not just the mock) —
   so all real traces mis-report precision. Fix: leave precision `undefined` unless
@@ -65,17 +56,22 @@ aren't buried:
 
 ## In the VCD but not surfaced (dropped by riptide / unrepresentable in tide / mis-parsed by tide-vcd)
 
-- [ ] **real / string + weak-pull values.** Present in the event stream, but tide's
-  data model is quaternary-only: `mock_db.zig:227` skips real/string changes and
-  collapses weak/pull scalars (`h l u w -`) to `x`. *Cause: tide can't represent
-  them.* Until then these signals carry zero samples and **must not be added to a
-  row** (see the crash hazard above). → when tide gains real/string + weak/pull
-  state.
+- [ ] **real / string + weak-pull values.** Present in the event stream, but the
+  database stores four-state logic only (bounds plus a high impedance mask):
+  `tide_vcd::load` counts real and string records as skipped, and the codec
+  collapses weak/pull scalars (`h l u w -`) to `x`. *Cause: tide can't represent them.* A real variable is at least listed and
+  typed now, with `supported: false` and no samples behind it. → when tide gains
+  real/string + weak/pull state.
+- [ ] **Event variables vanish entirely.** An event is an occurrence rather than a
+  value — a point, not the step function every other variable describes — so
+  `tide_vcd::load` leaves it out of the hierarchy (`skipped_vars`) and the signal
+  tree never shows it. It used to appear, disabled. → when tide grows a
+  step/point axis.
 - [ ] **Fine var-type.** tide-vcd parses the full `$var` type set
-  (wire/reg/integer/time/…), but `mock_db.zig` `mapVarType` collapses every one to
-  `vcd_wire`/`vcd_reg`, so the renderer's richer `VarType` enum + `scene.ts`
-  `vcdTypeOf` switch can never see the other cases. *Cause: riptide throws it
-  away.* → widen `mapVarType` to thread the full type through.
+  (wire/reg/integer/time/…), but tide's hierarchy keeps only the container axis
+  (`Net`/`Variable`/`Parameter`), which `hierarchy.rs` maps to `vcd_wire`/
+  `vcd_reg`, so the renderer's richer `VarType` enum + `scene.ts` `vcdTypeOf`
+  switch can never see the other cases. → when tide carries the declared type.
 
 ## Riptide-internal (independent of the VCD)
 

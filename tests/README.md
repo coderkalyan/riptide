@@ -5,8 +5,8 @@ seams (A core, B marshalling, C format/pack, D full app). The oracle
 (`oracle/<fixture>.json`, computed by an independent parser) is the answer key;
 all times in it are decimal strings (u64-safe).
 
-> Seam A lives in the native build, not here: `native/src/oracle_test.zig`, run
-> with `zig build test` (or `tests/run.sh seam-a`). It loads each fixture through
+> Seam A lives in the native crate, not here: `native/tests/oracle.rs`, run with
+> `cargo test -p riptide-native --test oracle` (or `tests/run.sh seam-a`). It loads each fixture through
 > tide directly — no node, no napi — and asserts `pack.valueAt` decodes to the
 > oracle bits. A clean seam A + clean seam-B differential localizes any value bug
 > to the napi boundary.
@@ -22,7 +22,7 @@ tests/
     differential-worker.cjs  seam-B differential replay (isolated process)
   native.test.cjs        seam B — getHierarchy + getValueAt vs oracle
   format.test.cjs        seam C — native pill labels (getMockSegments) vs oracle
-  differential.test.cjs  seam B — zig-direct (query-fixture exe) vs through-addon, byte-equal
+  differential.test.cjs  seam B — direct (query-fixture binary) vs through-addon, byte-equal
   malformed.test.cjs     malformed-input survival
   e2e/
     seed.cjs             temp .vcd copy + sidecar seeding helper
@@ -77,7 +77,7 @@ These are intentionally left red — they are bugs/gaps in riptide, not the harn
    targets.
 2. **Hex nibble misgrouping for widths not a multiple of 4.** A 7-bit value
    `1111011` formats as `0xF3` instead of `0x7b` — nibbles are grouped from the
-   MSB. Present in both `native/src/label.zig` and `wave/value.ts`
+   MSB. Present in both `native/src/label.rs` and `wave/value.ts`
    (`formatSegmentValue`); affects pill labels and the value column. Fails
    `format: hier_balanced_soc` and `e2e values: hier_balanced_soc`.
 3. **`getValueAt` on an `event` signal aborts.** `feat_var_types` `types.an_event`

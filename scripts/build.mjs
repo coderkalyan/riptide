@@ -1,4 +1,4 @@
-// The one build orchestrator. Builds the native Zig addon + the app (main
+// The one build orchestrator. Builds the native Rust addon + the app (main
 // process via tsc, renderer via esbuild) for any platform, cross-platform itself
 // (pure Node fs/child_process — no cp/cd/mkdir -p/&& or env-prefix), so it runs
 // the same on Linux, macOS and Windows and from CI.
@@ -7,8 +7,9 @@
 //                          [--mode=<dev|release>]      (default: dev)
 //                          [--steps=<all|native|app>]  (default: all)
 //
-// `host` compiles the addon natively for the current machine; the explicit
-// triples cross-compile it (used by the release CI matrix). Importable too:
+// `host` compiles the addon for the current machine, which is what the release
+// CI matrix does on each of its per-platform runners; the explicit triples ask
+// cargo to cross-compile and need that target installed locally. Importable too:
 // `import { build } from "./build.mjs"` — scripts/dev.mjs reuses it.
 import * as esbuild from "esbuild";
 import { spawnSync } from "node:child_process";
@@ -17,28 +18,29 @@ import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const NATIVE_DIR = resolve(root, "native");
+const CARGO_TARGET = resolve(root, "target");
 const DIST_NATIVE = resolve(root, "dist/native");
 const DIST_RENDERER = resolve(root, "dist/renderer");
 const TSC = resolve(root, "node_modules/typescript/bin/tsc");
 
-// Each cross target → zig `-Dtarget` triple + where zig drops the shared lib.
-// Windows lands in bin/ (a DLL), every other OS in lib/ (.so / .dylib). All of
-// them are copied to the single canonical addon name `riptide.node` — an
-// installer is one platform, so there's no reason to disambiguate by filename.
-// linux-x64 pins a glibc version (2.31 = Ubuntu 20.04 baseline) rather than the
-// bare "x86_64-linux" triple: with no version, zig 0.16's cross-linker emits a
-// NEEDED entry of literal "libc.so" instead of the real soname "libc.so.6" (the
-// former is only a linker script, not a loadable object) — the addon then fails
-// to dlopen at runtime with "libc.so: invalid ELF header" (surfaced obscurely via
-// Electron's console). Pinning any concrete glibc version fixes the soname; 2.31
-// is chosen for broad distro compatibility, not because it's otherwise special.
+// Each cross target → its Rust triple and the shared-library name cargo emits.
+// Every one is copied to the single canonical addon name `riptide.node`: an
+// installer is one platform, so there is no reason to disambiguate by filename,
+// and `.node` is the only part Electron's loader cares about.
+//
+// Unlike the Zig toolchain this replaced, cargo does not cross-compile for free:
+// an explicit triple needs its std (`rustup target add`) and a linker for that
+// platform. CI never needs one — the release matrix runs a native build per
+// runner — so these exist for local use only.
 const TARGETS = {
-  "linux-x64": { zig: "x86_64-linux-gnu.2.31", out: "lib/libriptide.so" },
-  "windows-x64": { zig: "x86_64-windows", out: "bin/riptide.dll" },
-  "macos-arm64": { zig: "aarch64-macos", out: "lib/libriptide.dylib" },
-  "macos-x64": { zig: "x86_64-macos", out: "lib/libriptide.dylib" },
+  "linux-x64": { triple: "x86_64-unknown-linux-gnu", lib: "libriptide.so" },
+  "windows-x64": { triple: "x86_64-pc-windows-msvc", lib: "riptide.dll" },
+  "macos-arm64": { triple: "aarch64-apple-darwin", lib: "libriptide.dylib" },
+  "macos-x64": { triple: "x86_64-apple-darwin", lib: "libriptide.dylib" },
 };
+
+// The differential suite runs this next to the addon; see tests/README.md.
+const FIXTURE_EXE = "query-fixture";
 
 function fail(msg) {
   console.error(`\n[build] ${msg}\n`);
@@ -55,43 +57,47 @@ function hasCmd(cmd, args = ["--version"]) {
   return !spawnSync(cmd, args, { stdio: "ignore" }).error;
 }
 
-// host → no -Dtarget (native build); figure out zig's output path from the OS.
+// host → no --target, so cargo drops the artifact straight in target/<profile>;
+// the library name still depends on the OS.
 function resolveTarget(name) {
   if (name === "host") {
-    const out =
-      process.platform === "win32" ? "bin/riptide.dll"
-      : process.platform === "darwin" ? "lib/libriptide.dylib"
-      : "lib/libriptide.so";
-    return { zigTarget: null, out, isWin: process.platform === "win32" };
+    const lib =
+      process.platform === "win32" ? "riptide.dll"
+      : process.platform === "darwin" ? "libriptide.dylib"
+      : "libriptide.so";
+    return { triple: null, lib, isWin: process.platform === "win32" };
   }
   const t = TARGETS[name];
   if (!t) fail(`unknown --target=${name} (host | ${Object.keys(TARGETS).join(" | ")})`);
-  return { zigTarget: t.zig, out: t.out, isWin: name === "windows-x64" };
+  return { triple: t.triple, lib: t.lib, isWin: name === "windows-x64" };
 }
 
 function buildNative({ target, mode }) {
-  // Preflight: zig + the two submodules the addon depends on. A clear message
-  // here beats a cryptic zig "dependency not found" / "command not found".
-  if (!hasCmd("zig", ["version"])) {
-    fail("zig not found on PATH — install Zig 0.16.x (https://ziglang.org/download)");
+  // Preflight cargo and the tide crates the addon depends on. A clear message
+  // here beats cargo's "failed to read .../Cargo.toml".
+  if (!hasCmd("cargo")) {
+    fail("cargo not found on PATH — install Rust (https://rustup.rs)");
   }
-  for (const sub of ["tide", "tide-vcd"]) {
-    if (!existsSync(resolve(root, sub, "build.zig"))) {
-      fail(`submodule ${sub}/ not populated — run: git submodule update --init --recursive`);
-    }
+  if (!existsSync(resolve(root, "tide/crates/tide-core/Cargo.toml"))) {
+    fail("submodule tide/ not populated — run: git submodule update --init");
   }
 
-  const { zigTarget, out, isWin } = resolveTarget(target);
-  // Windows needs the generated napi trampoline shim compiled in (see the script).
-  if (isWin) run("node", [resolve(root, "scripts/gen-win-napi-shim.mjs")]);
+  const { triple, lib, isWin } = resolveTarget(target);
+  const profile = mode === "release" ? "release" : "debug";
 
-  const optimize = mode === "release" ? "ReleaseSafe" : "Debug";
-  const args = ["build", `-Doptimize=${optimize}`];
-  if (zigTarget) args.push(`-Dtarget=${zigTarget}`);
-  run("zig", args, { cwd: NATIVE_DIR });
+  const args = ["build", "--package", "riptide-native"];
+  if (mode === "release") args.push("--release");
+  if (triple) args.push("--target", triple);
+  run("cargo", args);
 
+  const out = triple ? join(CARGO_TARGET, triple, profile) : join(CARGO_TARGET, profile);
   mkdirSync(DIST_NATIVE, { recursive: true });
-  copyFileSync(join(NATIVE_DIR, "zig-out", out), join(DIST_NATIVE, "riptide.node"));
+  copyFileSync(join(out, lib), join(DIST_NATIVE, "riptide.node"));
+
+  // The seam-B differential runs this against the same crate the addon is built
+  // from; without it beside the addon that suite has nothing to diff against.
+  const fixture = isWin ? `${FIXTURE_EXE}.exe` : FIXTURE_EXE;
+  copyFileSync(join(out, fixture), join(DIST_NATIVE, fixture));
 }
 
 async function buildApp({ mode }) {

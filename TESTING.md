@@ -43,17 +43,18 @@ vendored — point the env var at a checkout and run `make` there to regenerate.
 
 | Seam | Question | Driver | Headless? |
 |---|---|---|---|
-| **A** core | does tide compute the right value/hierarchy? | `zig build test` (`native/src/oracle_test.zig`): `pack.valueAt` vs oracle, in-process | yes (no node) |
-| **B** marshalling | does the napi boundary preserve it? | `native.test.cjs` (vs oracle) + `differential.test.cjs` (zig-direct vs through-addon, byte-equal) | yes |
+| **A** core | does tide compute the right value/hierarchy? | `cargo test -p riptide-native --test oracle` (`native/tests/oracle.rs`): the value active at each sampled tick vs oracle, in-process | yes (no node) |
+| **B** marshalling | does the napi boundary preserve it? | `native.test.cjs` (vs oracle) + `differential.test.cjs` (direct vs through-addon, byte-equal) | yes |
 | **C** format/pack | are the displayed string + packed pill right? | `format.test.cjs`: `getMockSegments` labels vs oracle | yes |
 | **D** full app | does the real app show it? | `e2e/app.test.cjs`: Electron via playwright-core, value cells vs oracle | needs a display |
 | — malformed | does bad input survive? | `malformed.test.cjs` | yes |
 
 **Two seam-B drivers.** `native.test.cjs` checks values against the oracle.
-`differential.test.cjs` is oracle-free: it runs the *same* `pack.valueAt` on both
-sides of the boundary (a Zig exe, `query-fixture`, dumps the pre-boundary bytes;
-the addon replays each through `getValueAt`) and asserts byte-equality — pinning
-the boundary itself. It byte-verified **3.2M** samples with zero diffs.
+`differential.test.cjs` is oracle-free: it runs the *same* value lookup on both
+sides of the boundary (the `query-fixture` binary, built from the addon's own
+crate, dumps the pre-boundary bytes; the addon replays each through
+`getValueAt`) and asserts byte-equality — pinning the boundary itself. It
+byte-verified **3.2M** samples with zero diffs.
 
 **Localization.** Seam A green + differential green ⟹ any value bug is a *crash*
 or a *formatter* bug, never silent core/marshalling corruption.
@@ -61,23 +62,23 @@ or a *formatter* bug, never silent core/marshalling corruption.
 ### Running
 
 ```sh
-pnpm build               # dist/native/riptide.node (query-fixture exe → native/zig-out/bin)
+pnpm build               # dist/native/riptide.node + the query-fixture binary beside it
 pnpm test                # build addon, then all harnesses (each self-skips on missing tool)
 tests/run.sh seam-a      # the oracle/node suites alone: seam-a | native | format | differential | malformed | e2e
 VCD_TESTS_DIR=/path tests/run.sh
 ```
 
 - The **node suites** (native/format/differential/malformed) are fully headless
-  and are the CI core. **Seam A** needs `zig`. **e2e** needs an X display (no
+  and are the CI core. **Seam A** needs `cargo`. **e2e** needs an X display (no
   xvfb bundled — run under a display or `xvfb-run -a node --test
   tests/e2e/app.test.cjs`; `SKIP_E2E=1` opts out; expect WebGPU on a Vulkan
   llvmpipe/SwiftShader fallback in CI).
-- **Process isolation is mandatory.** The node suites spawn a worker per fixture
-  because the addon `@panic`s/`abort()`s on some inputs (the truncated malformed
-  file; `getValueAt`/pack on an `event` signal — see FINDINGS B3/B4; a single
-  segment spanning > 2³¹ ticks — the deliberate `pack.zig` GPU tick-range assert,
-  hit by `time_long_sparse`; the u32 tick overflow B1 is now fixed). Isolated, a
-  crash is reported for one fixture and the rest continue.
+- **Process isolation is still used**, one worker per fixture, though it buys
+  less than it did: the addon now reports a bad load as a JS exception instead of
+  aborting, so the malformed suite records `threw` where it used to record
+  `crashed`. What can still abort the worker is a single segment spanning > 2³¹
+  ticks — the deliberate GPU tick-range assert in `pack.rs`, hit by
+  `time_long_sparse`. Isolated, that fails one fixture and the rest continue.
 
 ### Asserted vs. tracked
 
@@ -99,19 +100,20 @@ suite prints a summary.
 
 ### Known failures
 
-Measured 2026-07-28 on `main`. Seam A is green (6397 samples, 0 failures), as are
-`native` (26/26), `malformed` (4/4), `e2e` (27/27), the visual goldens (9/9) and
-the canvas golden.
+Measured 2026-07-29 on the Rust addon. Seam A is green (6397 samples, 0
+failures), as are `native` (26/26), `differential` (27/27), `malformed` (4/4) and
+`e2e` (27/27).
 
-- **`format: time_long_sparse`** — by design. The fixture holds one value across a
-  span > 2³¹ ticks, which the GPU segment buffer (low-32 tick + i32 shader delta)
-  cannot position, so `pack.zig`'s `assertRenderableSpan` aborts rather than
-  drawing it at a garbled or negative x. Clears when the GPU tick pipeline widens
-  to 64-bit (PERFORMANCE.md).
-- **`differential: hier_flat_wide`** — the `query-fixture` comparison exe segfaults
-  in `std.mem.findSentinel`. A harness crash, not a value mismatch: the same
-  fixture passes through the addon in `native` and `e2e`, so that one fixture's
-  byte-equality is simply unverified.
+- **`format: time_long_sparse`** — by design, and the only failing suite entry.
+  The fixture holds one value across a span > 2³¹ ticks, which the GPU segment
+  buffer (low-32 tick + i32 shader delta) cannot position, so `pack.rs`'s
+  `renderable_span` aborts rather than drawing it at a garbled or negative x.
+  Clears when the GPU tick pipeline widens to 64-bit (PERFORMANCE.md).
+
+Two entries cleared with the Rust port: `differential: hier_flat_wide` (the old
+Zig comparison exe segfaulted in `std.mem.findSentinel`; the fixture now
+byte-verifies), and every `crashed` outcome in the malformed suite — a bad load
+is a JS exception now, so all four record `threw` or `loaded`.
 
 ---
 

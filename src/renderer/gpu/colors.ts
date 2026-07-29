@@ -2,7 +2,7 @@
 // indexed in the shader by `segment.rowFlags & 0xffff`. Host writes hex
 // strings; we normalize to [0,1] f32.
 // Max active rows. Bounded by the 16-bit row index in the GPU segment's row_flags
-// (≤ 65535); must match native segments.zig MAX_ROWS. The color buffer below is one
+// (≤ 65535); must match native segments.rs MAX_ROWS. The color buffer below is one
 // vec4 per row = MAX_ROWS×16 B ≈ 1 MB, allocated once (negligible GPU memory); only
 // the used prefix is uploaded per write (see writeRowColors).
 export const MAX_ROWS = 65535;

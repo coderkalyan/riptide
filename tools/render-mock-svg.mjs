@@ -167,14 +167,14 @@ function valueAtTick(sym, t) {
   for (const e of list) { if (e.t <= t) v = e; else break; }
   return v;
 }
-// A gated row is muted whenever its gate isn't exactly logic-1 (pack.zig).
+// A gated row is muted whenever its gate isn't exactly logic-1 (pack.rs).
 function gateMutedAt(gateSym, t) {
   const v = valueAtTick(gateSym, t);
   if (!v) return true;
   return !(v.lsb === 1 && v.msb === 0);
 }
 
-// ----- segment builder (port of pack.zig packQuery) ----------------------
+// ----- segment builder (port of pack.rs pack_signal) ----------------------
 // Walk a symbol's transitions; each becomes one segment [t_i, t_{i+1} | end).
 // Consecutive equal (value, mute) runs are coalesced (tide stores one entry per
 // real transition; the mock VCD has a couple redundant rewrites).

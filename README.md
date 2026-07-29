@@ -187,14 +187,12 @@ Being blunt, so you can judge whether it fits your flow:
 
 ## Building from source
 
-You need **Node 22**, **pnpm 9**, and **Zig 0.16.0** (what CI builds with; the addon manifest accepts
-0.15.2 and up). The waveform database and VCD parser are git submodules, and the build fails without
-them.
+You need **Node 22**, **pnpm 9**, and a **Rust toolchain** (edition 2024, so 1.85 or newer). The
+waveform database and VCD parser are the **tide** git submodule, and the build fails without it.
 
 ```sh
-git clone https://github.com/coderkalyan/riptide.git
+git clone --recurse-submodules https://github.com/coderkalyan/riptide.git
 cd riptide
-git submodule update --init --recursive
 pnpm install
 pnpm dev
 ```

@@ -3,8 +3,7 @@ dist/
 out/
 *.log
 .DS_Store
-.zig-cache/
-zig-out/
+target/
 .mcp.json
 .preview/
 release/
