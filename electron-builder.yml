@@ -16,6 +16,10 @@ linux:
   target:
     - AppImage
   category: Development
+  # Pairs with package.json `desktopName`: Electron uses it as the app_id/WM_CLASS,
+  # and the generated .desktop entry's StartupWMClass must match or desktop
+  # environments won't attach the running window (and its icon) to the entry.
+  syncDesktopName: true
 mac:
   target:
     - dmg
@@ -29,6 +33,7 @@ mac:
 win:
   target:
     - portable
-  # Default portable name contains a space ("Riptide 0.1.0….exe"), which GitHub
-  # mangles into dots when attached to a release.
-  artifactName: ${name}-${version}-portable.${ext}
+  # ${productName}, not ${name}: the other platforms ship "Riptide-<version>…",
+  # and electron-builder's default portable name has a space in it
+  # ("Riptide 0.1.0….exe"), which GitHub mangles into dots on a release asset.
+  artifactName: ${productName}-${version}-portable.${ext}

@@ -132,7 +132,11 @@ function createWindow(): void {
   const win = new BrowserWindow({
     width: 1400,
     height: 900,
-    title: "riptide",
+    title: windowTitle(),
+    // macOS takes its icon from the .app bundle. Linux and Windows read it off the
+    // window, and an AppImage run straight from ~/Downloads is never desktop-
+    // integrated — without this it shows a generic placeholder in the dock/taskbar.
+    ...(process.platform === "darwin" ? {} : { icon: path.join(app.getAppPath(), "dist/renderer/icon.png") }),
     frame: !frameless,
     autoHideMenuBar: true,
     webPreferences: {

@@ -35,4 +35,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   mkdirSync(DST_DIR, { recursive: true });
   await esbuild.build(buildOptions);
   copyFileSync(resolve(root, "src/renderer/index.html"), `${DST_DIR}/index.html`);
+  // Keep in sync with buildApp() in build.mjs — the main process loads this for
+  // the BrowserWindow icon on Linux/Windows.
+  copyFileSync(resolve(root, "build/icon.png"), `${DST_DIR}/icon.png`);
 }

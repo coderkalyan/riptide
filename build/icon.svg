@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Riptide app mark — the same square-wave glyph the website uses, on a dark
+  rounded-square badge so it reads on any desktop background.
+
+  Source of truth for every rasterised icon: build/icon.png (electron-builder
+  derives the .ico/.icns/AppImage sizes from it) and the website's favicon set.
+  The glyph path is identical to the inline mark in the site header/footer; only
+  padding and stroke weight differ, tuned so the wave survives a 16px favicon.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <rect width="1024" height="1024" rx="196" fill="#1B1D21"/>
+  <rect x="8" y="8" width="1008" height="1008" rx="188" fill="none" stroke="#2B2F36" stroke-width="16"/>
+  <!-- Glyph bbox is x 2..22, y 7..17. At scale 34 that is 680x340, and a
+       translate of 104 centres it exactly on both axes:
+       (1024-680)/2 - 2*34 = (1024-340)/2 - 7*34 = 104. -->
+  <g transform="translate(104,104) scale(34)" fill="none" stroke="#A6D189"
+     stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M2 14 L6 14 L6 7 L11 7 L11 17 L16 17 L16 11 L22 11"/>
+  </g>
+</svg>

@@ -24,10 +24,10 @@ disk image.
 
 | Platform | File | First run |
 |---|---|---|
-| Linux x64 | `Riptide-<version>.AppImage` | `chmod +x` it, then run it |
-| macOS (Apple silicon) | `Riptide-<version>-arm64.dmg` | Open, drag to Applications, then **right-click ▸ Open** |
-| macOS (Intel) | `Riptide-<version>.dmg` (no `-arm64`) | Same as above |
-| Windows x64 | `riptide-<version>-portable.exe` | Run it; at the SmartScreen prompt pick **More info ▸ Run anyway** |
+| Linux x64 | the `.AppImage` | `chmod +x` it, then run it |
+| macOS (Apple silicon) | the `-arm64.dmg` | Open, drag to Applications, then **right-click ▸ Open** |
+| macOS (Intel) | the `.dmg` without `-arm64` | Same as above |
+| Windows x64 | the `-portable.exe` | Run it; at the SmartScreen prompt pick **More info ▸ Run anyway** |
 
 There's no arm64 build for Linux or Windows — arm64 is macOS-only.
 
@@ -54,13 +54,13 @@ environment variable on the executable itself:
 
 ```sh
 # Linux
-RIPTIDE_VCD=/path/to/sim.vcd ./Riptide-0.1.0-alpha.2.AppImage
+RIPTIDE_VCD=/path/to/sim.vcd ./Riptide-<version>.AppImage
 
 # macOS
 RIPTIDE_VCD=/path/to/sim.vcd /Applications/Riptide.app/Contents/MacOS/Riptide
 
 # Windows (PowerShell)
-$env:RIPTIDE_VCD="C:\path\to\sim.vcd"; .\riptide-0.1.0-alpha.2-portable.exe
+$env:RIPTIDE_VCD="C:\path\to\sim.vcd"; .\Riptide-<version>-portable.exe
 ```
 
 | Variable | Effect |

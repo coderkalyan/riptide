@@ -5,6 +5,7 @@
   "description": "GPU-accelerated digital waveform viewer",
   "author": "Kalyan Sriram",
   "license": "AGPL-3.0-or-later",
+  "desktopName": "riptide.desktop",
   "main": "dist/main/index.js",
   "packageManager": "pnpm@9.0.0",
   "scripts": {

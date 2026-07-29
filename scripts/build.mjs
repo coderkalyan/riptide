@@ -107,6 +107,10 @@ async function buildApp({ mode }) {
   mkdirSync(DIST_RENDERER, { recursive: true });
   await esbuild.build(buildOptions);
   copyFileSync(resolve(root, "src/renderer/index.html"), join(DIST_RENDERER, "index.html"));
+  // Shipped alongside the renderer so the main process can hand it to
+  // BrowserWindow — that is what gives Linux/Windows a real taskbar icon when
+  // the app isn't desktop-integrated. Same file electron-builder packages from.
+  copyFileSync(resolve(root, "build/icon.png"), join(DIST_RENDERER, "icon.png"));
 }
 
 export async function build({ target = "host", mode = "dev", steps = "all" } = {}) {

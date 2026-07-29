@@ -1,6 +1,5 @@
 import { onMount, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
-import { Waves } from "lucide-solid";
 
 declare const require: (m: string) => unknown;
 // Node global (nodeIntegration renderer); the renderer tsconfig deliberately
@@ -40,7 +39,14 @@ export function AboutDialog(props: { onClose: () => void }) {
     <Portal>
       <div class="modal-backdrop" onMouseDown={props.onClose}>
         <div class="modal about-modal" onMouseDown={(e) => e.stopPropagation()}>
-          <div class="about-mark"><Waves size={28} /></div>
+          {/* The product mark, identical to build/icon.svg and the website's:
+              stroke=currentColor so it picks up .about-mark's accent colour. */}
+          <div class="about-mark">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M2 14 L6 14 L6 7 L11 7 L11 17 L16 17 L16 11 L22 11" />
+            </svg>
+          </div>
           <div class="about-name">Riptide</div>
           <div class="about-version">Version {pkg.version}</div>
           {pkg.description && <div class="about-desc">{pkg.description}</div>}
