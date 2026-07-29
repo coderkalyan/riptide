@@ -24,17 +24,16 @@ The shims below mostly *degrade* gracefully, but these specific consequences
 currently **break** the app on a real (non-mock) trace — promoted here so they
 aren't buried:
 
-- [ ] **`event` signals still crash if added.** real / string / never-assigned
-  signals are dropped at load (see "real/string" + "Fine var-type" below); the
-  renderer now marks them `supported: false` (native db-membership, in
+- [ ] **`getMockSegments` still hard-panics on a missing signal.** real / string /
+  never-assigned signals are dropped at load (see "real/string" + "Fine var-type"
+  below); the renderer marks them `supported: false` (native db-membership, in
   `getHierarchy`) so the tree disables them and `store.addSignal`/`addSignals` +
   sidecar `resolveView` skip them — closing the common real/string one-click crash.
-  **Not** covered: `event` vars, which tide *does* ingest (so they read
-  `supported: true`) but `getValueAt`/`pack.valueAt` aborts on (tests/FINDINGS.md
-  B3); and the raw backstop `getMockSegments` `db.query(...) orelse
-  @panic("missing signal")` (`native/src/main.zig:353`) is still a hard panic.
-  Durable fix: turn that `@panic` into a skip (emit an empty packed signal) and
-  skip/handle event-type queries.
+  `event` vars used to abort in `getValueAt`/`pack.valueAt`; that is fixed —
+  they now read as no samples, and `feat_var_types` passes `native`, `format`,
+  `differential` and `e2e`. What remains is the raw backstop
+  `db.query(...) orelse @panic("missing signal")` (`native/src/main.zig:356`).
+  Durable fix: turn that `@panic` into a skip (emit an empty packed signal).
 
   *(Resolved: the hardcoded `trace.id: "keysched"` + `"keysched.vcd"` tab-label
   leaks into foreign sidecars — both removed.)*
@@ -71,7 +70,7 @@ aren't buried:
   collapses weak/pull scalars (`h l u w -`) to `x`. *Cause: tide can't represent
   them.* Until then these signals carry zero samples and **must not be added to a
   row** (see the crash hazard above). → when tide gains real/string + weak/pull
-  state. *(reals also surface in tests/FINDINGS.md.)*
+  state.
 - [ ] **Fine var-type.** tide-vcd parses the full `$var` type set
   (wire/reg/integer/time/…), but `mock_db.zig` `mapVarType` collapses every one to
   `vcd_wire`/`vcd_reg`, so the renderer's richer `VarType` enum + `scene.ts`

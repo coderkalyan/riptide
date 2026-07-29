@@ -45,7 +45,7 @@ transition cap: a window containing a dense burst packs + draws every transition
 its own instance, so GPU overdraw / vertex throughput grows with on-screen
 transition *density* (a sub-pixel segment still costs a full instance). Not yet
 measurable — there is no `visible_transitions` / `drawn_primitive_count` hook
-(tests/FINDINGS.md coverage gap). Trigger: a zoomed-out view of a fast signal
+(coverage gap — no such hook exists). Trigger: a zoomed-out view of a fast signal
 (≫ ~50k transitions on screen) shows GPU pass ms climbing. Fix direction: collapse
 sub-pixel runs during pack, or a per-row draw budget.
 

@@ -17,13 +17,15 @@ const cfg = @import("build_options");
 //   zig build test                      # uses $VCD_TESTS_DIR or ~/Documents/vcd-tests
 //   VCD_TESTS_DIR=/path zig build test
 //
-// Skips (with reasons, by design — these are reported bugs/gaps, see FINDINGS.md):
-//   - time_long_sparse / time_u64_extreme : ticks > 2^32 panic in mock_db.load.
-//   - real signals                        : pack.valueAt returns bits, not the f64.
-//   - event signals                       : pack.valueAt aborts (bug B3).
+// Per-signal skips (by design — see TESTING.md § Known failures):
+//   - real signals  : pack.valueAt returns 4-state bits, not the f64.
+//   - event signals : no samples land for an event var, so there is nothing to
+//                     compare against the oracle.
 
-// Fixed corpus (deterministic). Add a name here when a new oracle lands. The two
-// u32-overflow fixtures are intentionally absent — they crash at parse (bug B1).
+// Fixed corpus (deterministic). Add a name here when a new oracle lands.
+// time_long_sparse / time_u64_extreme are absent because they used to crash at
+// parse on the old u32 tick path. That path is now u64 and both parse, so they
+// can likely be re-added — confirm with a run before doing so.
 const FIXTURES = [_][]const u8{
     "act_burst_idle",   "bit_order",          "feat_aliases",   "feat_dumpoff_on",
     "feat_id_charset",  "feat_var_types",     "hier_balanced_soc", "hier_deep_narrow",
@@ -145,7 +147,7 @@ test "seam A: tide-direct value_at vs oracle" {
                 // Skip whole signals we can't (yet) value-check via the bit path.
                 if (std.mem.eql(u8, stype, "event")) {
                     total_skipped += 1;
-                    continue; // pack.valueAt(event) aborts — bug B3
+                    continue; // an event var lands no samples — nothing to compare
                 }
                 if (std.mem.eql(u8, stype, "real")) {
                     total_skipped += 1;

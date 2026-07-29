@@ -30,7 +30,6 @@ precision).
 
 - **`tests/`** — the harness you run. Per-suite detail in
   [`tests/README.md`](tests/README.md).
-- **`tests/FINDINGS.md`** — the live bug/divergence catalog (what's red and why).
 
 The corpus lives at `$VCD_TESTS_DIR` (default `~/Documents/vcd-tests`); it is not
 vendored — point the env var at a checkout and run `make` there to regenerate.
@@ -85,20 +84,34 @@ VCD_TESTS_DIR=/path tests/run.sh
 Genuine value/structure errors **fail**. Display-style and known-capability
 divergences (style-only, x/z-hex, leading-zero pad, unsupported radix, real-skip)
 are **counted and printed**, not failed, so they don't drown the signal — each
-suite prints a summary. See `tests/FINDINGS.md` for the bug-vs-by-design calls
-left open.
+suite prints a summary.
 
 ### Determinism & CI
 
 - **Deterministic by construction** — fixed corpus, fixed oracles, no wall-clock,
   no RNG. Same inputs → same pass/fail.
-- The node suites + seam A run with **no display**. They are **red** until the
-  `FINDINGS.md` bugs are fixed — intended; gate CI on "no *new* failures" or pin
-  the known-failing set.
+- The node suites + seam A run with **no display**. Two known failures are
+  expected — see below; gate CI on "no *new* failures" rather than on green.
 - **Not yet covered** (need viewer hooks that don't exist — METHODOLOGY §2 in the
   corpus): decimation/draw-budget, perf/jank, `find_next_edge`, real (`f64`)
   signals, and a structured warning log (which would upgrade the malformed suite
   from "survived" to "diagnosed").
+
+### Known failures
+
+Measured 2026-07-28 on `main`. Seam A is green (6397 samples, 0 failures), as are
+`native` (26/26), `malformed` (4/4), `e2e` (27/27), the visual goldens (9/9) and
+the canvas golden.
+
+- **`format: time_long_sparse`** — by design. The fixture holds one value across a
+  span > 2³¹ ticks, which the GPU segment buffer (low-32 tick + i32 shader delta)
+  cannot position, so `pack.zig`'s `assertRenderableSpan` aborts rather than
+  drawing it at a garbled or negative x. Clears when the GPU tick pipeline widens
+  to 64-bit (PERFORMANCE.md).
+- **`differential: hier_flat_wide`** — the `query-fixture` comparison exe segfaults
+  in `std.mem.findSentinel`. A harness crash, not a value mismatch: the same
+  fixture passes through the addon in `native` and `e2e`, so that one fixture's
+  byte-equality is simply unverified.
 
 ---
 
