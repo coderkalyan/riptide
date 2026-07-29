@@ -79,12 +79,16 @@ for (const c of o.cases) {
           }))
         : [];
 
+    // Deliberately the exact shape scene.ts `specsFromActive` builds, nulls and
+    // all: `gateHandle` was a stale name the addon ignored, so this harness used
+    // to miss a spec field the app actually sends.
     const spec = {
       row: 0,
       handle: node.handle,
       kind: "data",
       shaded: false,
-      gateHandle: null,
+      muteHandle: null,
+      polarity: "rising",
       radix: s.radix,
       enums,
     };

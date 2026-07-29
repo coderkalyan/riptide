@@ -8,7 +8,10 @@
 //   2. value cells (seeded fixtures): a sidecar pre-loads active signals + cursor;
 //      assert each row's `.s-row .v` cell == the oracle's formatted value at the
 //      cursor (value-normalized for 0x/case style). This exercises the full path:
-//      native getValueAt -> JS formatSegmentValue -> DOM.
+//      native getValueAt -> JS formatSegmentValue -> DOM. These are also the only
+//      launches with *active rows*, so they are where a bad pack spec surfaces —
+//      hence the console assertion, which the value cells alone would not catch
+//      (they come from getValueAt, which keeps working when the canvas does not).
 //
 // Needs a display. Run headless via `xvfb-run -a node --test tests/e2e/app.test.cjs`
 // (or tests/run.sh). The pure-Node suites (native/format/malformed) need no display.
@@ -59,6 +62,10 @@ async function launch(vcd) {
   return { app, win, errors };
 }
 
+// Console noise that is not the app's fault. Everything else fails the launch.
+const fatalErrors = (errors) =>
+  errors.filter((e) => !/DevTools|Autofill|Vulkan|GPU stall/i.test(e));
+
 // ---- crash-smoke across all u32-range fixtures ----
 for (const o of oracles) {
   test(`e2e smoke: ${o.fixture}`, async () => {
@@ -69,7 +76,7 @@ for (const o of oracles) {
       await win.waitForTimeout(1200);
       const alive = await win.evaluate(() => !!document.querySelector("canvas"));
       assert.ok(alive, `${o.fixture}: canvas vanished (renderer crash?)`);
-      const fatal = errors.filter((e) => !/DevTools|Autofill|Vulkan|GPU stall/i.test(e));
+      const fatal = fatalErrors(errors);
       assert.strictEqual(
         fatal.length,
         0,
@@ -130,6 +137,18 @@ for (const name of SEED_FIXTURES) {
         `${name} (${seed.case}): ${mismatches.length} value-cell mismatch(es):\n  ` +
           mismatches.join("\n  ") +
           (errors.length ? `\n  [console] ${errors[0]}` : ""),
+      );
+
+      // These rows are active, so the renderer built pack specs and ran the
+      // whole GPU path. A spec the addon rejects shows up only here: the value
+      // cells above are fed by getValueAt and stay correct while the canvas is
+      // dead behind them.
+      const fatal = fatalErrors(errors);
+      assert.strictEqual(
+        fatal.length,
+        0,
+        `${name}: console errors with ${seed.rows.length} active rows:\n  ` +
+          fatal.slice(0, 6).join("\n  "),
       );
     } finally {
       await app.close();

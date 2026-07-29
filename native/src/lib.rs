@@ -107,6 +107,14 @@ pub fn load_vcd(path: String) -> Result<()> {
 // ---- getMockSegments -----------------------------------------------------
 
 /// One row's worth of packing instructions, as `scene.ts` builds them.
+///
+/// The optional fields are doubly wrapped on purpose. `#[napi(object)]` reads an
+/// `Option<T>` field with `Object::get::<T>`, which treats only a *missing or
+/// undefined* property as absent and hands an explicit `null` straight to `T`'s
+/// conversion — so `Option<String>` rejects `muteHandle: null`, which is exactly
+/// what the renderer sends for an ungated row. The outer `Option` is "was the key
+/// there", the inner one "was it non-null"; callers `.flatten()` and get the
+/// tolerant behaviour the Zig addon had.
 #[napi(object)]
 pub struct PackSpec {
     pub row: u32,
@@ -114,13 +122,13 @@ pub struct PackSpec {
     /// `"clk"` draws a clock; anything else draws data.
     pub kind: String,
     pub shaded: bool,
-    /// A signal gating this row, or absent for none.
-    pub mute_handle: Option<String>,
+    /// A signal gating this row, or null/absent for none.
+    pub mute_handle: Option<Option<String>>,
     /// Which clock edges get a chevron. Defaults to rising.
-    pub polarity: Option<String>,
+    pub polarity: Option<Option<String>>,
     /// How to format the value label. Defaults to binary, which is unlabeled.
-    pub radix: Option<String>,
-    pub enums: Option<Vec<EnumSpec>>,
+    pub radix: Option<Option<String>>,
+    pub enums: Option<Option<Vec<EnumSpec>>>,
 }
 
 /// One entry of a row's integer to name table.
@@ -181,11 +189,13 @@ pub fn get_mock_segments(
                 .enums
                 .iter()
                 .flatten()
+                .flatten()
                 .map(|entry| EnumEntry {
                     value: entry.value,
                     label: entry.label.clone(),
                 })
                 .collect();
+            let text = |field: &Option<Option<String>>| field.clone().flatten();
 
             let opts = PackOpts {
                 shaded: spec.shaded,
@@ -195,14 +205,12 @@ pub fn get_mock_segments(
                 } else {
                     PackKind::Data
                 },
-                polarity: spec
-                    .polarity
-                    .as_deref()
-                    .map_or_else(|| ClockPolarity::Rising, ClockPolarity::parse),
-                mute: spec.mute_handle.as_deref().map(handle),
+                polarity: text(&spec.polarity)
+                    .map_or(ClockPolarity::Rising, |name| ClockPolarity::parse(&name)),
+                mute: text(&spec.mute_handle).map(|name| handle(&name)),
                 q_start,
                 q_end,
-                radix: spec.radix.as_deref().map_or(Radix::Bin, Radix::parse),
+                radix: text(&spec.radix).map_or(Radix::Bin, |name| Radix::parse(&name)),
                 enums: &enums,
             };
 

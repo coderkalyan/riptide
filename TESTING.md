@@ -87,6 +87,23 @@ divergences (style-only, x/z-hex, leading-zero pad, unsupported radix, real-skip
 are **counted and printed**, not failed, so they don't drown the signal — each
 suite prints a summary.
 
+### Where the pack-spec boundary is covered
+
+`getMockSegments` takes a JS object per row, and the shape the *app* sends is not
+the shape a harness naturally writes. A stale field name (`gateHandle`) plus a
+missing one (`muteHandle: null`) hid a hard launch regression through a full green
+run: seam C sent no `muteHandle` at all, and every e2e smoke launch opened a
+fixture with **no sidecar**, so zero rows were active and no spec was ever parsed.
+The seeded e2e cases did have active rows but only asserted value cells — which
+come from `getValueAt` and stay correct while the canvas is dead behind them.
+
+Both holes are closed, and both matter for any future spec field:
+
+- `tests/lib/format-worker.cjs` sends the literal shape `scene.ts`
+  `specsFromActive` builds, explicit nulls included.
+- the seeded e2e cases assert the console is clean, so a spec the addon rejects
+  fails the suite instead of degrading silently to a blank canvas.
+
 ### Determinism & CI
 
 - **Deterministic by construction** — fixed corpus, fixed oracles, no wall-clock,
