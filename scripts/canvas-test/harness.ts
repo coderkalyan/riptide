@@ -111,9 +111,16 @@ function buildDigital() {
   }
   // row 1: shaded — so the x/z crosshatch fill (segments 4=x, 5=z) is visible.
   for (let i = 0; i < 8; i++) single.push(i * 12, (i + 1) * 12, 1 | F_RIGHT_EDGE | F_SHADE);
-  // row 2: 4 bus windows, 24 wide, shaded; segment 1 is z → crosshatch pill.
-  const busVals = [0x00, 0xa5, 0x10, 0x3c];
-  for (let i = 0; i < 4; i++) multi.push(i * 24, (i + 1) * 24, 2 | F_SHADE);
+  // row 2: a bus that holds, then changes every tick, then holds again — shaded.
+  // Segment 1 is z → crosshatch pill. The 1-tick run in the middle is the narrow
+  // case: 8 px/tick less the 2 px multi xgap leaves a 6 px pill, under two corner
+  // radii, which is where an unclamped rounded-box SDF starts eating the straight
+  // edges and pinching the pill's height (digital.wgsl `corner_sdf`).
+  const busVals = [0x00, 0xa5, 0x10, 0x3c, 0x7e, 0x01, 0xff, 0x42, 0x99, 0x08, 0xc3];
+  multi.push(0, 24, 2 | F_SHADE);
+  multi.push(24, 48, 2 | F_SHADE);
+  for (let t = 48; t < 56; t++) multi.push(t, t + 1, 2 | F_SHADE);
+  multi.push(56, 96, 2 | F_SHADE);
 
   // rowInfo: 7 u32 each (x0_offset, x1_offset, bytes_per_sample, segment_start,
   // flags, y_offset, height) — y_offset/height are f32-bit words, written after
@@ -125,13 +132,13 @@ function buildDigital() {
   ]);
   // sample pools (LSB / MSB), one byte per sample (bps=1). (m,l): (0,0)=0 (0,1)=1
   // (1,0)=x (1,1)=z. MSB nonzero → vertex sets F_CROSSHATCH.
-  const x0 = new Uint8Array(20);
-  const x1 = new Uint8Array(20);
+  const x0 = new Uint8Array(28);
+  const x1 = new Uint8Array(28);
   for (let i = 0; i < 8; i++) x0[i] = i % 2;            // row0: 0,1,0,1,...
   for (let i = 0; i < 8; i++) x0[8 + i] = (i + 1) % 2;  // row1: 1,0,1,0,...
   x1[8 + 4] = 1; x0[8 + 4] = 0;                         // row1 seg4 = x
   x1[8 + 5] = 1; x0[8 + 5] = 1;                         // row1 seg5 = z
-  for (let i = 0; i < 4; i++) x0[16 + i] = busVals[i];  // row2 bus values
+  for (let i = 0; i < busVals.length; i++) x0[16 + i] = busVals[i]; // row2 bus values
   x1[16 + 1] = 1;                                       // row2 seg1 = z → crosshatch
   return {
     single: new Uint32Array(single),

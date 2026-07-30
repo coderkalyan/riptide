@@ -239,6 +239,12 @@ dead-zone (rect pipeline), ruler text (text pipeline), and three flag pills
 hard-coded fixtures — edit `harness.ts` to extend coverage, then re-`update`.
 Value labels (`labels.ts`) are wired but left empty; extend if that path changes.
 
+The bus row deliberately holds its value, then changes every tick, then holds
+again. That middle run renders 6 px wide (8 px/tick less the 2 px multi xgap),
+under two corner radii — the geometry that an unclamped rounded-box SDF pinches
+vertically. It is the only automated check on pill shape, so keep a narrow run in
+the scene.
+
 ### `--equiv`: proving a no-op without a baseline checkout
 
 When a refactor changes *how* something is drawn but not the result, `--equiv`

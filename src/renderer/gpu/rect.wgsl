@@ -48,11 +48,6 @@ fn unpack_rgba(p: u32) -> vec4f {
     ) / 255.0;
 }
 
-fn sdf_rounded(point: vec2f, half_size: vec2f, radius: f32) -> f32 {
-    let q = abs(point) - half_size + radius;
-    return length(max(q, vec2f(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - radius;
-}
-
 // Copied from digital.wgsl, extended with a rotation arg so the same chevron
 // can serve as a horizontal arrowhead (±90°) here.
 fn segment_sdf(point: vec2f, a: vec2f, b: vec2f) -> f32 {
@@ -125,11 +120,15 @@ fn fs_rect(in: VertexData) -> @location(0) vec4f {
     // Rounded-corner mask — only AA inside the corner zones (where both
     // q.x>0 and q.y>0); straight edges stay sharp so adjacent pixels
     // (e.g. a cursor line abutting the pill) don't pick up sub-pixel
-    // transparency.
+    // transparency. The radius is clamped to the rect's own half extents: past
+    // that the corners overlap and start eating the straight edges, pinching a
+    // narrow rect vertically instead of rounding it (same clamp as digital.wgsl's
+    // corner_sdf).
     let centered = in.local_px - in.half_size_px;
-    let q = abs(centered) - in.half_size_px + ROUND_RADIUS_PX;
+    let round_px = max(0.0, min(ROUND_RADIUS_PX, min(in.half_size_px.x, in.half_size_px.y)));
+    let q = abs(centered) - in.half_size_px + round_px;
     let in_corner = q.x > 0.0 && q.y > 0.0;
-    let d = length(max(q, vec2f(0.0, 0.0))) - ROUND_RADIUS_PX;
+    let d = length(max(q, vec2f(0.0, 0.0))) - round_px;
     let aa_d = fwidth(d);
     let corner_mask = 1.0 - smoothstep(-aa_d, 0.0, d);
     // Keep the bottom corner the cursor/marker line attaches to square so the

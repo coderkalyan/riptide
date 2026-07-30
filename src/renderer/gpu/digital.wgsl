@@ -117,9 +117,19 @@ fn decodeSample(row: u32, instance_index: u32) -> vec2<u32> {
     return vec2<u32>(lsb, msb);
 }
 
+// Signed distance to a rounded box. `radius` is clamped to the box's own half
+// extents: the formula only describes a rounded box while the corners fit inside
+// it, and past that it starts eating the straight edges instead — a pill narrower
+// than two radii would lose height until it read as a lozenge floating in the row.
+// Clamping turns that case into the fully-rounded end it should be, which is what
+// CSS does with an oversized border-radius.
 fn corner_sdf(point: vec2f, half_size: vec2f, radius: f32) -> f32 {
-    let q = abs(point) - half_size + radius;
-    return length(max(q, vec2f(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - radius;
+    // max() because a segment thinner than the multi xgap inset arrives with a
+    // negative half width; a negative radius would make the formula meaningless
+    // rather than merely degenerate.
+    let r = max(0.0, min(radius, min(half_size.x, half_size.y)));
+    let q = abs(point) - half_size + r;
+    return length(max(q, vec2f(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - r;
 }
 
 fn hatch(pill_local_px: vec2f, dir: f32, hatch_spacing_px: f32) -> f32 {
