@@ -12,6 +12,9 @@ type ShaderVariant = "multi" | "single";
 const ROW_INFO_WORDS = 7;
 const ROW_FLAG_DIM = 1 << 0;
 const ROW_FLAG_HIGHLIGHT = 1 << 1;
+// Draw this row's value labels from the small glyph atlas — see labels.ts
+// `retier`. Read by labels.wgsl only; digital.wgsl ignores it.
+const ROW_FLAG_LABEL_SM = 1 << 2;
 const ROW_WORD_FLAGS = 4;
 const ROW_WORD_Y = 5;
 const ROW_WORD_H = 6;
@@ -62,11 +65,17 @@ export interface DigitalRenderer {
     colorBuf: GPUBuffer,
     scene: SceneBuffers,
   ): SignalPipeline;
-  // Set the per-row dim (eye toggle) + highlight (selection) flags by patching the
-  // rowInfo buffer's flags column and re-uploading it. One small writeBuffer, no
-  // repack — call after a scene (re)build and whenever the hidden/selected sets
-  // change. Both bits share the flags word, so they're written together.
-  setRowFlags(scene: SceneBuffers, isHidden: (row: number) => boolean, isSelected: (row: number) => boolean): void;
+  // Set the per-row dim (eye toggle), highlight (selection) and label-size flags by
+  // patching the rowInfo buffer's flags column and re-uploading it. One small
+  // writeBuffer, no repack — call after a scene (re)build, whenever the
+  // hidden/selected sets change, and whenever a row's label size tier flips. All
+  // three bits share the flags word, so they're written together.
+  setRowFlags(
+    scene: SceneBuffers,
+    isHidden: (row: number) => boolean,
+    isSelected: (row: number) => boolean,
+    isSmallLabel: (row: number) => boolean,
+  ): void;
   // Write the per-row vertical layout (y_offset/height as f32 bits) into the
   // rowInfo buffer. `top` is the first row's y (below the ruler); heights stack.
   // `gapBelowOf` adds empty space after a row (divider) without growing its drawn
@@ -192,12 +201,19 @@ export function createDigitalRenderer(ctx: GPUContext): DigitalRenderer {
     device.queue.writeBuffer(uniformBuf, 0, viewportScratch);
   }
 
-  function setRowFlags(scene: SceneBuffers, isHidden: (row: number) => boolean, isSelected: (row: number) => boolean): void {
+  function setRowFlags(
+    scene: SceneBuffers,
+    isHidden: (row: number) => boolean,
+    isSelected: (row: number) => boolean,
+    isSmallLabel: (row: number) => boolean,
+  ): void {
     const cpu = scene.rowInfoCpu;
     const rows = cpu.length / ROW_INFO_WORDS;
     for (let r = 0; r < rows; r++) {
       cpu[r * ROW_INFO_WORDS + ROW_WORD_FLAGS] =
-        (isHidden(r) ? ROW_FLAG_DIM : 0) | (isSelected(r) ? ROW_FLAG_HIGHLIGHT : 0);
+        (isHidden(r) ? ROW_FLAG_DIM : 0)
+        | (isSelected(r) ? ROW_FLAG_HIGHLIGHT : 0)
+        | (isSmallLabel(r) ? ROW_FLAG_LABEL_SM : 0);
     }
     if (cpu.byteLength > 0) device.queue.writeBuffer(scene.rowInfo, 0, cpu);
   }

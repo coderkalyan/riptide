@@ -35,8 +35,10 @@ export interface TextRenderer {
   cellSm: GlyphCell;
   createBatch(): TextBatch;
   // Exposed so the instanced label pipeline (labels.ts) can share the large
-  // glyph atlas + sampler instead of building its own.
+  // glyph atlas + sampler instead of building its own. Both sizes: the label
+  // pipeline steps a row down to the small one when its pills stop fitting.
   atlasLgView: GPUTextureView;
+  atlasSmView: GPUTextureView;
   sampler: GPUSampler;
 }
 
@@ -277,6 +279,7 @@ export async function createTextRenderer(
     cellSm: cellOf(atlasSm),
     createBatch,
     atlasLgView: lgView,
+    atlasSmView: smView,
     sampler,
   };
 }

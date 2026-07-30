@@ -217,7 +217,9 @@ async function main() {
   const textR = await createTextRenderer(gpu, renderer.uniformBuf, {
     dpr: 1, atlasFactory: (px, dpr) => proceduralAtlas(px, dpr),
   });
-  const labelR = await createLabelRenderer(gpu, renderer.uniformBuf, textR.atlasLgView, textR.sampler, textR.cellLg);
+  const labelR = await createLabelRenderer(
+    gpu, renderer.uniformBuf, textR.atlasLgView, textR.atlasSmView, textR.sampler, textR.cellLg, textR.cellSm,
+  );
   const cellWsm = textR.cellSm.widthPx;
   const midlineSm = textR.cellSm.midlinePx;
 
@@ -232,7 +234,7 @@ async function main() {
   const scene = renderer.createSceneBuffers(dig.rowInfo.buffer as ArrayBuffer, dig.x0, dig.x1);
   const singlePipe: SignalPipeline = await renderer.buildPipelineFromPacked("single", dig.single, dig.single.length / 3, colorBuf, scene);
   const multiPipe: SignalPipeline = await renderer.buildPipelineFromPacked("multi", dig.multi, dig.multi.length / 3, colorBuf, scene);
-  renderer.setRowFlags(scene, () => false, () => false);
+  renderer.setRowFlags(scene, () => false, () => false, () => false);
   renderer.setRowLayout(scene, () => ROW_H, WAVE_Y);
 
   // static layers (identical across both pill paths)

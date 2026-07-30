@@ -137,7 +137,9 @@ export function WaveCanvas() {
         let singleBit = singleBitInit;
 
         const labelRenderer = await createLabelRenderer(
-          gpuCtx, renderer.uniformBuf, textRenderer.atlasLgView, textRenderer.sampler, textRenderer.cellLg,
+          gpuCtx, renderer.uniformBuf,
+          textRenderer.atlasLgView, textRenderer.atlasSmView, textRenderer.sampler,
+          textRenderer.cellLg, textRenderer.cellSm,
         );
         if (disposed) { device.destroy(); return; }
         const labelBatch = labelRenderer.createBatch();
@@ -168,7 +170,15 @@ export function WaveCanvas() {
           selectedRows = sel;
         };
         syncRowState(useAppStore.getState().activeSignals);
-        const applyDim = () => renderer.setRowFlags(scene, (row) => hiddenRows.has(row), (row) => selectedRows.has(row) || row === menuRow);
+        // A row draws its labels small when its own pills stopped fitting them at the
+        // large size; the two batches cover disjoint rows (multi pills vs boolean
+        // lines), so either may own the answer for a given row.
+        const applyDim = () => renderer.setRowFlags(
+          scene,
+          (row) => hiddenRows.has(row),
+          (row) => selectedRows.has(row) || row === menuRow,
+          (row) => labelBatch.isSmall(row) || singleLabelBatch.isSmall(row),
+        );
         applyDim();
         // Per-row vertical layout (resize): write each row's y/height into rowInfo.
         // Rows stack from the ruler band (ROW_HEIGHT_CSS); a row without an explicit
@@ -370,6 +380,15 @@ export function WaveCanvas() {
             viewReported = { start: startTicks, end: viewEnd };
             st.setViewRange(startTicks, viewEnd);
           }
+
+          // Label glyph size follows the zoom, so re-pick it every frame — but the
+          // rows' measurements are zoom-independent (taken at repack), so this is
+          // O(rows) of arithmetic and only touches the GPU on the frame a row
+          // actually flips size.
+          // Both, never short-circuited: each batch owns its own rows.
+          const multiFlipped = labelBatch.retier(ticksPerPixel);
+          const singleFlipped = singleLabelBatch.retier(ticksPerPixel);
+          if (multiFlipped || singleFlipped) applyDim();
 
           // Viewport-windowed repack (the single packer). Pack the active signals
           // over the visible window plus an over-fetch margin, but only when the
