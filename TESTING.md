@@ -179,6 +179,13 @@ bash tests/e2e/run-headless.sh  # run this harness alone; UPDATE_GOLDENS=1 to (r
   the Help ▸ Keyboard Shortcuts card, whose rows are read out of the menu tree so a
   menu edit reshapes it. `search` waits on a highlight appearing before capture,
   since the tree filter resolves off the JS thread.
+- **A contended GPU fails loudly, not silently.** Several Electrons sharing one
+  nested compositor can lose WebGPU init, and the renderer then replaces the
+  canvas with an error panel — DOM, so the canvas mask does not hide it. The
+  driver checks for `.gpu-error` before capturing and fails the state telling you
+  to rerun, because the alternative is diffing that panel against real chrome or,
+  under `UPDATE_GOLDENS`, committing it *as* the golden. Kill stray `electron`
+  processes and rerun; the states pass in seconds on a free GPU.
 
 ---
 
@@ -244,6 +251,13 @@ again. That middle run renders 6 px wide (8 px/tick less the 2 px multi xgap),
 under two corner radii — the geometry that an unclamped rounded-box SDF pinches
 vertically. It is the only automated check on pill shape, so keep a narrow run in
 the scene.
+
+What the scene does *not* reach is the gap-scaling rule: `digital.wgsl` caps the
+value gap at a third of the segment, which only bites below 3 × 2 px, and a 1-tick
+segment here is 8 px raw. Covering it means dropping `TICKS_PER_PX` under 1/6 so a
+1-tick segment lands below 6 px — a full-scene regeneration, which is why it has
+not been done. Until then that rule is only checked by measuring a real trace (the
+banding it fixes is a ±1 device px rasterization swing on a sub-pixel pill).
 
 ### `--equiv`: proving a no-op without a baseline checkout
 

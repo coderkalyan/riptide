@@ -111,6 +111,13 @@ measurable — there is no `visible_transitions` / `drawn_primitive_count` hook
 (≫ ~50k transitions on screen) shows GPU pass ms climbing. Fix direction: collapse
 sub-pixel runs during pack, or a per-row draw budget.
 
+Legibility runs out before throughput does. `digital.wgsl` caps the multi pill's
+2 px value gap at a third of the segment, so a pill keeps two thirds of its pitch
+however far out you zoom instead of being inset out of existence — but once the
+pitch itself is a pixel or two, what a row shows is a rasterization phase pattern,
+not data. Collapsing sub-pixel runs during pack is what actually answers that, and
+it is the same work as the draw budget above.
+
 ## Many active rows — Y-axis windowing (the row cap is now 65535)
 
 The active-row cap was raised 64 → 65535 (`gpu/colors.ts` + `segments.rs` Scene

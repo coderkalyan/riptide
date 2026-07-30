@@ -200,6 +200,14 @@ for (const st of STATES) {
       await win.waitForSelector(st.ready, { timeout: 30_000 });
       await setSizeAndSettle(cdp, win, st.size);
       if (st.setup) await st.setup(win);
+      // A contended GPU (several Electrons sharing one nested compositor) fails
+      // WebGPU init, and the renderer replaces the canvas with an error panel.
+      // That panel is DOM, so the canvas mask does not hide it: the run would
+      // diff it against the real chrome, or — with UPDATE_GOLDENS — commit it as
+      // the golden. Refuse either, and say to rerun rather than to accept.
+      if (await win.locator(".gpu-error").count()) {
+        assert.fail(`${st.name}: WebGPU failed to initialize — rerun once the GPU is free (nothing captured)`);
+      }
       const shot = await capture(cdp, win, st.size);
 
       const golden = path.join(GOLDEN_DIR, `${st.name}.png`);

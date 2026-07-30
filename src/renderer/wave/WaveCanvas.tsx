@@ -973,6 +973,7 @@ export function WaveCanvas() {
       <canvas id="gpu" ref={canvasEl} />
       <Show when={gpuError()}>{(msg) => (
         <div
+          class="gpu-error"
           style={{
             position: "absolute", inset: "0", display: "flex", "flex-direction": "column",
             "align-items": "center", "justify-content": "center", gap: "10px", padding: "24px",

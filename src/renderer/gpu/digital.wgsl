@@ -205,8 +205,15 @@ fn vs_main(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> 
     var pixel_bounds = dt / viewport.ticks_per_pixel;
 
     // Asymmetric inset: shift only the right edge inward (multi only; for
-    // single, xgap_px is 0).
-    pixel_bounds += vec2f(0.0, -xgap_px);
+    // single, xgap_px is 0). The gap is a fixed 2 px until the segment is too
+    // narrow to spare it — past that a constant bite out of a shrinking pill is
+    // most of the pitch, and what survives is a sub-pixel sliver whose rasterized
+    // width flips between one and two pixels with its subpixel phase, banding the
+    // whole row. Below three gaps' width the gap takes a third of the segment
+    // instead, so the pill keeps two thirds of its pitch at any zoom and cannot be
+    // inset out of existence.
+    let raw_width_px = max(0.0, pixel_bounds[1] - pixel_bounds[0]);
+    pixel_bounds += vec2f(0.0, -min(xgap_px, raw_width_px * (1.0 / 3.0)));
 
     // Compute the pill's center and half-size in pixels. Vertical placement comes
     // from the per-row layout (RowInfo.y_offset / .height, f32 bits), so rows of
