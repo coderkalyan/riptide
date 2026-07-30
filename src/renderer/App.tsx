@@ -8,6 +8,7 @@ import { ColorPicker } from "./ColorPicker";
 import { ContextMenu, activeSignalMenu, dividerMenu, paneMenu, treeMenu } from "./ContextMenu";
 import { EnumDialog } from "./EnumDialog";
 import { AboutDialog } from "./AboutDialog";
+import { ShortcutsDialog } from "./ShortcutsDialog";
 import { SignalTree, resolveAddIds, recursiveSigChildren, allScopeIds, focusTreeSearch } from "./SignalTree";
 import { WavesToolbar } from "./WavesToolbar";
 import { MarkersBar } from "./MarkersBar";
@@ -43,6 +44,14 @@ function ipc(): IpcRenderer | null {
 
 async function openVcdDialog(): Promise<string | null> {
   return ((await ipc()?.invoke("riptide:open-vcd")) as string | null) ?? null;
+}
+
+// Product docs, still being written. Opened in the user's browser, never in a
+// window of this app — see the main process's `riptide:open-external`.
+const DOCS_URL = "https://riptide.ksriram.dev/docs";
+
+function openExternal(url: string): void {
+  void ipc()?.invoke("riptide:open-external", url);
 }
 
 // Window-chrome config from the URL (set by the main process). On Linux "custom"
@@ -247,6 +256,7 @@ export function App() {
   // the current state, then follow main's push events (the WM can (un)maximize too).
   const [maximized, setMaximized] = createSignal(false);
   const [showAbout, setShowAbout] = createSignal(false);
+  const [showShortcuts, setShowShortcuts] = createSignal(false);
   onMount(() => {
     if (!CHROME_CUSTOM) return;
     ipc()?.invoke("riptide:is-maximized").then((v) => setMaximized(!!v));
@@ -339,6 +349,8 @@ export function App() {
       case "signal-top": { const r = selSignal(); if (r) s.moveSignal(r.row, "top"); break; }
       case "signal-bottom": { const r = selSignal(); if (r) s.moveSignal(r.row, "bottom"); break; }
       case "signal-remove": { const r = selSignal(); if (r) s.removeSignal(r.row); break; }
+      case "docs": openExternal(DOCS_URL); break;
+      case "shortcuts": setShowShortcuts(true); break;
       case "about": setShowAbout(true); break;
     }
   };
@@ -367,13 +379,17 @@ export function App() {
     ipc()?.send("riptide:menu-descriptor", buildMenus(menuState(), macRecent()));
   });
 
-  // Global keyboard shortcuts mirroring the File/View menus.
+  // Global keyboard shortcuts mirroring the File/View menus. On macOS the system
+  // menu binds its own accelerators (menu.ts rewrites `Ctrl+` to `CmdOrCtrl+`), so
+  // these would double-fire — every chord below is registered only off macOS.
   onMount(() => {
+    if (IS_MAC) return;
     const onKey = (e: KeyboardEvent) => {
       if (!e.ctrlKey || e.altKey) return;
       const k = e.key.toLowerCase();
       if (!e.shiftKey && k === "o") { e.preventDefault(); handleOpenVcd(); }
       else if (!e.shiftKey && k === "r") { e.preventDefault(); handleReload(); }
+      else if (k === "w") { e.preventDefault(); void ipc()?.invoke("riptide:close-window"); }
       // Zoom shortcuts only matter with a trace open (the canvas is unmounted when
       // idle). Ctrl+= / Ctrl++ zoom in, Ctrl+- zoom out, Ctrl+0 fit. "=" is the
       // unshifted "+" key, so accept both; the numpad sends "Add"/"Subtract".
@@ -619,7 +635,14 @@ export function App() {
         <EnumDialog row={d().row} onClose={() => s.setEnumDialog(null)} />
       )}</Show>
       <Show when={showAbout()}>
-        <AboutDialog onClose={() => setShowAbout(false)} />
+        <AboutDialog onClose={() => setShowAbout(false)} onOpenUrl={openExternal} />
+      </Show>
+      <Show when={showShortcuts()}>
+        <ShortcutsDialog
+          sections={buildMenus(menuState(), [])}
+          mac={IS_MAC}
+          onClose={() => setShowShortcuts(false)}
+        />
       </Show>
       </Show>
       <GlobalTooltip />

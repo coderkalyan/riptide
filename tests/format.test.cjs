@@ -29,7 +29,10 @@ for (const f of oracleFiles) {
   test(`format: ${fixture}`, () => {
     const r = spawnSync(process.execPath, [WORKER, path.join(ORACLE_DIR, f)], {
       encoding: "utf8",
-      timeout: 60_000,
+      // Generous on purpose: this is a hang guard, not a budget. The heaviest
+      // fixture (stress_many_active) packs every case's every signal and takes
+      // ~30 s unloaded, which a 60 s cap turns into a flake on a busy machine.
+      timeout: 180_000,
     });
     const line = (r.stdout || "").split("\n").find((l) => l.startsWith("RESULT:"));
     if (!line) {

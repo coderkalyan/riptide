@@ -122,6 +122,20 @@ const STATES = [
       await win.waitForTimeout(150);
     },
   },
+  {
+    // Help ▸ Keyboard Shortcuts. Its rows are read out of the menu tree, so a menu
+    // edit reshapes this dialog — which is exactly what a golden is for.
+    name: "shortcuts",
+    size: [1400, 900],
+    ready: ".s-row",
+    setup: async (win) => {
+      await win.locator(".menubar .m", { hasText: "Help" }).click();
+      await win.waitForSelector(".menu-pop.show", { timeout: 5000 });
+      await win.locator(".menu-item", { hasText: "Keyboard Shortcuts" }).click();
+      await win.waitForSelector(".keys-modal", { timeout: 5000 });
+      await win.waitForTimeout(150);
+    },
+  },
 ];
 
 async function launch(env) {

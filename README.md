@@ -135,6 +135,7 @@ selects every match, so a right-click can then recolor, dim or remove the whole 
 | <kbd>Ctrl</kbd>+<kbd>F</kbd> | Focus the signal-tree search box |
 | <kbd>Ctrl</kbd>+<kbd>=</kbd> / <kbd>Ctrl</kbd>+<kbd>-</kbd> | Zoom in / out |
 | <kbd>Ctrl</kbd>+<kbd>0</kbd> | Zoom to fit |
+| <kbd>Ctrl</kbd>+<kbd>W</kbd> | Close the window |
 | <kbd>M</kbd> | Add a marker at the cursor |
 | <kbd>[</kbd> / <kbd>]</kbd> | Previous / next marker |
 | <kbd>Backspace</kbd> or <kbd>Delete</kbd> | Delete the selected marker |
@@ -142,8 +143,8 @@ selects every match, so a right-click can then recolor, dim or remove the whole 
 | <kbd>Esc</kbd> | Clear the tree selection |
 
 On macOS these are <kbd>Cmd</kbd> chords. <kbd>Enter</kbd> and <kbd>Esc</kbd> act on the signal tree
-and need it focused — click a row in it first. `Ctrl+W` appears in the File menu but only works as a
-shortcut on macOS; elsewhere use **File ▸ Close Window**.
+and need it focused — click a row in it first. **Help ▸ Keyboard Shortcuts** lists the same table
+in-app, built from the menu itself so it cannot drift.
 
 ### Mouse
 

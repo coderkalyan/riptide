@@ -37,8 +37,8 @@ const editHelp = (idle: boolean): { name: string; items: MenuItem[] }[] => [
     { label: "Find…", kbd: "Ctrl+F", action: "find", disabled: idle },
   ] },
   { name: "Help", items: [
-    { label: "Documentation", disabled: true, unimplemented: true },
-    { label: "Keyboard Shortcuts", disabled: true, unimplemented: true },
+    { label: "Documentation", action: "docs" },
+    { label: "Keyboard Shortcuts", action: "shortcuts" },
     "sep",
     { label: "About Riptide", action: "about" },
   ] },

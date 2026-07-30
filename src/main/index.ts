@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, Menu, dialog, ipcMain, shell } from "electron";
 import * as path from "node:path";
 import fs from 'fs';
 import { installNativeMenu } from "./menu";
@@ -256,6 +256,23 @@ ipcMain.handle("riptide:import-sidecar", async (e) => {
 // Close the window that asked (File > Close Window).
 ipcMain.handle("riptide:close-window", (e) => {
   BrowserWindow.fromWebContents(e.sender)?.close();
+});
+
+// Open a URL in the user's browser (Help ▸ Documentation, the About card's source
+// link). Never in a BrowserWindow: loading a remote page into this window would
+// navigate the app away, and into a new one would hand a remote origin a renderer
+// with nodeIntegration. https only — `shell.openExternal` will hand anything else
+// to the desktop's scheme handlers, and the renderer is not a place to decide that.
+ipcMain.handle("riptide:open-external", (_e, url: string) => {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol !== "https:") return false;
+  void shell.openExternal(parsed.toString());
+  return true;
 });
 
 // Custom-titlebar (frameless Linux) window controls.

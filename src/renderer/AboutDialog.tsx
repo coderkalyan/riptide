@@ -29,7 +29,7 @@ const runtimeLine = (() => {
 
 // Help ▸ About Riptide. Static info card on the shared .modal chrome; dismiss
 // on backdrop, Esc, or the button.
-export function AboutDialog(props: { onClose: () => void }) {
+export function AboutDialog(props: { onClose: () => void; onOpenUrl: (url: string) => void }) {
   onMount(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") props.onClose(); };
     document.addEventListener("keydown", onKey);
@@ -52,10 +52,12 @@ export function AboutDialog(props: { onClose: () => void }) {
           {pkg.description && <div class="about-desc">{pkg.description}</div>}
           {runtimeLine && <div class="about-meta">{runtimeLine}</div>}
           <div class="about-meta">Copyright © 2026 Kalyan Sriram · AGPL-3.0-or-later</div>
-          {/* AGPL expects users to be told where the source lives. Plain text,
-              not a link: the renderer has no external-link handler, and an
-              <a href> here would navigate the app window away. */}
-          <div class="about-meta">github.com/coderkalyan/riptide</div>
+          {/* AGPL expects users to be told where the source lives, so make it
+              reachable: a button rather than an <a href>, which would navigate the
+              app window away instead of opening a browser. */}
+          <button class="link" onClick={() => props.onOpenUrl("https://github.com/coderkalyan/riptide")}>
+            github.com/coderkalyan/riptide
+          </button>
           <div class="modal-actions">
             <button class="btn primary" onClick={props.onClose}>Close</button>
           </div>
