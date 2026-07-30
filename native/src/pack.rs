@@ -44,31 +44,60 @@ impl ClockPolarity {
 /// GPU segment ticks carry the low 32 bits of tide's `u64` timestamp. The shader
 /// positions each endpoint as an `i32` delta from `start_ticks`, and `i32`
 /// subtraction wraps mod 2^32, so the wrapped low word is correct for any segment
-/// whose *span* fits `i32`. A wider one renders at a garbled or negative x, so
-/// trip loudly rather than corrupt the frame. The real fix is a 64-bit GPU tick
-/// pipeline; see PERFORMANCE.md.
+/// whose *span* fits `i32`. A wider one would render at a garbled or negative x.
+/// The real fix is a 64-bit GPU tick pipeline; see PERFORMANCE.md.
 const MAX_SEGMENT_SPAN: u64 = 0x7fff_ffff;
 
-fn renderable_span(t_start: Timestamp, t_end: Timestamp) -> (u32, u32) {
-    assert!(t_end >= t_start, "segment ends before it starts");
-    assert!(
-        t_end - t_start <= MAX_SEGMENT_SPAN,
-        "segment spans {} ticks, past the 32-bit GPU tick pipeline",
-        t_end - t_start,
-    );
-    (t_start as u32, t_end as u32)
+/// A segment's endpoints as the GPU carries them.
+///
+/// A span past [`MAX_SEGMENT_SPAN`] is clipped into the packed window. One value
+/// held across a long run — a config register, a tie-off, a reset that never
+/// returns — spans the whole trace, and on a run past ~2.1e9 ticks that is the
+/// ordinary case rather than an exotic one, so this path has to render rather than
+/// refuse. Clipping is free there because nothing outside the window can be on
+/// screen: the renderer over-fetches a screen either side and repacks before the
+/// viewport reaches an edge, and where it *doesn't* over-fetch — at tick 0 and at
+/// the trace end, where the window is clamped — the clip lands on a bound the data
+/// already respects, so it moves nothing.
+///
+/// Only the overflowing spans are clipped. Packing a segment is otherwise
+/// independent of the window it was asked for, which is a property the differential
+/// and format harnesses lean on: they pack the same signal over tight windows and
+/// expect its true endpoints back.
+fn renderable_span(t_start: Timestamp, t_end: Timestamp, opts: &PackOpts) -> (u32, u32) {
+    debug_assert!(t_end >= t_start, "segment ends before it starts");
+    let t_end = t_end.max(t_start);
+    if t_end - t_start <= MAX_SEGMENT_SPAN {
+        return (t_start as u32, t_end as u32);
+    }
+    let start = t_start.max(opts.q_start);
+    let end = t_end.min(opts.q_end).max(start);
+    // `pack_signal` refuses a window this wide up front, so the clip always lands
+    // inside the pipeline's reach.
+    debug_assert!(end - start <= MAX_SEGMENT_SPAN, "clipped span still too wide");
+    (start as u32, end as u32)
+}
+
+/// Whether the window itself is wider than the pipeline can position.
+///
+/// Only reachable zoomed far enough out to hold billions of ticks on screen, which
+/// the viewport uniform's `i32 start_ticks` cannot describe either. Such a row
+/// packs empty — blank is honest, and garbled or aborted are the alternatives.
+fn window_too_wide(opts: &PackOpts) -> bool {
+    opts.q_end.saturating_sub(opts.q_start) > MAX_SEGMENT_SPAN
 }
 
 /// Everything about a row that is not the signal's own samples.
 pub struct PackOpts<'a> {
     pub shaded: bool,
-    /// The trace's end. The last segment extends to it.
+    /// The trace's end. The last segment extends to it, clipped to the window.
     pub end_t: Timestamp,
     pub kind: PackKind,
     pub polarity: ClockPolarity,
     /// A signal gating this row: the row dims wherever it is not logic one.
     pub mute: Option<Id>,
-    /// The packing window. The muted path runs a second query over it.
+    /// The packing window. The muted path runs a second query over it, and every
+    /// segment is clipped into it — see `renderable_span`.
     pub q_start: Timestamp,
     pub q_end: Timestamp,
     pub radix: Radix,
@@ -107,11 +136,14 @@ pub fn with_value_at<T>(
 /// Packs the transitions of `id` over `[q_start, q_end]` into a row-agnostic
 /// signal. The caller places it at a row with `Scene::push_packed_signal`.
 ///
-/// An unknown signal, or one with no sample at or before the window, yields an
-/// empty result rather than an error: the hierarchy lists variables the database
-/// never stored (reals, never-assigned nets), and a row holding one should render
-/// as blank, not abort the frame.
+/// An unknown signal, one with no sample at or before the window, or a window
+/// wider than the GPU tick pipeline yields an empty result rather than an error:
+/// the hierarchy lists variables the database never stored (reals, never-assigned
+/// nets), and a row holding one should render as blank, not abort the frame.
 pub fn pack_signal(db: &Database, id: Id, opts: &PackOpts) -> PackedSignal {
+    if window_too_wide(opts) {
+        return PackedSignal::new(opts.radix.is_multi(), 0);
+    }
     let Some(mut cursor) = db.samples(id, opts.q_start, opts.q_end) else {
         return PackedSignal::new(opts.radix.is_multi(), 0);
     };
@@ -154,7 +186,7 @@ fn pack_plain(data: &Chunk<'_>, opts: &PackOpts) -> PackedSignal {
         } else {
             opts.end_t
         };
-        let (t_start, t_end) = renderable_span(times[i], t_end_u);
+        let (t_start, t_end) = renderable_span(times[i], t_end_u, opts);
         let has_next = i + 1 < len;
 
         let sample = i * bytes..(i + 1) * bytes;
@@ -357,7 +389,7 @@ fn push_muted_segment(
     next_di: Option<usize>,
 ) {
     let (mins, maxes, zs) = planes;
-    let (t_start, t_end) = renderable_span(t_start, t_end);
+    let (t_start, t_end) = renderable_span(t_start, t_end, opts);
     let sample = di * bytes..(di + 1) * bytes;
     let (min, max, z) = (&mins[sample.clone()], &maxes[sample.clone()], &zs[sample]);
 
@@ -487,6 +519,45 @@ mod tests {
             shape(&packed)
         );
         assert_eq!(b"0x20x3", packed.label_bytes.as_slice());
+    }
+
+    #[test]
+    fn a_span_past_the_gpu_tick_pipeline_is_clipped_to_the_window() {
+        // A config register written once and never touched again, on a run of more
+        // than 2^31 ticks: its one segment spans the whole trace, which the shader
+        // cannot position. Clipping it to the window keeps the row renderable, and
+        // both clipped edges sit in the renderer's over-fetch margin.
+        const END: Timestamp = 3_000_000_000;
+        let db = db(&[(1, 8, &[(0, "00000101")])]);
+        let mut o = opts(PackKind::Data, Radix::Hex, END);
+        (o.q_start, o.q_end) = (1_000_000, 1_001_000);
+
+        let packed = pack_signal(&db, Id(1), &o);
+        assert_eq!(vec![(1_000_000, 1_001_000, 0)], shape(&packed));
+        // Clipping moves the geometry, never the value.
+        assert_eq!(b"0x05", packed.label_bytes.as_slice());
+
+        // At tick 0 and at the trace end the window is clamped to the trace bounds,
+        // where the clip lands on a bound the segment already respects.
+        (o.q_start, o.q_end) = (0, MAX_SEGMENT_SPAN);
+        assert_eq!(
+            vec![(0, MAX_SEGMENT_SPAN as u32, 0)],
+            shape(&pack_signal(&db, Id(1), &o))
+        );
+    }
+
+    #[test]
+    fn a_window_wider_than_the_gpu_tick_pipeline_packs_nothing() {
+        // Zoomed out past what the viewport uniform's i32 start tick can describe.
+        // Blank, not garbled, and above all not a panic across the napi boundary —
+        // which aborts the process rather than raising a JS error.
+        let db = db(&[(1, 8, &[(0, "00000101")])]);
+        let mut o = opts(PackKind::Data, Radix::Hex, 3_000_000_000);
+        (o.q_start, o.q_end) = (0, 3_000_000_000);
+
+        let packed = pack_signal(&db, Id(1), &o);
+        assert!(packed.segments.is_empty());
+        assert!(packed.label_bytes.is_empty());
     }
 
     #[test]

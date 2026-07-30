@@ -117,20 +117,26 @@ Both holes are closed, and both matter for any future spec field:
 
 ### Known failures
 
-Measured 2026-07-29 on the Rust addon. Seam A is green (6397 samples, 0
-failures), as are `native` (26/26), `differential` (27/27), `malformed` (4/4) and
-`e2e` (27/27).
+None. Measured 2026-07-29 on the Rust addon: seam A is green (6397 samples, 0
+failures), as are `format` (26/26), `native` (26/26), `differential` (27/27),
+`malformed` (4/4) and `e2e` (27/27).
 
-- **`format: time_long_sparse`** — by design, and the only failing suite entry.
-  The fixture holds one value across a span > 2³¹ ticks, which the GPU segment
-  buffer (low-32 tick + i32 shader delta) cannot position, so `pack.rs`'s
-  `renderable_span` aborts rather than drawing it at a garbled or negative x.
-  Clears when the GPU tick pipeline widens to 64-bit (PERFORMANCE.md).
+Three entries cleared, kept here because each one was reported as expected before
+it was understood:
 
-Two entries cleared with the Rust port: `differential: hier_flat_wide` (the old
-Zig comparison exe segfaulted in `std.mem.findSentinel`; the fixture now
-byte-verifies), and every `crashed` outcome in the malformed suite — a bad load
-is a JS exception now, so all four record `threw` or `loaded`.
+- **`format: time_long_sparse`** had been recorded as failing "by design": the
+  fixture holds one value across a span > 2³¹ ticks, which the GPU segment buffer
+  (low-32 tick + `i32` shader delta) cannot position. It was not by design. The
+  guard was an `assert!` inside a `#[napi]` call, and a Rust panic cannot unwind
+  across `extern "C"` — the process took **SIGABRT**, so the suite entry was
+  reporting a crash that any trace past ~2.1e9 ticks holding a slow-changing signal
+  reproduces in the app by adding that signal to a row. `pack.rs` now clips an
+  over-wide span into the packed window and packs an over-wide *window* empty; see
+  PERFORMANCE.md for what the 32-bit pipeline still cannot draw.
+- **`differential: hier_flat_wide`** — the old Zig comparison exe segfaulted in
+  `std.mem.findSentinel`; the fixture byte-verifies since the Rust port.
+- Every `crashed` outcome in the malformed suite — a bad load is a JS exception
+  now, so all four record `threw` or `loaded`.
 
 ---
 

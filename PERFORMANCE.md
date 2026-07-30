@@ -70,6 +70,35 @@ hundreds — but it is O(rows) string marshalling on the JS thread, and the row 
 is 65535. Trigger: the same "hundreds+ rows" threshold as the items below; the fix
 is the same virtualization, feeding only the visible rows' paths.
 
+## Time range (the GPU tick pipeline is 32-bit)
+
+### A visible window wider than 2^31 ticks draws nothing
+`PackedSegment` carries the low 32 bits of tide's `u64` tick, and `digital.wgsl`
+positions each endpoint as an `i32` delta from `viewport.start_ticks`. The wrapped
+low word is correct for any *delta* that fits `i32`, so what the pipeline can draw
+is bounded by the width of the packed window, not by where the trace sits in time.
+Two consequences, both handled in `pack.rs`:
+
+- A segment wider than the window — one value held across a long run: a config
+  register, a tie-off, a reset that never returns — is **clipped into the window**
+  by `renderable_span`. Free, because the renderer over-fetches a screen either
+  side and repacks before the viewport reaches an edge, and where it does not
+  over-fetch (tick 0, the trace end) the clip lands on a bound the data already
+  respects. Only overflowing spans are clipped, so normal packing is untouched.
+- A *window* wider than `MAX_SEGMENT_SPAN` cannot position anything inside it, and
+  the viewport uniform's `i32 start_ticks` cannot describe one either, so
+  `pack_signal` packs the row **empty**. On a trace of more than ~2.1e9 ticks that
+  is the zoom-to-fit view: rows read their value in the value column but draw no
+  waveform until the visible span comes under the limit. Nothing is lost that used
+  to work — every segment at that zoom already positioned at a wrapped, usually
+  negative x — but it is a visible hole on long traces.
+
+Until this widens, riptide draws traces up to ~2.1e9 ticks at any zoom and longer
+ones only zoomed in. Trigger to revisit: the first trace whose *fit* view is the
+one people need, i.e. any run past ~2 s at ns resolution. The fix is a 64-bit tick
+pipeline: carry ticks as two u32 lanes (or rebase both the pack and
+`start_ticks` on the window) so a delta is computed in 64-bit and truncated after.
+
 ## Per-frame GPU (scales with on-screen transition density)
 
 ### No decimation / draw budget
