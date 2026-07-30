@@ -115,13 +115,26 @@ fn vs_label(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     let vis_end = min(body_end_px, viewport.width);
     let vis_w = vis_end - vis_start;
 
-    // Narrow-pill cull (was the CPU `widthPx < textWidthPx + 6` skip) — against
-    // the visible width, so a too-thin on-screen sliver drops the label.
-    if (vis_w < text_w + cull_pad) {
+    // Too narrow for the label: fall back to a single interpunct, drawn when the
+    // pill has one glyph's worth of room at the same padding the text would have
+    // used. Just the one - the atlas is monospace, so a run of them sits a whole
+    // cell apart and reads as separate marks rather than as one elision. Below
+    // that width nothing is drawn: a sliver too thin for a glyph is obviously too
+    // thin to hold a value, and marking it would put an identical dot on every
+    // pill of a dense row.
+    //
+    // The mark is always shorter than the label it replaces (a label that fit in
+    // one cell would have fit), so the label's own glyph instances always cover
+    // it and the fallback costs no extra geometry.
+    let fits = vis_w >= text_w + cull_pad;
+    let marked = vis_w >= cw + cull_pad;
+    let draw_n = select(select(0u, 1u, marked), text_len, fits);
+    if (draw_n == 0u || glyph_index >= draw_n) {
         return VertexData(CULLED, vec2f(0.0), vec3f(0.0), 0u);
     }
 
-    let label_x0 = snap((vis_start + vis_end) * 0.5 - text_w * 0.5);
+    let run_w = f32(draw_n) * cw;
+    let label_x0 = snap((vis_start + vis_end) * 0.5 - run_w * 0.5);
     let glyph_x = label_x0 + f32(glyph_index) * cw;
 
     // Off-screen cull (the CPU loop never did this — wide off-screen pills used to
@@ -141,7 +154,9 @@ fn vs_label(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) ->
     let clip_x = vertex_px.x / viewport.width * 2.0 - 1.0;
     let clip_y = 1.0 - vertex_px.y / viewport.height * 2.0;
 
-    let col = f32(char_code) - atlas_first;
+    // The atlas is ASCII in order, then one extra cell holding the middle dot —
+    // see text.ts `buildAtlasCanvas`. So the fallback glyph is simply the last cell.
+    let col = select(atlas_count - 1.0, f32(char_code) - atlas_first, fits);
     let u = (col + corner_x) / atlas_count;
     let v = corner_y;
 
