@@ -37,6 +37,39 @@ whole trace on a real one → RSS grows monotonically, OOM after enough opens). 
 opens. Fix is upstream: loop `for (db.signals.items) |*s| s.deinit(db.gpa);` in
 `tide`'s `Database.deinit`.
 
+## Name search (scales with hierarchy size)
+
+### No incremental narrowing: every keystroke re-scans every path
+`search.rs` has no incremental narrowing: every keystroke scans every node's path
+again (filtered by the per-node character mask) and `Flat::prune` rebuilds the
+row list. Measured on a 211k-node synthetic trace (release addon, one core,
+including the prune, the buffer copies and the napi promise round trip): **0.1 ms
+for a miss, 5 ms for a typical query, 11 ms worst case**. It runs as a napi
+`AsyncTask` on a libuv worker, so this is latency on the filtered tree, never a
+dropped frame. Two levers, both deliberately not pulled: (1) incremental
+narrowing, since a query only ever grows while typing, so keystroke *n* need only
+re-scan keystroke *n-1*'s survivors; (2) rayon across the mask scan. Trigger to
+revisit: a hierarchy past ~500k nodes, or a measured keystroke-to-tree latency
+above ~30 ms.
+
+### The filtered row list is materialized as objects on the render thread
+`SignalTree`'s `flat` memo turns the native row buffers into one `FlatNode` object
+per row. A one-character query against that same 211k-node trace keeps ~144k rows
+and costs **~19 ms** of object churn per keystroke on the JS thread — the one part
+of filtering that is *not* off-thread. Same cost class as Expand All, which walks
+the whole tree into the same shape, so it is not a new failure mode; a real query
+keeps hundreds of rows and costs nothing. Fix when it bites: have the memo expose
+the typed arrays directly and index them from `windowNodes` instead of
+materializing rows the virtualizer will never show.
+
+### Active-signal find marshals every row path per keystroke
+`ActiveSignals` calls the sync `markStrings` with all row paths (`rowPaths` is
+memoized on the paths themselves, so row edits like color/selection don't re-run
+it). Bounded by the active-row count, so it is microseconds for the realistic
+hundreds — but it is O(rows) string marshalling on the JS thread, and the row cap
+is 65535. Trigger: the same "hundreds+ rows" threshold as the items below; the fix
+is the same virtualization, feeding only the visible rows' paths.
+
 ## Per-frame GPU (scales with on-screen transition density)
 
 ### No decimation / draw budget

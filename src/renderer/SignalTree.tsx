@@ -1,9 +1,12 @@
-import { createSignal, createMemo, onCleanup } from "solid-js";
+import { For, Show, createEffect, createMemo, createResource, createSignal, on, onCleanup } from "solid-js";
 import { Key } from "@solid-primitives/keyed";
 import { createVirtualizer } from "@tanstack/solid-virtual";
-import { ChevronRight, Package, Activity, Plus } from "lucide-solid";
+import { ChevronRight, Package, Activity, Plus, X } from "lucide-solid";
 import { SCENE } from "./hier/scene";
+import { pathOf } from "./hier/types";
 import type { NodeId, Scope, Signal } from "./hier/types";
+import { markStrings, searchTree } from "./native";
+import { Highlight } from "./highlight";
 import * as perf from "./perf";
 import { useAppStore } from "./store/store";
 
@@ -69,7 +72,10 @@ export function allScopeIds(): NodeId[] {
   return out;
 }
 
-interface FlatNode { id: NodeId; depth: number; kind: "scope" | "signal"; open: boolean }
+// `matched` is set only while a filter is live: the row list is then the pruned
+// tree, in which a row either matched the query itself or is a scope kept open
+// above one.
+interface FlatNode { id: NodeId; depth: number; kind: "scope" | "signal"; open: boolean; matched?: boolean }
 
 // Depth-first walk; descend into a scope only when expanded — the visible flat row list.
 function flattenVisible(expanded: Set<NodeId>): FlatNode[] {
@@ -86,6 +92,30 @@ function flattenVisible(expanded: Set<NodeId>): FlatNode[] {
   return out;
 }
 
+// Every scope from a node up to its root — what has to be open for the node to
+// be visible in the tree ("reveal" out of a search result).
+function ancestorScopes(id: NodeId): NodeId[] {
+  const h = SCENE.hierarchy;
+  const out: NodeId[] = [];
+  let cursor = h.nodes.get(id)?.parent ?? null;
+  while (cursor != null) {
+    out.push(cursor);
+    cursor = h.nodes.get(cursor)?.parent ?? null;
+  }
+  return out;
+}
+
+// The tree's filter input, so Edit ▸ Find… / Ctrl+F can reach it from outside.
+// Undefined while the panel is collapsed and the tree unmounted.
+let searchEl: HTMLInputElement | undefined;
+
+// Focus (and select) the filter box. A no-op if the panel is collapsed, so
+// callers expand it first.
+export function focusTreeSearch() {
+  searchEl?.focus();
+  searchEl?.select();
+}
+
 // Virtualized tree (only the on-screen window renders) with an expand/collapse
 // SLIDE animation. Keyed by node id (<Key>) and absolutely positioned at
 // translateY(index * ROW_PX) with a transform transition:
@@ -97,13 +127,51 @@ function flattenVisible(expanded: Set<NodeId>): FlatNode[] {
 // The fade is gated to expand (an `expanding` pulse) so scrolling new rows into
 // view doesn't shimmer.
 //
+// With a query in the filter box the tree switches to a flat ranked result list:
+// ranking is meaningless in a pruned tree (it would be forced back into tree
+// order), and auto-expanding matched scopes would have to write `expandedScopes`,
+// which the sidecar persists — a search would quietly rewrite the saved view.
+// Double-clicking a matched scope reveals it in the tree instead.
+//
 // Multi-select: a row click selects its node (scope or signal); a scope's chevron
 // (not its body) toggles expand. Shift-range spans the flat-visible order; ctrl/meta
 // toggles. The plus button adds the whole selection when the row is in it, else just
 // that row. Enter adds the selection; Esc clears it.
 export function SignalTree() {
   const s = useAppStore();
-  const flat = createMemo<FlatNode[]>(() => { s.traceNonce; return flattenVisible(new Set(s.expandedScopes)); });
+
+  // Filtering runs natively on a worker thread, so a keystroke never competes
+  // with the render loop. createResource keeps only the newest answer: a slower
+  // earlier query resolving late is discarded rather than flashing stale rows.
+  const [found] = createResource(
+    () => [s.treeQuery.trim(), s.traceNonce] as const,
+    ([query]) => searchTree(query),
+  );
+  const searching = () => s.treeQuery.trim().length > 0;
+  const matchLabel = () => {
+    const total = found.latest?.total ?? 0;
+    return `${total} match${total === 1 ? "" : "es"}`;
+  };
+
+  // Filtered, the rows are the pruned tree the native side returned: the matches
+  // plus the scopes above them, already in tree order and every one of them shown
+  // open. Unfiltered, it is the usual walk of what the user has expanded — the
+  // filter never touches `expandedScopes`, which the sidecar persists.
+  const flat = createMemo<FlatNode[]>(() => {
+    s.traceNonce;
+    if (!searching()) return flattenVisible(new Set(s.expandedScopes));
+    const rows = found.latest;
+    if (!rows) return [];
+    const h = SCENE.hierarchy;
+    const out: FlatNode[] = [];
+    for (let i = 0; i < rows.ids.length; i++) {
+      const node = h.nodes.get(rows.ids[i]);
+      if (node) {
+        out.push({ id: rows.ids[i], depth: rows.depths[i], kind: node.kind, open: true, matched: rows.matched[i] === 1 });
+      }
+    }
+    return out;
+  });
 
   // True for the duration of an expand so freshly-mounted rows fade in; off
   // during scroll so scroll-in rows appear instantly.
@@ -137,17 +205,87 @@ export function SignalTree() {
       .map((vi) => ({ node: flat()[vi.index] as FlatNode | undefined, start: vi.start, idx: vi.index }))
       .filter((w): w is { node: FlatNode; start: number; idx: number } => !!w.node));
 
+  // Highlight offsets for the rows actually on screen, matched against their own
+  // names. Bounded by the virtualizer window, so this is the sync call: a few
+  // dozen short strings, and it reuses the one matcher rather than reimplementing
+  // it here. A name may hold only some of the query's terms — the `clk` of
+  // `hart clk` — and each one it does hold still marks.
+  const windowRanges = createMemo<Map<NodeId, number[]>>(() => {
+    const out = new Map<NodeId, number[]>();
+    if (!searching()) return out;
+    const rows = windowNodes();
+    const h = SCENE.hierarchy;
+    const names = rows.map((row) => h.nodes.get(row.node.id)?.name ?? "");
+    const marks = markStrings(names, s.treeQuery);
+    for (let i = 0; i < rows.length; i++) {
+      const ranges = marks.ranges[i];
+      if (ranges && ranges.length) out.set(rows[i].node.id, ranges);
+    }
+    return out;
+  });
+
+  // Leave the results and show `id` where it lives: open every scope above it,
+  // clear the query, select it, and scroll it into view — a reveal that leaves the
+  // node off-screen has revealed nothing. The scroll waits a frame because the
+  // virtualizer has to see the re-expanded row count first.
+  const reveal = (id: NodeId) => {
+    const open = new Set(s.expandedScopes);
+    for (const scope of ancestorScopes(id)) open.add(scope);
+    s.setExpanded([...open]);
+    s.setTreeQuery("");
+    s.setTreeSelection([id]);
+    requestAnimationFrame(() => {
+      const index = flat().findIndex((node) => node.id === id);
+      if (index >= 0) virtualizer.scrollToIndex(index, { align: "center" });
+    });
+  };
+
+  // A new query means a new result list: start it at the top. Clearing the query
+  // is left alone — the tree returns to where it was, and a reveal has its own
+  // scroll to do.
+  createEffect(on(() => s.treeQuery, (query) => { if (query.trim() && scrollEl) scrollEl.scrollTop = 0; }, { defer: true }));
+
   return (
-    <div
-      class="tree"
-      ref={scrollEl}
-      tabindex={0}
-      onKeyDown={(ev) => {
-        if (ev.key === "Enter") { ev.preventDefault(); addSelection(); }
-        else if (ev.key === "Escape") { ev.preventDefault(); s.clearTreeSelection(); }
-      }}
-    >
-      <div style={{ position: "relative", width: "100%", height: `${virtualizer.getTotalSize()}px` }}>
+    <>
+      <div class="col-sub">
+        <input
+          ref={(el) => { searchEl = el; onCleanup(() => { if (searchEl === el) searchEl = undefined; }); }}
+          class="search tree-search"
+          placeholder="filter scope/name"
+          value={s.treeQuery}
+          spellcheck={false}
+          onInput={(ev) => s.setTreeQuery(ev.currentTarget.value)}
+          onKeyDown={(ev) => {
+            // Enter adds the selection, or the first matched signal in tree order
+            // when there is none; Esc clears the query, then hands Escape back to
+            // the panel.
+            if (ev.key === "Enter") {
+              ev.preventDefault();
+              if (s.treeSelection.length) { addSelection(); return; }
+              const first = flat().find((row) => row.matched && row.kind === "signal");
+              const ids = first ? resolveAddIds([first.id]) : [];
+              if (ids.length) { perf.beginAdd(); s.addSignals(ids); }
+            } else if (ev.key === "Escape" && s.treeQuery) {
+              ev.preventDefault();
+              s.setTreeQuery("");
+            }
+          }}
+        />
+        <Show when={searching()}>
+          <span class="hint">{found.loading ? "…" : matchLabel()}</span>
+          <span class="collapse" data-tip="clear filter" onClick={() => { s.setTreeQuery(""); searchEl?.focus(); }}><X size={12} /></span>
+        </Show>
+      </div>
+      <div
+        class="tree"
+        ref={scrollEl}
+        tabindex={0}
+        onKeyDown={(ev) => {
+          if (ev.key === "Enter") { ev.preventDefault(); addSelection(); }
+          else if (ev.key === "Escape") { ev.preventDefault(); s.clearTreeSelection(); }
+        }}
+      >
+        <div style={{ position: "relative", width: "100%", height: `${virtualizer.getTotalSize()}px` }}>
         <Key each={windowNodes()} by={(w) => w.node.id}>{(item) => {
           const e = () => item().node;
           const node = createMemo(() => { s.traceNonce; return SCENE.hierarchy.nodes.get(e().id); });
@@ -183,7 +321,10 @@ export function SignalTree() {
           return (
             <div
               class={"t-row" + (supported() ? "" : " unsupported") + (isSel() ? " sel" : "")}
-              data-tip={supported() ? undefined : "unsupported type (real/string or no samples) — can't be displayed"}
+              // Filtered rows spell out where they sit only in the tooltip — the
+              // tree itself now shows it. Unsupported rows keep saying why they
+              // cannot be added.
+              data-tip={!supported() ? "unsupported type (real/string or no samples) — can't be displayed" : searching() ? pathOf(SCENE.hierarchy, e().id) : undefined}
               style={{
                 position: "absolute", top: 0, left: 0, width: "100%",
                 transform: `translateY(${item().start}px)`,
@@ -196,10 +337,13 @@ export function SignalTree() {
               // the click; shift-range-select shouldn't highlight row text).
               onMouseDown={(ev) => { if (ev.shiftKey) ev.preventDefault(); }}
               onClick={(ev) => select(e().id, ev)}
-              // Double-click: signal → add it; scope → expand (convenience).
+              // Double-click: signal → add it; scope → expand. Filtered, a scope is
+              // already open and there is nothing to toggle, so it leaves the filter
+              // and opens itself in the full tree instead.
               onDblClick={(ev) => {
                 ev.preventDefault();
                 if (e().kind === "signal") { if (supported()) { perf.beginAdd(); s.addSignal(e().id); } }
+                else if (searching()) reveal(e().id);
                 else { pulseExpand(); s.toggleScope(e().id); }
               }}
               onContextMenu={(ev) => {
@@ -212,17 +356,19 @@ export function SignalTree() {
             >
               <span
                 class="chev"
-                style={e().kind === "scope" ? {
+                style={e().kind === "scope" && !searching() ? {
                   transform: e().open ? "rotate(90deg)" : "rotate(0deg)",
                   transition: "transform 0.18s ease",
                 } : undefined}
-                // Chevron toggles expand without selecting (stop propagation to the row).
-                onClick={(ev) => { if (e().kind === "scope") { ev.stopPropagation(); pulseExpand(); s.toggleScope(e().id); } }}
+                // Chevron toggles expand without selecting (stop propagation to the
+                // row). Filtered, every kept scope is open by construction and
+                // collapsing one would hide a match, so it shows no chevron.
+                onClick={(ev) => { if (e().kind === "scope" && !searching()) { ev.stopPropagation(); pulseExpand(); s.toggleScope(e().id); } }}
               >
-                {e().kind === "scope" ? <ChevronRight size={10} /> : null}
+                {e().kind === "scope" && !searching() ? <ChevronRight size={10} /> : null}
               </span>
               <span class={iconClass()}>{e().kind === "scope" ? <Package size={12} /> : <Activity size={12} />}</span>
-              <span class="lbl">{node()?.name}</span>
+              <span class="lbl"><Highlight text={node()?.name ?? ""} ranges={windowRanges().get(e().id)} /></span>
               {e().kind === "signal" ? (
                 supported() ? (
                   <span
@@ -250,7 +396,8 @@ export function SignalTree() {
             </div>
           );
         }}</Key>
+        </div>
       </div>
-    </div>
+    </>
   );
 }

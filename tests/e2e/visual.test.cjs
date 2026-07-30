@@ -106,6 +106,22 @@ const STATES = [
       await win.waitForSelector(".tip-pop.show", { timeout: 5000 });
     },
   },
+  {
+    // Fuzzy search in both panels: the tree pruned to its matches (scopes above
+    // each hit opened, matched characters marked) and the active list's
+    // marked/dimmed rows. The tree filter resolves off-thread, so wait for a
+    // highlight rather than for the row itself.
+    name: "search",
+    size: [1400, 900],
+    ready: ".s-row",
+    setup: async (win) => {
+      await win.locator("input.tree-search").fill("valid");
+      await win.waitForSelector(".t-row .hl", { timeout: 5000 });
+      await win.locator(".col-sub input.search:not(.tree-search)").fill("data");
+      await win.waitForSelector(".s-row.unmatched", { timeout: 5000 });
+      await win.waitForTimeout(150);
+    },
+  },
 ];
 
 async function launch(env) {

@@ -27,12 +27,14 @@ export type MenuState = {
 // Basename of a path (cross-platform-ish: split on both separators).
 const baseName = (p: string) => p.split(/[\\/]/).pop() || p;
 
-// Edit + Help are state-independent (static placeholders for now). Unimplemented
-// items carry no `kbd` — advertising a shortcut that does nothing reads as broken.
-const EDIT_HELP: { name: string; items: MenuItem[] }[] = [
+// Edit is nearly all placeholders; Find… is the one live entry (it focuses the
+// signal tree's filter box). Unimplemented items carry no `kbd` — advertising a
+// shortcut that does nothing reads as broken.
+const editHelp = (idle: boolean): { name: string; items: MenuItem[] }[] => [
   { name: "Edit", items: [
     { label: "Undo", disabled: true, unimplemented: true }, { label: "Redo", disabled: true, unimplemented: true }, "sep",
-    { label: "Cut", disabled: true, unimplemented: true }, { label: "Copy", disabled: true, unimplemented: true }, { label: "Paste", disabled: true, unimplemented: true }, "sep", { label: "Find…", disabled: true, unimplemented: true },
+    { label: "Cut", disabled: true, unimplemented: true }, { label: "Copy", disabled: true, unimplemented: true }, { label: "Paste", disabled: true, unimplemented: true }, "sep",
+    { label: "Find…", kbd: "Ctrl+F", action: "find", disabled: idle },
   ] },
   { name: "Help", items: [
     { label: "Documentation", disabled: true, unimplemented: true },
@@ -50,6 +52,7 @@ export function buildMenus(s: MenuState, recent: string[]): { name: string; item
     recent.length === 0
       ? [{ label: "No Recent Traces", disabled: true }]
       : recent.map((p) => ({ label: baseName(p), action: "open-recent", path: p }));
+  const [edit, help] = editHelp(idle);
 
   return [
     { name: "File", items: [
@@ -66,7 +69,7 @@ export function buildMenus(s: MenuState, recent: string[]): { name: string; item
       "sep",
       { label: "Close Window", kbd: "Ctrl+W", action: "close-window" },
     ] },
-    EDIT_HELP[0], // Edit
+    edit,
     { name: "View", items: [
       { label: "Zoom In", kbd: "Ctrl+=", action: "zoom-in", disabled: idle },
       { label: "Zoom Out", kbd: "Ctrl+-", action: "zoom-out", disabled: idle },
@@ -102,6 +105,6 @@ export function buildMenus(s: MenuState, recent: string[]): { name: string; item
       { label: "Next Marker", kbd: "]", action: "marker-next", disabled: idle || s.markerCount === 0 },
       { label: "Previous Marker", kbd: "[", action: "marker-prev", disabled: idle || s.markerCount === 0 },
     ] },
-    EDIT_HELP[1], // Help
+    help,
   ];
 }

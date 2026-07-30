@@ -650,12 +650,22 @@
             color: var(--text-2);
             white-space: nowrap;
         }
-        .col-head .hint {
+        .col-head .hint, .col-sub .hint {
             @apply tw:font-mono;
             font-size: var(--text-xs);
             color: var(--muted);
             white-space: nowrap;
         }
+        /* Match count + clear button beside a filter box. */
+        .col-sub .hint { @apply tw:flex-none; }
+        .col-sub .collapse {
+            @apply tw:inline-flex tw:items-center tw:justify-center tw:text-muted tw:flex-none;
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            cursor: default;
+        }
+        .col-sub .collapse:hover { @apply tw:bg-panel-2 tw:text-text; }
         /* Inline editable numbers in the range label. Text and input share the
            same font/size/metrics so swapping causes no layout shift. */
         .num-edit {
@@ -899,6 +909,12 @@
             opacity: 0;
         }
         .t-row:hover .plus { opacity: 1; }
+        /* Fuzzy-search match: the characters the query hit, in the tree's filtered
+           rows and in the active-signal find box. */
+        .hl {
+            color: var(--accent);
+            font-weight: 600;
+        }
         .t-row .plus:hover { color: var(--text); }/* y-only scroll: rows ellipsis-truncate, so the list never needs an
            x-scroll. overflow-x:hidden stops row tooltips (which extend past the
            panel edge) from widening the scroll area. */
@@ -948,6 +964,10 @@
         .s-row.sel {
             @apply tw:bg-accent-soft;
         }
+        /* The find box marks instead of filtering: rows it did not match stay in
+           place (the list is aligned row-for-row with the canvas) and recede. */
+        .s-row.unmatched { opacity: 0.3; }
+        .s-row.unmatched:hover { opacity: 0.6; }
         /* Drag-to-reorder (wave/dragReorder.ts). The lifted row tracks the pointer
            with no transition; the flowing rows ease into the gap. Transition is
            applied only while a drag is active (.dragflow) so clearing the

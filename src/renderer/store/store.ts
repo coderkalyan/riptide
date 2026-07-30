@@ -110,6 +110,11 @@ export interface UiState {
   // selected for a batch add. Ephemeral UI — NOT persisted to the sidecar; cleared
   // on trace swap via freshUi.
   treeSelection: NodeId[];
+  // Fuzzy-search text for the two signal panels. Ephemeral UI — NOT persisted to
+  // the sidecar (a saved view should open showing everything, not mid-search);
+  // cleared on trace swap via freshUi.
+  treeQuery: string;
+  activeQuery: string;
 }
 
 export interface Actions {
@@ -161,6 +166,8 @@ export interface Actions {
   // Select a row. No modifier → replace (deselect all, select this). ctrl/meta →
   // toggle this row, keep others. shift → range-select from the anchor to this row.
   selectRow: (row: number, opts?: { ctrl?: boolean; shift?: boolean }) => void;
+  // Replace the row selection with exactly `rows` (the find box's match set).
+  selectRows: (rows: number[]) => void;
   clearSelection: () => void;
 
   // Signal-tree selection (mirrors selectRow). No modifier → replace; ctrl/meta →
@@ -172,6 +179,12 @@ export interface Actions {
   // the last id so a follow-up shift-click ranges from there.
   setTreeSelection: (ids: NodeId[]) => void;
   clearTreeSelection: () => void;
+
+  // Fuzzy-search text. The tree filters down to ranked matches; the active list
+  // marks them in place (its rows line up one-to-one with the canvas rows, so it
+  // cannot drop any).
+  setTreeQuery: (q: string) => void;
+  setActiveQuery: (q: string) => void;
 
   addMarkerAtCursor: () => void;
   deleteMarker: (id: number) => void;
@@ -292,7 +305,7 @@ function hydrateDoc(): DocState {
   };
 }
 
-const freshUi = (): Omit<UiState, "traceNonce"> => ({ hover: null, picker: null, ctxMenu: null, enumDialog: null, viewSaveNonce: 0, traceStale: false, treeSelection: [] });
+const freshUi = (): Omit<UiState, "traceNonce"> => ({ hover: null, picker: null, ctxMenu: null, enumDialog: null, viewSaveNonce: 0, traceStale: false, treeSelection: [], treeQuery: "", activeQuery: "" });
 
 // Renumber rows so `row` stays the contiguous 0..N-1 canvas/Y slot. Keeps each
 // surviving row's `id` (identity) so reconcile/<For> reuse its DOM.
@@ -449,6 +462,12 @@ const vanilla = createVanilla<AppState>()(
       // plain click: deselect all, select this one.
       return { activeSignals: s.activeSignals.map((r) => ({ ...r, selected: r.row === row })) };
     }),
+    selectRows: (rows) => set((s) => {
+      const wanted = new Set(rows);
+      // Anchor on the last one so a follow-up shift-click ranges from there.
+      selectionAnchor = rows.length ? rows[rows.length - 1] : -1;
+      return { activeSignals: s.activeSignals.map((r) => ({ ...r, selected: wanted.has(r.row) })) };
+    }),
     clearSelection: () => set((s) => (
       s.activeSignals.some((r) => r.selected)
         ? { activeSignals: s.activeSignals.map((r) => (r.selected ? { ...r, selected: false } : r)) }
@@ -477,6 +496,12 @@ const vanilla = createVanilla<AppState>()(
     }),
     setTreeSelection: (ids) => set(() => { treeAnchor = ids.length ? ids[ids.length - 1] : null; return { treeSelection: ids }; }),
     clearTreeSelection: () => set((s) => (s.treeSelection.length ? (treeAnchor = null, { treeSelection: [] }) : s)),
+
+    // Changing the tree query drops the selection with it: the visible rows are
+    // about to be a different set, and a selection you can no longer see would
+    // still be what Enter and the plus button act on.
+    setTreeQuery: (q) => set((s) => (s.treeQuery === q ? s : (treeAnchor = null, { treeQuery: q, treeSelection: [] }))),
+    setActiveQuery: (q) => set((s) => (s.activeQuery === q ? s : { activeQuery: q })),
 
     addMarkerAtCursor: () => set((s) => {
       // Rendering caps at MAX_MARKERS (shared line/pill pools); markers past it

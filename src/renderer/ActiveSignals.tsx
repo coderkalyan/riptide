@@ -1,10 +1,12 @@
 import { For, Index, Show, createMemo } from "solid-js";
-import { PanelLeftClose, PanelLeftOpen, Eye, EyeOff } from "lucide-solid";
+import { PanelLeftClose, PanelLeftOpen, Eye, EyeOff, X } from "lucide-solid";
 import { getSignal } from "./hier/hierarchy";
 import { SCENE, type ActiveSignalRef } from "./hier/scene";
 import { useAppStore, type DividerTarget } from "./store/store";
 import { ActiveSignal, type ActiveSignalKind } from "./ActiveSignal";
 import { makeHoverArm } from "./hoverArm";
+import { markStrings } from "./native";
+import { clipRanges, type Ranges } from "./highlight";
 import {
   dragState, beginDrag, moveDrag, endDrag, cancelDrag, consumeDragClick,
   type DragGeom,
@@ -23,9 +25,14 @@ function activeSignalKind(ref: ActiveSignalRef): ActiveSignalKind {
   return "signal";
 }
 
-// The Active Signals column: header (full vs compact) + filter + rows. Each
+// The Active Signals column: header (full vs compact) + find box + rows. Each
 // row's value cell is a per-row createMemo on cursorTicks/radix/enumLabels — so a
 // cursor move recomputes only the value cells, and a color/select edit nothing.
+//
+// The find box marks matches in place instead of filtering the list down: these
+// rows sit one-to-one beside the canvas rows (same order, same heights — see
+// wave/constants ROW_HEIGHT_CSS), so dropping any would slide the rest out of
+// line with the waveforms they label.
 export function ActiveSignals(props: {
   enumLabels: () => Map<number, Map<number, string>>;
   collapsed: boolean;
@@ -34,6 +41,31 @@ export function ActiveSignals(props: {
 }) {
   const s = useAppStore();
   let signalsEl!: HTMLDivElement; // the scrollable .signals container (drag geometry source)
+
+  // The row paths, re-derived only when they actually change. Every row edit
+  // (color, selection, height) replaces the activeSignals array, and none of them
+  // can change a match — the custom equality keeps those out of the search below.
+  const rowPaths = createMemo(() => s.activeSignals.map((r) => r.path), undefined, {
+    equals: (a, b) => a.length === b.length && a.every((path, i) => path === b[i]),
+  });
+
+  // Row paths matched against the find text, keyed by row index — which is also
+  // the row number, since `row` is kept as the contiguous 0..N-1 canvas slot (see
+  // the store's renumber). Matching runs over the whole path so a query can name a
+  // scope, but only the part of the match landing in the leaf name is highlighted,
+  // since that is all a row shows. markStrings rather than the tree's search
+  // because a row may be a derived signal, with no hierarchy node behind it.
+  const matches = createMemo<Map<number, Ranges> | null>(() => {
+    const query = s.activeQuery.trim();
+    if (!query) return null;
+    const paths = rowPaths();
+    const marks = markStrings(paths, query);
+    const out = new Map<number, Ranges>();
+    for (let row = 0; row < paths.length; row++) {
+      if (marks.matched[row]) out.set(row, clipRanges(marks.ranges[row], marks.leafOffsets[row], paths[row].length));
+    }
+    return out;
+  });
 
   // Press-and-drag a row body to reorder. A plain click (no threshold crossed)
   // still selects; the resize handle / pin / eye are excluded. Geometry is
@@ -162,7 +194,7 @@ export function ActiveSignals(props: {
         <span class="sp" />
         {/* Hint held back during the expand slide so a resize won't flicker it. */}
         <Show when={!props.collapsed && !props.sliding}>
-          <span class="hint">{s.activeSignals.length} active</span>
+          <span class="hint">{matches() ? `${matches()!.size} of ${s.activeSignals.length}` : `${s.activeSignals.length} active`}</span>
         </Show>
         <span
           class="collapse"
@@ -173,8 +205,29 @@ export function ActiveSignals(props: {
         </span>
       </div>
       <div class="col-sub">
-        {/* Filtering isn't wired up yet — disabled so it doesn't read as a working control. */}
-        <input class="search" placeholder={props.collapsed ? "filter signals" : "filter active signals"} disabled data-tip="filtering not yet implemented" />
+        <input
+          class="search"
+          placeholder={props.collapsed ? "find signals" : "find active signals"}
+          value={s.activeQuery}
+          spellcheck={false}
+          data-tip="mark matching rows"
+          onInput={(ev) => s.setActiveQuery(ev.currentTarget.value)}
+          onKeyDown={(ev) => {
+            // Enter selects every match, so the row context menu / Signals menu
+            // can act on the whole set; Esc clears the search.
+            if (ev.key === "Enter") {
+              ev.preventDefault();
+              const hit = matches();
+              if (hit) s.selectRows([...hit.keys()]);
+            } else if (ev.key === "Escape" && s.activeQuery) {
+              ev.preventDefault();
+              s.setActiveQuery("");
+            }
+          }}
+        />
+        <Show when={s.activeQuery}>
+          <span class="collapse" data-tip="clear" onClick={() => s.setActiveQuery("")}><X size={12} /></span>
+        </Show>
       </div>
       <Show
         when={props.collapsed}
@@ -215,6 +268,8 @@ export function ActiveSignals(props: {
             <>
               <ActiveSignal
                 name={sig.name}
+                nameRanges={matches()?.get(row.row)}
+                unmatched={!!matches() && !matches()!.has(row.row)}
                 kind={activeSignalKind(row)}
                 color={row.color}
                 selected={row.selected || s.ctxMenu?.row === row.row}

@@ -1,6 +1,6 @@
 //! The Node-API surface riptide's renderer talks to.
 //!
-//! Five functions, one process-global trace. Every buffer handed to JS is copied
+//! Seven functions, one process-global trace. Every buffer handed to JS is copied
 //! into a V8-owned `ArrayBuffer`: Electron's memory cage rejects a backing store
 //! outside it, and the renderer keeps typed-array views alive well past the call
 //! that produced them.
@@ -8,6 +8,7 @@
 use std::cell::RefCell;
 use std::path::Path;
 
+use napi::ScopedTask;
 use napi::bindgen_prelude::*;
 use napi::sys;
 use napi_derive::napi;
@@ -17,6 +18,7 @@ use tide_core::metadata::{Id, Timestamp};
 pub mod hierarchy;
 pub mod label;
 pub mod pack;
+pub mod search;
 pub mod segments;
 pub mod trace;
 
@@ -423,5 +425,109 @@ pub fn get_hierarchy(env: &Env) -> Result<Object<'_>> {
         root.set("timescale", timescale)?;
         root.set("endTicks", loaded.end_t as f64)?;
         Ok(root)
+    })
+}
+
+// ---- searchTree / markStrings ---------------------------------------------
+
+/// The signal tree, pruned to what a query matched.
+///
+/// Parallel arrays, one entry per visible row, in tree order: everything that
+/// matched plus the scopes above it, which the tree renders opened. Row `i` is
+/// node `ids[i]`, nested `depths[i]` deep, and `matched[i]` says whether it
+/// matched itself or is only a scope on the way to one.
+#[napi(object)]
+pub struct TreeRows<'a> {
+    /// One u32 per row: a node id from the array `getHierarchy` returned.
+    pub ids: ArrayBuffer<'a>,
+    /// One u32 per row.
+    pub depths: ArrayBuffer<'a>,
+    /// One byte per row, 1 when the row matched the query itself.
+    pub matched: ArrayBuffer<'a>,
+    /// How many rows matched, for the "n matches" hint.
+    pub total: u32,
+}
+
+/// Match flags and highlight offsets for a caller-supplied candidate list.
+///
+/// One entry per candidate, in the order they were handed over. `matched` is
+/// every query term matching; `ranges` is a flat run of `(start, len)` pairs in
+/// UTF-16 units for the terms that *did* match, grouped by `range_counts`;
+/// `leaf_offsets` is where each candidate's last path segment begins, so a
+/// consumer rendering only the leaf name keeps the ranges at or past it and
+/// shifts them down by it.
+#[napi(object)]
+pub struct StringMarks<'a> {
+    pub matched: ArrayBuffer<'a>,
+    pub ranges: ArrayBuffer<'a>,
+    pub range_counts: ArrayBuffer<'a>,
+    pub leaf_offsets: ArrayBuffer<'a>,
+}
+
+fn u32_bytes(values: &[u32]) -> &[u8] {
+    // SAFETY: u32 has no padding and every bit pattern is a valid u8.
+    unsafe { std::slice::from_raw_parts(values.as_ptr().cast::<u8>(), size_of_val(values)) }
+}
+
+/// The tree filter, off the JS thread.
+///
+/// Holds the flattened tree by `Arc`: it is immutable, so the worker needs no
+/// lock, and an in-flight search survives a trace swap — it finishes against the
+/// tree it started on and the renderer drops the result as stale.
+pub struct SearchTask {
+    tree: std::sync::Arc<hierarchy::Flat>,
+    query: String,
+}
+
+impl<'task> ScopedTask<'task> for SearchTask {
+    type Output = Vec<hierarchy::Row>;
+    type JsValue = TreeRows<'task>;
+
+    fn compute(&mut self) -> Result<Vec<hierarchy::Row>> {
+        let matched = self.tree.search.matches(&self.query);
+        Ok(self.tree.prune(&matched))
+    }
+
+    fn resolve(&mut self, env: &'task Env, rows: Vec<hierarchy::Row>) -> Result<TreeRows<'task>> {
+        let ids: Vec<u32> = rows.iter().map(|row| row.id).collect();
+        let depths: Vec<u32> = rows.iter().map(|row| row.depth).collect();
+        let matched: Vec<u8> = rows.iter().map(|row| u8::from(row.matched)).collect();
+        Ok(TreeRows {
+            total: matched.iter().map(|&flag| u32::from(flag)).sum(),
+            ids: array_buffer(env, u32_bytes(&ids))?,
+            depths: array_buffer(env, u32_bytes(&depths))?,
+            matched: array_buffer(env, &matched)?,
+        })
+    }
+}
+
+/// The hierarchy pruned to `query`: every node whose dot path matches, plus the
+/// scopes above them.
+///
+/// Resolves a promise. The scan and the prune are each linear in the hierarchy,
+/// which is unbounded, and they run on a keystroke — so they stay off the thread
+/// driving the render loop. A blank query matches nothing, so the caller shows the
+/// unfiltered tree rather than asking.
+#[napi(js_name = "searchTree", ts_return_type = "Promise<TreeRows>")]
+pub fn search_tree(query: String) -> Result<AsyncTask<SearchTask>> {
+    let tree = with_trace(|loaded| Ok(loaded.hierarchy.clone()))?;
+    Ok(AsyncTask::new(SearchTask { tree, query }))
+}
+
+/// The same matcher over a caller-supplied candidate list.
+///
+/// Synchronous on purpose: the caller bounds the list — the active rows, or the
+/// handful of tree rows actually on screen — and a promise per keystroke would
+/// only add latency to work measured in microseconds. It also takes strings
+/// rather than node ids because not every candidate is a node: an active row may
+/// be a derived signal, and a tree row is highlighted against its own name.
+#[napi(js_name = "markStrings")]
+pub fn mark_strings(env: &Env, candidates: Vec<String>, query: String) -> Result<StringMarks<'_>> {
+    let marks = search::Index::of_strings(&candidates).marks(&query);
+    Ok(StringMarks {
+        matched: array_buffer(env, &marks.matched)?,
+        ranges: array_buffer(env, u32_bytes(&marks.ranges))?,
+        range_counts: array_buffer(env, u32_bytes(&marks.range_counts))?,
+        leaf_offsets: array_buffer(env, u32_bytes(&marks.leaf_offsets))?,
     })
 }

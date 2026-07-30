@@ -110,12 +110,29 @@ dividers (right-click ▸ **Insert Divider Above/Below**). Rows you're finished 
 right-click ▸ **Mute On…**, pick a 1-bit enable, and the row fades wherever that enable is low, so
 gated logic stops competing for your attention.
 
+**Find a signal by name.** Both panels have a fuzzy search box; <kbd>Ctrl</kbd>+<kbd>F</kbd> jumps to
+the tree's. Type fragments in any order, separated by spaces — `rf clk` finds `TOP.hart.rf.i_clk` —
+and the characters you matched are marked. Each fragment has to land inside a single path segment
+unless you type the dot yourself (`hart.rf`), so a two-letter query finds *names* instead of every
+path that happens to contain those two letters somewhere.
+
+The tree stays a tree: it prunes to what matched, with the modules above each hit opened, so you can
+see where a signal lives instead of reading a path off a list. Your own expand/collapse state is left
+alone and never written to the sidecar — clearing the box puts the tree back exactly as it was.
+<kbd>Enter</kbd> adds the first match, and double-clicking a matched module drops the filter and opens
+that module in the full tree, so you can keep browsing from there.
+
+The active-signals box *marks* instead of filtering: matching rows highlight, the rest fade, and
+nothing moves — those rows line up one-to-one with the waveforms beside them. <kbd>Enter</kbd>
+selects every match, so a right-click can then recolor, dim or remove the whole set at once.
+
 ### Keyboard
 
 | Keys | Action |
 |---|---|
 | <kbd>Ctrl</kbd>+<kbd>O</kbd> | Open a VCD |
 | <kbd>Ctrl</kbd>+<kbd>R</kbd> | Reload the open trace from disk |
+| <kbd>Ctrl</kbd>+<kbd>F</kbd> | Focus the signal-tree search box |
 | <kbd>Ctrl</kbd>+<kbd>=</kbd> / <kbd>Ctrl</kbd>+<kbd>-</kbd> | Zoom in / out |
 | <kbd>Ctrl</kbd>+<kbd>0</kbd> | Zoom to fit |
 | <kbd>M</kbd> | Add a marker at the cursor |
@@ -179,8 +196,8 @@ Being blunt, so you can judge whether it fits your flow:
 - **No live simulator control.** Riptide reads dumps; it doesn't run or step your simulator.
   Verilator, Icarus and Vivado xsim are what the parser is tested against, not integrations.
 - **No derived signals.** You can't yet build a row from an expression like `valid & ready`.
-- **No search.** No "find this pattern", no signal-name filtering, and no assertion or glitch
-  flagging.
+- **No value search.** Signal *names* are searchable — fuzzy, in both panels (**Ctrl+F**) — but
+  there is no "find this pattern in the waveform", and no assertion or glitch flagging.
 - **No signal groups.** You can order, color and divide rows, but not collapse a handshake into one
   bundle. Undo/redo, cut/copy/paste, New Window and Reset Layout are also unimplemented menu entries.
 - **No command line, no file associations, no drag-and-drop.**

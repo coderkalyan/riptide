@@ -2,23 +2,42 @@ import { Dynamic } from "solid-js/web";
 import { Activity, Eye, EyeOff, Clock, RotateCcw } from "lucide-solid";
 import { createMemo, type JSX } from "solid-js";
 import { makeHoverArm } from "./hoverArm";
+import { Highlight, clipRanges, type Ranges } from "./highlight";
 
 export type ActiveSignalKind = "clock" | "reset" | "signal";
 
 // Split a signal name into its base and a trailing bit-range suffix (e.g.
 // "in_data[7:0]" → "in_data" + "[7:0]") so the range can be tinted apart from the
 // name. Pattern-based (last bracketed group), so it works for any VCD; names
-// without a trailing "[…]" render unchanged.
-function SignalName(props: { name: string }) {
+// without a trailing "[…]" render unchanged. `ranges` (find-box matches) is split
+// across the two halves the same way.
+function SignalName(props: { name: string; ranges?: Ranges }) {
   const parts = createMemo(() => {
     const m = props.name.match(/^(.*?)(\[[^\]]*\])$/);
     return m ? { base: m[1], bits: m[2] } : { base: props.name, bits: "" };
   });
-  return <>{parts().base}{parts().bits && <span class="s-bits">{parts().bits}</span>}</>;
+  return (
+    <>
+      <Highlight text={parts().base} ranges={props.ranges && clipRanges(props.ranges, 0, parts().base.length)} />
+      {parts().bits && (
+        <span class="s-bits">
+          <Highlight
+            text={parts().bits}
+            ranges={props.ranges && clipRanges(props.ranges, parts().base.length, props.name.length)}
+          />
+        </span>
+      )}
+    </>
+  );
 }
 
 export interface ActiveSignalProps {
   name: string;
+  // Find-box matches within `name`, and whether a search is running that this row
+  // is *not* part of (dimmed, but kept in place so rows stay aligned with the
+  // canvas — see ActiveSignals).
+  nameRanges?: Ranges;
+  unmatched?: boolean;
   value: string;
   kind: ActiveSignalKind;
   color: string;
@@ -56,7 +75,8 @@ const KIND_TIP: Record<ActiveSignalKind, string> = {
 export function ActiveSignal(props: ActiveSignalProps) {
   const cls = () => ["s-row",
     props.collapsed ? "collapsed" : "", props.sliding ? "sliding" : "", props.selected ? "sel" : "",
-    props.dragging ? "dragging" : "", props.dragActive && !props.dragging ? "dragflow" : ""]
+    props.dragging ? "dragging" : "", props.dragActive && !props.dragging ? "dragflow" : "",
+    props.unmatched ? "unmatched" : ""]
     .filter(Boolean).join(" ");
   // Height + drag translateY, merged. Transform is absent at rest so it never
   // collides with the collapse-slide animations.
@@ -81,7 +101,7 @@ export function ActiveSignal(props: ActiveSignalProps) {
       data-tip={props.collapsed ? `${props.name} · ${props.value}` : props.tip}
     >
       {props.collapsed ? (
-        <span class="n"><SignalName name={props.name} /></span>
+        <span class="n"><SignalName name={props.name} ranges={props.nameRanges} /></span>
       ) : (
         <>
           <span
@@ -93,7 +113,7 @@ export function ActiveSignal(props: ActiveSignalProps) {
           <span class={"s-icon " + props.kind} data-tip={KIND_TIP[props.kind]}>
             <Dynamic component={KIND_ICON[props.kind]} size={12} />
           </span>
-          <span class="n"><SignalName name={props.name} /></span>
+          <span class="n"><SignalName name={props.name} ranges={props.nameRanges} /></span>
           <span class="v">{props.value}</span>
           <span
             class={"eye" + (props.hidden ? " off" : "")}

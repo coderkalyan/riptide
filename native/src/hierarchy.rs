@@ -11,6 +11,8 @@ use tide_core::Database;
 use tide_core::hierarchy::{Hierarchy, ScopeId, ScopeKind, VarKind};
 use tide_core::metadata::Width;
 
+use crate::search::Index;
+
 /// A node's index into [`Flat::nodes`].
 pub type NodeId = u32;
 
@@ -54,10 +56,81 @@ impl Node {
     }
 }
 
-/// The whole tree, plus the ids of everything at the top level.
+/// The whole tree, the ids of everything at the top level, and the search index
+/// over the same nodes.
 pub struct Flat {
     pub nodes: Vec<Node>,
     pub root_ids: Vec<NodeId>,
+    /// Fuzzy-searchable paths, entry `i` being `nodes[i]`. Immutable once built,
+    /// so a background search shares it without synchronizing.
+    pub search: Index,
+}
+
+/// One row of a pruned tree view.
+pub struct Row {
+    pub id: NodeId,
+    /// Nesting depth *within the pruned tree*, which equals the depth in the full
+    /// tree: pruning drops whole subtrees, never an intermediate scope.
+    pub depth: u32,
+    /// Whether this node is one of the kept ones rather than a scope above one.
+    pub matched: bool,
+}
+
+impl Flat {
+    /// The `keep` nodes plus every scope above them, depth first in tree order.
+    ///
+    /// This is the tree with everything that did not match pruned away and
+    /// everything leading to a match opened — the shape the signal tree renders
+    /// while a filter is live. It runs here, off the JS thread, because it is
+    /// linear in the hierarchy and a filter recomputes it on every keystroke.
+    pub fn prune(&self, keep: &[NodeId]) -> Vec<Row> {
+        const MATCHED: u8 = 1;
+        const ON_PATH: u8 = 2;
+
+        let mut state = vec![0u8; self.nodes.len()];
+        for &id in keep {
+            let Some(flags) = state.get_mut(id as usize) else {
+                continue;
+            };
+            *flags |= MATCHED | ON_PATH;
+            // Open the scopes above it, stopping at the first already-open one:
+            // every ancestor of that one is open too, which keeps the whole pass
+            // linear in the tree rather than quadratic in its depth.
+            let mut cursor = self.nodes[id as usize].parent();
+            while let Some(at) = cursor {
+                if state[at as usize] & ON_PATH != 0 {
+                    break;
+                }
+                state[at as usize] |= ON_PATH;
+                cursor = self.nodes[at as usize].parent();
+            }
+        }
+
+        let mut rows = Vec::with_capacity(keep.len());
+        // Explicit stack, like `flatten`: nesting depth is whatever the file says.
+        let mut stack: Vec<(NodeId, u32)> = self
+            .root_ids
+            .iter()
+            .rev()
+            .map(|&id| (id, 0))
+            .collect();
+        while let Some((id, depth)) = stack.pop() {
+            if state[id as usize] & ON_PATH == 0 {
+                continue;
+            }
+            rows.push(Row {
+                id,
+                depth,
+                matched: state[id as usize] & MATCHED != 0,
+            });
+            if let Node::Scope { children, .. } = &self.nodes[id as usize] {
+                for &child in children.iter().rev() {
+                    stack.push((child, depth + 1));
+                }
+            }
+        }
+        rows
+    }
 }
 
 /// tide's scope kinds in the vocabulary the renderer's `ScopeType` uses. VCD
@@ -85,9 +158,10 @@ fn var_kind(kind: VarKind) -> &'static str {
 /// Flattens `hierarchy` depth first. The synthetic root scope is not itself a
 /// node: its subscopes and any variable declared outside a scope become roots.
 pub fn flatten(hierarchy: &Hierarchy, db: &Database) -> Flat {
-    let mut flat = Flat {
+    let mut walk = Walk {
         nodes: Vec::with_capacity(hierarchy.scopes().len() + hierarchy.vars().len()),
         root_ids: Vec::new(),
+        search: Index::new(),
     };
 
     // Explicit stack rather than recursion: nesting depth is whatever the file
@@ -98,9 +172,10 @@ pub fn flatten(hierarchy: &Hierarchy, db: &Database) -> Flat {
         let owner = if scope == ScopeId::ROOT {
             None
         } else {
-            let kind = scope_kind(hierarchy.scope(scope).kind);
-            let name = hierarchy.string(hierarchy.scope(scope).name).to_owned();
-            Some(flat.attach(
+            let scope = hierarchy.scope(scope);
+            let kind = scope_kind(scope.kind);
+            let name = hierarchy.string(scope.name).to_owned();
+            Some(walk.attach(
                 parent,
                 Node::Scope {
                     parent,
@@ -108,6 +183,7 @@ pub fn flatten(hierarchy: &Hierarchy, db: &Database) -> Flat {
                     kind,
                     children: Vec::new(),
                 },
+                hierarchy.string(scope.path),
             ))
         };
 
@@ -121,7 +197,7 @@ pub fn flatten(hierarchy: &Hierarchy, db: &Database) -> Flat {
                 handle: var.signal.map_or(0, |id| id.0),
                 supported: var.signal.is_some_and(|id| db.contains(id)),
             };
-            flat.attach(owner, node);
+            walk.attach(owner, node, hierarchy.string(var.path));
         }
 
         for &child in hierarchy.children(scope).iter().rev() {
@@ -129,12 +205,26 @@ pub fn flatten(hierarchy: &Hierarchy, db: &Database) -> Flat {
         }
     }
 
-    flat
+    Flat {
+        nodes: walk.nodes,
+        root_ids: walk.root_ids,
+        search: walk.search,
+    }
 }
 
-impl Flat {
+/// The tree under construction. Separate from [`Flat`] so the index it fills is
+/// still owned outright, and so `attach` is the only way to add a node — which is
+/// what keeps the index aligned with the node array.
+struct Walk {
+    nodes: Vec<Node>,
+    root_ids: Vec<NodeId>,
+    search: Index,
+}
+
+impl Walk {
     /// Appends `node` and links it under `parent`, or records it as a root.
-    fn attach(&mut self, parent: Option<NodeId>, node: Node) -> NodeId {
+    /// `path` is the node's dot path, indexed under the id it returns.
+    fn attach(&mut self, parent: Option<NodeId>, node: Node, path: &str) -> NodeId {
         let id = self.nodes.len() as NodeId;
         match parent {
             Some(parent) => match &mut self.nodes[parent as usize] {
@@ -144,6 +234,7 @@ impl Flat {
             None => self.root_ids.push(id),
         }
         self.nodes.push(node);
+        self.search.push(path);
         id
     }
 }

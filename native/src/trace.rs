@@ -2,6 +2,7 @@
 
 use std::fmt;
 use std::path::Path;
+use std::sync::Arc;
 
 use tide_core::Trace;
 use tide_core::metadata::Timestamp;
@@ -20,7 +21,9 @@ pub struct Loaded {
     pub timescale_value: u32,
     pub timescale_unit: &'static str,
     /// The scope tree, flattened once here rather than on every `getHierarchy`.
-    pub hierarchy: Flat,
+    /// Behind an `Arc` so a background search can hold it open across a trace
+    /// swap; immutable once built, so nothing synchronizes.
+    pub hierarchy: Arc<Flat>,
 }
 
 /// Why a trace would not open.
@@ -42,7 +45,7 @@ impl fmt::Display for OpenError {
 pub fn open(path: &Path) -> Result<Loaded, OpenError> {
     let source = std::fs::read(path).map_err(OpenError::Read)?;
     let (trace, report) = load(&source).map_err(OpenError::Parse)?;
-    let hierarchy = hierarchy::flatten(&trace.hierarchy, &trace.db);
+    let hierarchy = Arc::new(hierarchy::flatten(&trace.hierarchy, &trace.db));
 
     Ok(Loaded {
         // A trace whose body never advanced past tick 0 still needs a timeline
@@ -115,6 +118,53 @@ b1 \"
             panic!("top is a scope");
         };
         assert_eq!(&[1, 2, 3, 4], children.as_slice());
+    }
+
+    #[test]
+    fn the_search_index_holds_one_path_per_node_in_id_order() {
+        let loaded = open_source("paths", SOURCE).ok().unwrap();
+        let flat = &loaded.hierarchy;
+        assert_eq!(flat.nodes.len(), flat.search.len());
+
+        // Search returns node ids and highlight offsets measured against the path
+        // it indexed; the renderer rebuilds that path from these parent links, so
+        // the two spellings have to agree character for character.
+        for id in 0..flat.nodes.len() {
+            let mut parts = Vec::new();
+            let mut cursor = Some(id as u32);
+            while let Some(at) = cursor {
+                parts.push(flat.nodes[at as usize].name());
+                cursor = flat.nodes[at as usize].parent();
+            }
+            parts.reverse();
+            assert_eq!(parts.join("."), flat.search.path(id));
+        }
+    }
+
+    #[test]
+    fn pruning_keeps_the_scopes_above_a_match_and_drops_its_siblings() {
+        let loaded = open_source("prune", SOURCE).ok().unwrap();
+        let flat = &loaded.hierarchy;
+        let row = |name: &str, rows: &[crate::hierarchy::Row]| {
+            rows.iter()
+                .find(|row| flat.nodes[row.id as usize].name() == name)
+                .map(|row| (row.depth, row.matched))
+        };
+
+        // `count` lives two scopes down: both open, nothing beside them survives.
+        let deep = flat.prune(&[5]);
+        assert_eq!(3, deep.len());
+        assert_eq!(Some((0, false)), row("top", &deep));
+        assert_eq!(Some((1, false)), row("u_cnt", &deep));
+        assert_eq!(Some((2, true)), row("count", &deep));
+        assert_eq!(None, row("clk", &deep));
+
+        // Tree order, not the order the matches came in.
+        let two = flat.prune(&[5, 1]);
+        let names: Vec<&str> = two.iter().map(|row| flat.nodes[row.id as usize].name()).collect();
+        assert_eq!(vec!["top", "clk", "u_cnt", "count"], names);
+
+        assert!(flat.prune(&[]).is_empty());
     }
 
     #[test]

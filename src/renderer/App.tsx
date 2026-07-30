@@ -8,7 +8,7 @@ import { ColorPicker } from "./ColorPicker";
 import { ContextMenu, activeSignalMenu, dividerMenu, paneMenu, treeMenu } from "./ContextMenu";
 import { EnumDialog } from "./EnumDialog";
 import { AboutDialog } from "./AboutDialog";
-import { SignalTree, resolveAddIds, recursiveSigChildren, allScopeIds } from "./SignalTree";
+import { SignalTree, resolveAddIds, recursiveSigChildren, allScopeIds, focusTreeSearch } from "./SignalTree";
 import { WavesToolbar } from "./WavesToolbar";
 import { MarkersBar } from "./MarkersBar";
 import { MenuBar } from "./MenuBar";
@@ -265,6 +265,13 @@ export function App() {
   const zoomFit = () => view.fitView();
 
   const deleteSelMarker = () => { if (s.selectedMarkerId != null) s.deleteMarker(s.selectedMarkerId); };
+  // Edit ▸ Find… / Ctrl+F: focus the signal tree's filter box. The input is
+  // unmounted while the panel is collapsed, so expand it first and focus on the
+  // next frame, once the tree has mounted.
+  const openFind = () => {
+    if (s.panels.treeCollapsed) toggleTree(false);
+    requestAnimationFrame(focusTreeSearch);
+  };
 
   // Signals menu: operate on the selected active-signal row (mirrors the row's
   // right-click menu). Color anchors to the selected row's pin swatch so Coloris
@@ -317,6 +324,7 @@ export function App() {
       case "zoom-in": zoomIn(); break;
       case "zoom-out": zoomOut(); break;
       case "zoom-fit": zoomFit(); break;
+      case "find": openFind(); break;
       case "toggle-tree": toggleTree(!s.panels.treeCollapsed); break;
       case "toggle-active": toggleActive(!s.panels.activeCollapsed); break;
       case "toggle-snap": s.toggleSnap(); break;
@@ -373,6 +381,7 @@ export function App() {
       else if (k === "=" || k === "+") { e.preventDefault(); zoomIn(); }
       else if (k === "-" || k === "_") { e.preventDefault(); zoomOut(); }
       else if (k === "0") { e.preventDefault(); zoomFit(); }
+      else if (k === "f") { e.preventDefault(); openFind(); }
     };
     document.addEventListener("keydown", onKey);
     onCleanup(() => document.removeEventListener("keydown", onKey));
@@ -454,8 +463,6 @@ export function App() {
                   </Show>
                   <span class="collapse" data-tip="collapse panel" onClick={() => toggleTree(true)}><PanelLeftClose size={14} stroke-width={1.75} /></span>
                 </div>
-                {/* Filtering isn't wired up yet — disabled so it doesn't read as a working control. */}
-                <div class="col-sub"><input class="search" placeholder="filter scope/name" disabled data-tip="filtering not yet implemented" /></div>
                 <SignalTree />
               </div>
             }

@@ -165,6 +165,13 @@ bash tests/e2e/run-headless.sh  # run this harness alone; UPDATE_GOLDENS=1 to (r
   `caret:'hide'`, and the canvas mask. Tolerance via env (`VISUAL_CHANNEL`
   per-channel delta, `VISUAL_RATIO` max differing-pixel fraction) absorbs sub-pixel
   text-AA jitter while still catching real glyph/colour/layout shifts.
+- **States covered** (`STATES` in the driver): the loaded window at three sizes,
+  the idle/no-trace window, an open File menu, a row context menu, the color
+  picker, the enum dialog, a tooltip, and `search` — both fuzzy-search boxes
+  filled, which pins the tree pruned to its matches (scopes above each hit opened,
+  matched characters marked) and the active list's marked/faded rows. `search`
+  waits on a highlight appearing before capture, since the tree filter resolves
+  off the JS thread.
 
 ---
 

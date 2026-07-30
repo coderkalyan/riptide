@@ -90,6 +90,23 @@ interface NativeModule {
     msb: ArrayBuffer;
     count: number;
   } | null;
+  searchTree(query: string): Promise<NativeTreeRows>;
+  markStrings(candidates: string[], query: string): NativeStringMarks;
+}
+
+// Parallel buffers as search.rs / hierarchy.rs pack them; decoded below.
+interface NativeTreeRows {
+  ids: ArrayBuffer;
+  depths: ArrayBuffer;
+  matched: ArrayBuffer;
+  total: number;
+}
+
+interface NativeStringMarks {
+  matched: ArrayBuffer;
+  ranges: ArrayBuffer;
+  rangeCounts: ArrayBuffer;
+  leafOffsets: ArrayBuffer;
 }
 
 stamp("native:require");
@@ -276,4 +293,70 @@ export function getHierarchy(): Hierarchy {
     timescale: raw.timescale,
     endTicks: raw.endTicks,
   };
+}
+
+// ---- fuzzy search --------------------------------------------------------
+
+// The signal tree pruned to a query: one entry per visible row, in tree order —
+// every node that matched plus the scopes above it, which render opened.
+// `matched[i]` distinguishes a hit from a scope on the way to one; `total` counts
+// the hits.
+export interface TreeRows {
+  ids: Uint32Array;
+  depths: Uint32Array;
+  matched: Uint8Array;
+  total: number;
+}
+
+// Match flags + highlight offsets for a candidate list, positionally parallel to
+// it. `matched[i]` is every query term matching (what a filter keeps);
+// `ranges[i]` is (start, len) pairs of matched characters for the terms that *did*
+// match, as UTF-16 offsets ready to slice a JS string with (what a highlight
+// draws). `leafOffsets[i]` is where the candidate's last path segment starts, for
+// a consumer that renders only the leaf name.
+export interface StringMarks {
+  matched: boolean[];
+  ranges: number[][];
+  leafOffsets: number[];
+}
+
+const NO_ROWS: TreeRows = { ids: new Uint32Array(0), depths: new Uint32Array(0), matched: new Uint8Array(0), total: 0 };
+const NO_MARKS: StringMarks = { matched: [], ranges: [], leafOffsets: [] };
+
+// The hierarchy pruned to `query`. Async: the scan and the prune are each linear
+// in a hierarchy that can hold a million nodes, and they run per keystroke, so
+// they stay off the thread driving the render loop. A blank query resolves empty —
+// callers show the unfiltered tree instead of asking.
+export async function searchTree(query: string): Promise<TreeRows> {
+  if (!traceLoaded || !query.trim()) return NO_ROWS;
+  const raw = await native.searchTree(query);
+  return {
+    ids: new Uint32Array(raw.ids),
+    depths: new Uint32Array(raw.depths),
+    matched: new Uint8Array(raw.matched),
+    total: raw.total,
+  };
+}
+
+// The same matcher over a caller-supplied list. Synchronous because the caller
+// bounds it — the active rows, or the handful of tree rows on screen — and it
+// takes strings because not every candidate is a node: an active row may be a
+// derived signal, and a tree row is highlighted against its own name.
+export function markStrings(candidates: string[], query: string): StringMarks {
+  if (!candidates.length || !query.trim()) return NO_MARKS;
+  const raw = native.markStrings(candidates, query);
+  const matchedBytes = new Uint8Array(raw.matched);
+  const counts = new Uint32Array(raw.rangeCounts);
+  const leaves = new Uint32Array(raw.leafOffsets);
+  const ranges = new Uint32Array(raw.ranges);
+  const out: StringMarks = { matched: new Array(candidates.length), ranges: new Array(candidates.length), leafOffsets: new Array(candidates.length) };
+  let at = 0;
+  for (let i = 0; i < candidates.length; i++) {
+    const span = counts[i] * 2;
+    out.matched[i] = matchedBytes[i] === 1;
+    out.ranges[i] = Array.from(ranges.subarray(at, at + span));
+    out.leafOffsets[i] = leaves[i];
+    at += span;
+  }
+  return out;
 }
