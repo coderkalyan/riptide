@@ -4,6 +4,7 @@ import { getSignal } from "./hier/hierarchy";
 import { SCENE, type ActiveSignalRef } from "./hier/scene";
 import { useAppStore, type DividerTarget } from "./store/store";
 import { ActiveSignal, type ActiveSignalKind } from "./ActiveSignal";
+import { signalTip } from "./hier/describe";
 import { makeHoverArm } from "./hoverArm";
 import { markStrings } from "./native";
 import { clipRanges, type Ranges } from "./highlight";
@@ -268,6 +269,7 @@ export function ActiveSignals(props: {
             <>
               <ActiveSignal
                 name={sig.name}
+                tip={signalTip(SCENE.hierarchy, sig)}
                 nameRanges={matches()?.get(row.row)}
                 unmatched={!!matches() && !matches()!.has(row.row)}
                 kind={activeSignalKind(row)}

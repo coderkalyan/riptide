@@ -85,40 +85,7 @@ interface RowConfig {
   role?: ActiveRole;
   clock?: ClockConfig;
   derivedExpr?: string;
-  enumTypeId?: number;       // overlay onto the signal node (tide lacks enums)
 }
-
-const W = "top.keysched.waves";
-const ROWS: (RowConfig & { path: string })[] = [
-  { row: 0,  radix: "bin", role: "clock",                 color: "#72F5DF", path: `${W}.clk`,              vcdType: "net" },
-  { row: 1,  radix: "bin", role: "reset",                               color: "#F06B5B", path: `${W}.rst`,              vcdType: "reg" },
-  { row: 2,  radix: "enum", selected: true, enumTypeId: 1,              color: "#B48CFF", path: `${W}.state[1:0]`,       vcdType: "reg" },
-  { row: 3,  radix: "dec",                                              color: "#B48CFF", path: `${W}.cycle_count[7:0]`, vcdType: "reg" },
-  { row: 4,  radix: "bin", role: "valid",                               color: "#F4A698", path: `${W}.in_valid`,         vcdType: "reg" },
-  { row: 5,  radix: "hex",                                              color: "#F4A698", path: `${W}.in_data[7:0]`,     vcdType: "reg" },
-  { row: 6,  radix: "hex",                                              color: "#F4A698", path: `${W}.in_addr[15:0]`,    vcdType: "reg" },
-  { row: 7,  radix: "bin", role: "valid",                               color: "#57C88A", path: `${W}.out_valid`,        vcdType: "reg" },
-  { row: 8,  radix: "hex",                                              color: "#57C88A", path: `${W}.out_data[31:0]`,   vcdType: "reg" },
-  { row: 9,  radix: "dec",                                              color: "#E6B14E", path: `${W}.fifo_level[3:0]`,  vcdType: "reg" },
-  { row: 10, radix: "bin",                                              color: "#E6B14E", path: `${W}.fifo_empty`,       vcdType: "net" },
-  { row: 11, radix: "hex",                                              color: "#4FD2BD", path: `${W}.dbus[7:0]`,        vcdType: "net" },
-  { row: 12, radix: "bin", derivedExpr: "in_valid | out_valid",         color: "#4FD2BD", path: "derived.busy",         vcdType: "derived" },
-  { row: 13, radix: "bin", derivedExpr: "state == DONE",                color: "#4FD2BD", path: "derived.done",         vcdType: "derived" },
-];
-
-// Enum types live TS-side (tide's mock hierarchy carries the integer value but
-// no int→label table, per the integration decision).
-const ENUM_TYPES: EnumType[] = [
-  {
-    id: 1,
-    name: "state_t",
-    members: [
-      { raw: "00", label: "IDLE" },
-      { raw: "01", label: "BUSY" },
-      { raw: "10", label: "WAIT" },
-    ],
-  },
-];
 
 function signalAt(h: Hierarchy, path: string): Signal {
   const node = h.nodes.get(lookupByPath(h, path));
@@ -277,25 +244,14 @@ function buildScene(sc: Sidecar | null): Scene {
   stamp("scene:hierarchy");
   setHierarchyNodes(hierarchy.nodes.size);
 
-  // Overlay TS-only metadata that the VCD/tide hierarchy doesn't carry. Enum
-  // association is keyed by path, independent of the sidecar. The timescale
-  // value/unit are now real (parsed from the VCD `$timescale` in the native
-  // backend); VCD carries no precision magnitude, so precision stays mocked.
+  // Types, enums, directions, declaration sites and scope kinds all arrive from
+  // native now, read from the SDI beside the trace (native/src/design.rs).
+  //
+  // Timescale precision is the one overlay left. VCD carries no precision magnitude
+  // and SDI does not model one either, so this stays a mock — it is not SDI's shim
+  // to remove, and dropping it silently changes every time readout's decimals.
+  // Still tracked in TIDE_INTEGRATION.md.
   hierarchy.timescale = { ...hierarchy.timescale, precision: { value: 10, unit: "ps" } };
-  for (const t of ENUM_TYPES) hierarchy.enumTypes.set(t.id, t);
-  for (const r of ROWS) {
-    if (r.enumTypeId == null) continue;
-    // Keyed by path; applies only when this trace actually has the signal (a
-    // fresh/arbitrary VCD won't), so resolve defensively.
-    try { signalAt(hierarchy, r.path).enumTypeId = r.enumTypeId; } catch { /* not in this trace */ }
-  }
-  // tide-vcd has no `package` scope kind, so the VCD declares `derived` as a
-  // module; restore the package styling the UI expects (shim — see
-  // TIDE_INTEGRATION.md).
-  for (const id of hierarchy.rootIds) {
-    const node = hierarchy.nodes.get(id);
-    if (node && node.kind === "scope" && node.name === "derived") node.scopeType = "package";
-  }
 
   // Active signals + tree expansion come from the sidecar when one exists next
   // to the trace (e.g. the bundled mock); a fresh trace opens with nothing

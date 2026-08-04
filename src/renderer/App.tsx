@@ -18,6 +18,8 @@ import { GlobalTooltip } from "./GlobalTooltip";
 import { PerfOverlay } from "./PerfOverlay";
 import { buildEnumLabels } from "./wave/value";
 import { getSignal } from "./hier/hierarchy";
+import { declarationOf, instantiationOf, locLabel } from "./hier/describe";
+import type { SourceLoc } from "./hier/types";
 import { SCENE, swapTrace, applySidecar, currentVcdPath, hasTrace } from "./hier/scene";
 import { view } from "./wave/viewport";
 import { ZOOM_STEP } from "./wave/constants";
@@ -52,6 +54,14 @@ const DOCS_URL = "https://riptide.ksriram.dev/docs";
 
 function openExternal(url: string): void {
   void ipc()?.invoke("riptide:open-external", url);
+}
+
+// Jump to a declaration in whatever editor the user already has open — see the main
+// process's `riptide:open-in-editor`. There is no built-in code viewer: the editor
+// the user is already in is better than any pane this app could grow.
+function openInEditor(loc: SourceLoc | null): void {
+  if (!loc) return;
+  void ipc()?.invoke("riptide:open-in-editor", loc.file, loc.line);
 }
 
 // Window-chrome config from the URL (set by the main process). On Linux "custom"
@@ -543,8 +553,15 @@ export function App() {
             if (m().kind === "pane") return paneMenu();
             if (m().kind === "tree") {
               const nid = m().nodeId;
-              const isScope = nid != null && SCENE.hierarchy.nodes.get(nid)?.kind === "scope";
-              return treeMenu({ isScope: !!isScope, addCount: resolveAddIds(useAppStore.getState().treeSelection).length });
+              const node = nid != null ? SCENE.hierarchy.nodes.get(nid) : undefined;
+              const decl = node ? declarationOf(node) : null;
+              const inst = node ? instantiationOf(node) : null;
+              return treeMenu({
+                isScope: node?.kind === "scope",
+                addCount: resolveAddIds(useAppStore.getState().treeSelection).length,
+                declLabel: decl ? locLabel(decl) : undefined,
+                instLabel: inst ? locLabel(inst) : undefined,
+              });
             }
             const t = menuTargets();
             const active = s.activeSignals;
@@ -572,6 +589,11 @@ export function App() {
                   : `radix-${ref.radix}`
                 : undefined,
               muteOptions,
+              declLabel: (() => {
+                const sig = ref ? getSignal(SCENE.hierarchy, ref.signalId) : null;
+                const decl = sig ? declarationOf(sig) : null;
+                return decl ? locLabel(decl) : undefined;
+              })(),
               currentMute: uniqMutes.size === 1 ? [...uniqMutes][0] : undefined,
               muteNone: mutes.every((m) => !m),
               anyMutable: t.rows.some((r) => active.find((x) => x.row === r)?.role !== "clock"),
@@ -588,6 +610,10 @@ export function App() {
               else if (it.action === "tree-expand-all") s.setExpanded(allScopeIds());
               else if (it.action === "tree-collapse-all") s.setExpanded([]);
               else if (it.action === "tree-select-scope" && nid != null) s.setTreeSelection(recursiveSigChildren(nid));
+              else if (it.action === "open-decl" || it.action === "open-inst") {
+                const node = nid != null ? SCENE.hierarchy.nodes.get(nid) : undefined;
+                if (node) openInEditor(it.action === "open-decl" ? declarationOf(node) : instantiationOf(node));
+              }
               return;
             }
             // Divider insert/remove acts positionally on the right-clicked row /
@@ -596,6 +622,11 @@ export function App() {
             if (it.action === "add-divider-below") { if (m().row >= 0) s.addDividerBelow(m().row); return; }
             if (it.action === "remove-divider") { const d = m().div; if (d) s.removeDivider(d); return; }
             if (it.action === "add-divider-bottom") { s.addDividerBottom(); return; }
+            if (it.action === "open-decl") {
+              const row = s.activeSignals.find((r) => r.row === m().row);
+              if (row) openInEditor(declarationOf(getSignal(SCENE.hierarchy, row.signalId)));
+              return;
+            }
             const { rows, primary } = menuTargets();
             if (rows.length === 0) return;
             // Binary/Signed Decimal are enabled if ANY target fits; apply only to

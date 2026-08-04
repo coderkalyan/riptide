@@ -32,6 +32,11 @@ export interface Signal {
   enumTypeId?: number;
   sourceLoc?: SourceLoc;
   comment?: string;
+  // Declared type as the source spells it, e.g. `logic [7:0]` or `state_e`. From
+  // source debug info; the trace itself carries nothing like it.
+  typeName?: string;
+  // Declared bit range, when known from the type rather than scraped from the name.
+  range?: { msb: number; lsb: number };
 }
 
 export interface SourceLoc {
@@ -197,10 +202,13 @@ export function isSigned(sig: Signal): boolean {
   return sig.varType === "sv_int" || sig.varType === "sv_shortint" || sig.varType === "sv_longint" || sig.varType === "sv_byte" || sig.varType === "vcd_integer";
 }
 
-// Parse "[7:0]" / "[msb:lsb]" from signal name. Returns null if absent.
+// The signal's declared bit range. Source debug info supplies it outright; without
+// it, fall back to parsing "[7:0]" off the name, which is where a VCD writer glues
+// it. Returns null when neither is available.
 export function declaredRange(sig: Signal): { msb: number; lsb: number } | null {
-  const m = sig.name.match(/\[(\d+):(\d+)\]\s*$/);
-  return m ? { msb: +m[1], lsb: +m[2] } : null;
+  if (sig.range) return sig.range;
+  const m = /\[(\d+):(\d+)\]\s*$/.exec(sig.name);
+  return m ? { msb: Number(m[1]), lsb: Number(m[2]) } : null;
 }
 
 export function pathOf(h: Hierarchy, id: NodeId): string {

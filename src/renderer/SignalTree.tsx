@@ -4,6 +4,7 @@ import { createVirtualizer } from "@tanstack/solid-virtual";
 import { ChevronRight, Package, Activity, Plus, X } from "lucide-solid";
 import { SCENE } from "./hier/scene";
 import { pathOf } from "./hier/types";
+import { nodeTip } from "./hier/describe";
 import type { NodeId, Scope, Signal } from "./hier/types";
 import { markStrings, searchTree } from "./native";
 import { Highlight } from "./highlight";
@@ -321,10 +322,18 @@ export function SignalTree() {
           return (
             <div
               class={"t-row" + (supported() ? "" : " unsupported") + (isSel() ? " sel" : "")}
-              // Filtered rows spell out where they sit only in the tooltip — the
-              // tree itself now shows it. Unsupported rows keep saying why they
-              // cannot be added.
-              data-tip={!supported() ? "unsupported type (real/string or no samples) — can't be displayed" : searching() ? pathOf(SCENE.hierarchy, e().id) : undefined}
+              // Unsupported rows say why they cannot be added; filtered rows spell
+              // out where they sit, since the tree is pruned around them. Otherwise
+              // the tooltip is whatever source debug info knows about the node —
+              // declared type, direction, declaration site, doc comment — and
+              // nothing at all when there is no SDI beside the trace.
+              data-tip={
+                !supported()
+                  ? "unsupported type (real/string or no samples) — can't be displayed"
+                  : searching()
+                    ? pathOf(SCENE.hierarchy, e().id)
+                    : (() => { const n = node(); return n ? nodeTip(SCENE.hierarchy, n) : undefined; })()
+              }
               style={{
                 position: "absolute", top: 0, left: 0, width: "100%",
                 transform: `translateY(${item().start}px)`,

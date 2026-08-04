@@ -275,6 +275,32 @@ ipcMain.handle("riptide:open-external", (_e, url: string) => {
   return true;
 });
 
+// Renderer ("Open Declaration") -> the user's editor, at a file and line from the
+// trace's source debug info. `launch-editor` picks the editor from what is already
+// running, falling back to $VISUAL/$EDITOR.
+//
+// The path arrives from the renderer, so it is checked rather than trusted: it must
+// be absolute and name a file that exists. Both hold for anything SDI produced —
+// native/src/design.rs canonicalizes every `files[]` entry at load — so a path that
+// fails these is a bug or a tampered file, and either way is not worth spawning a
+// process for.
+ipcMain.handle("riptide:open-in-editor", (_e, file: unknown, line: unknown) => {
+  if (typeof file !== "string" || !path.isAbsolute(file)) return false;
+  if (!fs.existsSync(file) || !fs.statSync(file).isFile()) return false;
+  const at = typeof line === "number" && Number.isInteger(line) && line > 0 ? `:${line}` : "";
+  // Required lazily: it walks the process list on first use, which is wasted work
+  // for a session that never opens a declaration.
+  const launchEditor = require("launch-editor") as (
+    target: string,
+    editor?: string,
+    onError?: (target: string, message: string) => void,
+  ) => void;
+  launchEditor(`${file}${at}`, undefined, (target, message) => {
+    console.warn(`[editor] could not open ${target}: ${message}`);
+  });
+  return true;
+});
+
 // Custom-titlebar (frameless Linux) window controls.
 ipcMain.handle("riptide:minimize-window", (e) => {
   BrowserWindow.fromWebContents(e.sender)?.minimize();

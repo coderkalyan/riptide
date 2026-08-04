@@ -54,10 +54,15 @@ export function activeSignalMenu(opts: {
   // any), whether every target is unmuted (ticks "None"), and whether any target
   // can be muted at all (clocks can't).
   muteOptions: { path: string; name: string }[]; currentMute?: string; muteNone: boolean; anyMutable: boolean;
+  // Declaration site of the row's signal, when source debug info names one.
+  declLabel?: string;
 }): MenuItem[] {
   // Tick the one format whose action matches the row's current radix/role.
   const fmt = (it: Exclude<MenuItem, "sep">): MenuItem => ({ ...it, checked: it.action === opts.currentFormat });
   return [
+    ...(opts.declLabel
+      ? ([{ label: `Open Declaration  (${opts.declLabel})`, action: "open-decl" }, "sep"] as MenuItem[])
+      : []),
     { label: "Format", submenu: [
       fmt({ label: "Binary", action: "radix-bin", disabled: !opts.anySingleBit }),
       // Boolean renders any width as a high/low line (true/false) — always enabled.
@@ -109,10 +114,22 @@ export function paneMenu(): MenuItem[] {
 // Right-click menu for a signal-tree node. `addCount` is the resolved signal count
 // of the current tree selection (scopes expanded) so the label says what gets added.
 // Scope-only items (recursive add, select-in-scope) are dropped for signal nodes.
-export function treeMenu(opts: { isScope: boolean; addCount: number }): MenuItem[] {
+export function treeMenu(opts: {
+  isScope: boolean;
+  addCount: number;
+  // Source locations from the SDI, when the trace has one. Absent entries drop the
+  // item rather than showing it disabled: with no SDI there is nothing to explain.
+  declLabel?: string;
+  instLabel?: string;
+}): MenuItem[] {
+  const source: MenuItem[] = [];
+  if (opts.declLabel) source.push({ label: `Open Declaration  (${opts.declLabel})`, action: "open-decl" });
+  if (opts.instLabel) source.push({ label: `Open Instantiation  (${opts.instLabel})`, action: "open-inst" });
   return [
     { label: opts.addCount > 1 ? `Add ${opts.addCount} to View` : "Add to View", kbd: "⏎", action: "tree-add", disabled: opts.addCount === 0 },
     ...(opts.isScope ? [{ label: "Add Scope (recursive)", action: "tree-add-recursive" }] as MenuItem[] : []),
+    ...(source.length ? (["sep"] as MenuItem[]) : []),
+    ...source,
     "sep",
     { label: "Expand All", action: "tree-expand-all" },
     { label: "Collapse All", action: "tree-collapse-all" },

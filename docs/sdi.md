@@ -31,10 +31,12 @@ It is **not** waveform data and **not** viewer state. Three files, three owners:
 Riptide does not produce SDI. Populating it is a front end's job (Verilator,
 slang, Yosys, a simulator, your generator) — see [Producing SDI](#producing-sdi).
 
-**Status.** This document and the schema are the contract; Riptide's importer is
-not written yet. `tools/sdi-cone.mjs` is the reference consumer — it elaborates,
-binds and computes cones today, so every claim below is executable rather than
-aspirational.
+**Status.** The tree half is implemented: `native/src/design.rs` loads an SDI beside
+the trace and `getHierarchy` emits declared types, directions, ranges, declaration
+sites, doc comments, enum tables and scope kinds, which the renderer shows in both
+panels' tooltips and in **Open Declaration** (via `launch-editor`, no built-in code
+viewer). The dataflow half — `processes`, `conns`, driver lists, cone of influence —
+is specified and exercised by `tools/sdi-cone.mjs` but not yet consumed by the app.
 
 ## Why not an existing format
 
@@ -691,7 +693,11 @@ Mapped onto what exists today, an SDI import is mostly deleting shims:
 | Clock detection measures waveform periods | `hints.role: "clock"` states it, measurement becomes a fallback |
 | No notion of drivers or connectivity anywhere in the stack | driver/reader lists and cone of influence, path-keyed like the sidecar |
 
-The ingestion seam is **native, not the renderer**. SDI is design data, so it sits
+Everything above the last row is **done**, read from the SDI in `native/src/design.rs`
+and surfaced in both panels' tooltips plus **Open Declaration**. The last row is the
+dataflow half, still unconsumed.
+
+The ingestion seam is **native, not the renderer** — this is what shipped. SDI is design data, so it sits
 beside the trace in `native/src/` and follows the pattern already there: `trace.rs`
 loads a file into an `Arc`'d structure held for the session, `hierarchy.rs` flattens
 it into dense arrays, and `lib.rs` exposes queries over napi. SDI adds a parallel

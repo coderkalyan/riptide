@@ -1,11 +1,13 @@
 import type {
   Direction,
-  Hierarchy,
+  EnumType,
   HierNode,
+  Hierarchy,
   NodeId,
   Scope,
   ScopeType,
   Signal,
+  SourceLoc,
   Timescale,
   VarType,
 } from "./hier/types";
@@ -21,6 +23,10 @@ interface RawScopeNode {
   kind: "scope";
   scopeType: ScopeType;
   children: number[];
+  // Present only when an SDI file sits beside the trace (see native/src/design.rs).
+  declSourceLoc?: SourceLoc;
+  instSourceLoc?: SourceLoc;
+  comment?: string;
 }
 
 interface RawSignalNode {
@@ -33,6 +39,12 @@ interface RawSignalNode {
   bitWidth: number;
   handle: string;
   supported: boolean;
+  // SDI-only, as above.
+  typeName?: string;
+  range?: { msb: number; lsb: number };
+  enumTypeId?: number;
+  sourceLoc?: SourceLoc;
+  comment?: string;
 }
 
 type RawNode = RawScopeNode | RawSignalNode;
@@ -40,6 +52,8 @@ type RawNode = RawScopeNode | RawSignalNode;
 interface RawHierarchy {
   rootIds: number[];
   nodes: RawNode[];
+  /// Enum int→label tables from the SDI; empty without one.
+  enumTypes: EnumType[];
   timescale: Timescale;
   endTicks: number;
 }
@@ -264,6 +278,9 @@ export function getHierarchy(): Hierarchy {
         scopeType: n.scopeType,
         children: n.children,
       };
+      if (n.declSourceLoc) scope.declSourceLoc = n.declSourceLoc;
+      if (n.instSourceLoc) scope.instSourceLoc = n.instSourceLoc;
+      if (n.comment) scope.comment = n.comment;
       nodes.set(n.id, scope);
     } else {
       const sig: Signal = {
@@ -277,19 +294,24 @@ export function getHierarchy(): Hierarchy {
         handle: n.handle,
         supported: n.supported,
       };
+      // Source debug info, when the trace has an SDI beside it. Absent fields stay
+      // absent rather than becoming undefined-valued keys.
+      if (n.typeName) sig.typeName = n.typeName;
+      if (n.range) sig.range = n.range;
+      if (n.enumTypeId != null) sig.enumTypeId = n.enumTypeId;
+      if (n.sourceLoc) sig.sourceLoc = n.sourceLoc;
+      if (n.comment) sig.comment = n.comment;
       nodes.set(n.id, sig);
       const arr = byHandle.get(sig.handle);
       if (arr) arr.push(n.id);
       else byHandle.set(sig.handle, [n.id]);
     }
   }
-  // enumTypes is left empty here; mock enum metadata is overlaid in hier/scene.ts
-  // (tide's hierarchy schema doesn't carry enum members yet — see README).
   return {
     nodes,
     rootIds: raw.rootIds,
     byHandle,
-    enumTypes: new Map(),
+    enumTypes: new Map((raw.enumTypes ?? []).map((t) => [t.id, t])),
     timescale: raw.timescale,
     endTicks: raw.endTicks,
   };
