@@ -8,6 +8,7 @@ use tide_core::Trace;
 use tide_core::metadata::Timestamp;
 use tide_vcd::load::{LoadError, load};
 
+use crate::design::Design;
 use crate::hierarchy::{self, Flat};
 
 /// A parsed trace, plus the two pieces of presentation metadata the renderer
@@ -45,7 +46,15 @@ impl fmt::Display for OpenError {
 pub fn open(path: &Path) -> Result<Loaded, OpenError> {
     let source = std::fs::read(path).map_err(OpenError::Read)?;
     let (trace, report) = load(&source).map_err(OpenError::Parse)?;
-    let hierarchy = Arc::new(hierarchy::flatten(&trace.hierarchy, &trace.db));
+    // Source debug info is optional and never gates the open: no file, a file for
+    // another design, or an unreadable one all leave the tree VCD-grade.
+    let design = Design::beside(path);
+    if let Some(design) = &design {
+        for note in &design.notes {
+            eprintln!("[sdi] {note}");
+        }
+    }
+    let hierarchy = Arc::new(hierarchy::flatten(&trace.hierarchy, &trace.db, design.as_ref()));
 
     Ok(Loaded {
         // A trace whose body never advanced past tick 0 still needs a timeline

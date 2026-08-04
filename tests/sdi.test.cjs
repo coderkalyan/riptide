@@ -335,3 +335,54 @@ test("producer: --unpacked-arrays elements maps each element to its own signal",
   assert.deepStrictEqual(mem.traceSignals.map((s) => s.path), ["mem[0]", "mem[1]", "mem[2]", "mem[3]"]);
   assert.deepStrictEqual(mem.traceSignals.map((s) => s.bits), [[0, 8], [8, 8], [16, 8], [24, 8]]);
 });
+
+// ---------------------------------------------------------------------------
+// The bundled mock ships its own hand-authored SDI, which is what makes the demo
+// trace show source integration. Guarded the same way samples/sdi is: it must
+// validate, and every one of its variables must bind to a real signal in the
+// trace it was written for.
+
+const MOCK_SDI = path.join(ROOT, "native", "src", "mock.vcd.sdi.json");
+const MOCK_VCD = path.join(ROOT, "native", "src", "mock.vcd");
+const MOCK_SV = path.join(ROOT, "native", "src", "mock.sv");
+
+test("mock: its SDI binds every variable to the bundled trace", () => {
+  const r = spawnSync(process.execPath, [TOOL, MOCK_SDI, "check", MOCK_VCD], {
+    encoding: "utf8",
+    timeout: 60_000,
+  });
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /all checks passed/);
+  const bind = r.stdout.match(/trace binding: (\d+) matched, (\d+) declared-omitted, (\d+) unexplained/);
+  assert.ok(bind, "no binding line");
+  assert.strictEqual(bind[3], "0", "some mock signals bound to nothing");
+  assert.ok(Number(bind[1]) >= 36, `only ${bind[1]} matched`);
+});
+
+test("mock: its spans still cover the declarations they name", () => {
+  const doc = JSON.parse(fs.readFileSync(MOCK_SDI, "utf8"));
+  const src = fs.readFileSync(MOCK_SV, "utf8").split("\n");
+  const textAt = (span) => {
+    const [, line, col, endLine, endCol] = span;
+    if (endLine !== undefined && endLine !== line) return src.slice(line - 1, endLine).join("\n");
+    return src[line - 1].slice((col ?? 1) - 1, endCol !== undefined ? endCol - 1 : undefined);
+  };
+  const unit = (name) => doc.units.find((u) => u.name === name);
+  assert.strictEqual(textAt(unit("waves").decl), "waves");
+  assert.match(textAt(unit("waves").body), /^module waves \([\s\S]*endmodule$/);
+  const rstN = unit("keysched").vars.find((v) => v.name === "rst_n");
+  assert.strictEqual(textAt(rstN.decl), "rst_n");
+  assert.strictEqual(rstN.comment, "active-low reset");
+  const stateType = doc.types.find((t) => t.name === "state_e");
+  assert.strictEqual(textAt(stateType.decl), "state_e");
+  assert.deepStrictEqual(stateType.values.map((v) => v.name), ["IDLE", "BUSY", "WAIT"]);
+});
+
+test("mock: the source still lints clean", (t) => {
+  const r = spawnSync("verilator", [
+    "--lint-only", MOCK_SV, "--top-module", "top",
+    "-Wno-DECLFILENAME", "-Wno-PINMISSING", "-Wno-UNDRIVEN", "-Wno-UNUSEDSIGNAL", "-Wno-ASCRANGE",
+  ], { encoding: "utf8", timeout: 60_000 });
+  if (r.error) return t.skip("verilator not installed");
+  assert.strictEqual(r.status, 0, r.stderr);
+});

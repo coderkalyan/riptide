@@ -15,6 +15,7 @@ use napi_derive::napi;
 use tide_core::Samples;
 use tide_core::metadata::{Id, Timestamp};
 
+pub mod design;
 pub mod hierarchy;
 pub mod label;
 pub mod pack;
@@ -374,6 +375,14 @@ fn f64_bytes(values: &[f64]) -> &[u8] {
 /// Built as a plain object rather than a typed struct because a node is a
 /// discriminated union: a scope carries `scopeType` and `children`, a signal
 /// carries `varType`, `bitWidth`, `handle` and `supported`, and the renderer
+/// A `SourceLoc` as the renderer declares it: an absolute path plus a 1-based line.
+fn source_loc<'a>(env: &'a Env, loc: &crate::design::Loc) -> Result<Object<'a>> {
+    let mut object = Object::new(env)?;
+    object.set("file", loc.file.as_str())?;
+    object.set("line", loc.line)?;
+    Ok(object)
+}
+
 /// switches on `kind`.
 #[napi(js_name = "getHierarchy")]
 pub fn get_hierarchy(env: &Env) -> Result<Object<'_>> {
@@ -390,26 +399,61 @@ pub fn get_hierarchy(env: &Env) -> Result<Object<'_>> {
             }
             object.set("name", node.name())?;
             match node {
-                Node::Scope { kind, children, .. } => {
+                Node::Scope { kind, children, facts, .. } => {
                     object.set("kind", "scope")?;
                     object.set("scopeType", *kind)?;
                     object.set("children", children.clone())?;
+                    if let Some(facts) = facts {
+                        if let Some(loc) = &facts.decl {
+                            object.set("declSourceLoc", source_loc(env, loc)?)?;
+                        }
+                        if let Some(loc) = &facts.inst {
+                            object.set("instSourceLoc", source_loc(env, loc)?)?;
+                        }
+                        if let Some(comment) = &facts.comment {
+                            object.set("comment", comment.as_str())?;
+                        }
+                    }
                 }
                 Node::Signal {
                     var_type,
                     bit_width,
                     handle,
                     supported,
+                    facts,
                     ..
                 } => {
                     object.set("kind", "signal")?;
                     object.set("varType", *var_type)?;
-                    // VCD's $var lines carry no port direction, so every signal
-                    // reports the implicit one.
-                    object.set("direction", "implicit")?;
+                    // VCD's $var lines carry no port direction, so without source
+                    // debug info every signal reports the implicit one.
+                    object.set(
+                        "direction",
+                        facts.as_ref().and_then(|f| f.direction).unwrap_or("implicit"),
+                    )?;
                     object.set("bitWidth", *bit_width)?;
                     object.set("handle", handle.to_string())?;
                     object.set("supported", *supported)?;
+                    if let Some(facts) = facts {
+                        if let Some(name) = &facts.type_name {
+                            object.set("typeName", name.as_str())?;
+                        }
+                        if let Some((msb, lsb)) = facts.range {
+                            let mut range = Object::new(env)?;
+                            range.set("msb", msb as i32)?;
+                            range.set("lsb", lsb as i32)?;
+                            object.set("range", range)?;
+                        }
+                        if let Some(id) = facts.enum_type {
+                            object.set("enumTypeId", id)?;
+                        }
+                        if let Some(loc) = &facts.decl {
+                            object.set("sourceLoc", source_loc(env, loc)?)?;
+                        }
+                        if let Some(comment) = &facts.comment {
+                            object.set("comment", comment.as_str())?;
+                        }
+                    }
                 }
             }
             nodes.push(object);
@@ -419,9 +463,28 @@ pub fn get_hierarchy(env: &Env) -> Result<Object<'_>> {
         timescale.set("value", loaded.timescale_value)?;
         timescale.set("unit", loaded.timescale_unit)?;
 
+        // Enum int->label tables, in the renderer's `EnumType` shape. Empty
+        // without an SDI beside the trace, which is what the VCD alone can say.
+        let mut enums = Vec::with_capacity(flat.enums.len());
+        for table in &flat.enums {
+            let mut object = Object::new(env)?;
+            object.set("id", table.id)?;
+            object.set("name", table.name.as_str())?;
+            let mut members = Vec::with_capacity(table.members.len());
+            for (raw, label) in &table.members {
+                let mut member = Object::new(env)?;
+                member.set("raw", raw.as_str())?;
+                member.set("label", label.as_str())?;
+                members.push(member);
+            }
+            object.set("members", members)?;
+            enums.push(object);
+        }
+
         let mut root = Object::new(env)?;
         root.set("rootIds", flat.root_ids.clone())?;
         root.set("nodes", nodes)?;
+        root.set("enumTypes", enums)?;
         root.set("timescale", timescale)?;
         root.set("endTicks", loaded.end_t as f64)?;
         Ok(root)

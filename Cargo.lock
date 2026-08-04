@@ -360,6 +360,7 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
+ "sdi",
  "serde_json",
  "tide-core",
  "tide-vcd",

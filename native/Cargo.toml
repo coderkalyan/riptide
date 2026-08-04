@@ -22,6 +22,9 @@ path = "src/bin/query_fixture.rs"
 # link against symbols only Electron provides.
 napi = { version = "3.12", features = ["napi9"] }
 napi-derive = "3.6"
+# The SDI format definition, shared with crates/sdi-verilator so a producer and
+# this consumer cannot drift apart.
+sdi = { path = "../crates/sdi" }
 tide-core = { path = "../tide/crates/tide-core" }
 tide-vcd = { path = "../tide/crates/tide-vcd" }
 

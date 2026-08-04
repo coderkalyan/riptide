@@ -1,0 +1,1098 @@
+{
+  "version": 1,
+  "generator": {
+    "tool": "hand-authored",
+    "toolVersion": "native/src/mock.sv",
+    "command": "the mock trace is hand-written; so is this",
+    "sourceRoot": "."
+  },
+  "fidelity": {
+    "tree": "complete",
+    "types": "declared"
+  },
+  "trace": {
+    "format": "vcd",
+    "files": [
+      "mock.vcd"
+    ],
+    "separator": ".",
+    "rangeInName": true
+  },
+  "design": {
+    "name": "top",
+    "language": "systemverilog",
+    "roots": [
+      {
+        "name": "top",
+        "unit": 9
+      },
+      {
+        "name": "derived",
+        "unit": 10
+      }
+    ]
+  },
+  "files": [
+    {
+      "path": "mock.sv",
+      "language": "systemverilog",
+      "blake3": "237fe908b27435ec3acbca54ea2f6d178ff29377bbf566350ef0dce9969c3c6a"
+    }
+  ],
+  "types": [
+    {
+      "kind": "bits",
+      "keyword": "logic",
+      "width": 1,
+      "states": 4,
+      "spelling": "logic"
+    },
+    {
+      "kind": "bits",
+      "keyword": "logic",
+      "width": 2,
+      "states": 4,
+      "range": [
+        1,
+        0
+      ],
+      "spelling": "logic [1:0]"
+    },
+    {
+      "kind": "bits",
+      "keyword": "logic",
+      "width": 3,
+      "states": 4,
+      "range": [
+        2,
+        0
+      ],
+      "spelling": "logic [2:0]"
+    },
+    {
+      "kind": "bits",
+      "keyword": "logic",
+      "width": 4,
+      "states": 4,
+      "range": [
+        3,
+        0
+      ],
+      "spelling": "logic [3:0]"
+    },
+    {
+      "kind": "bits",
+      "keyword": "logic",
+      "width": 8,
+      "states": 4,
+      "range": [
+        7,
+        0
+      ],
+      "spelling": "logic [7:0]"
+    },
+    {
+      "kind": "bits",
+      "keyword": "logic",
+      "width": 9,
+      "states": 4,
+      "range": [
+        0,
+        8
+      ],
+      "spelling": "logic [0:8]"
+    },
+    {
+      "kind": "bits",
+      "keyword": "logic",
+      "width": 11,
+      "states": 4,
+      "range": [
+        10,
+        0
+      ],
+      "spelling": "logic [10:0]"
+    },
+    {
+      "kind": "bits",
+      "keyword": "logic",
+      "width": 16,
+      "states": 4,
+      "range": [
+        15,
+        0
+      ],
+      "spelling": "logic [15:0]"
+    },
+    {
+      "kind": "bits",
+      "keyword": "logic",
+      "width": 32,
+      "states": 4,
+      "range": [
+        31,
+        0
+      ],
+      "spelling": "logic [31:0]"
+    },
+    {
+      "kind": "bits",
+      "keyword": "logic",
+      "width": 64,
+      "states": 4,
+      "range": [
+        63,
+        0
+      ],
+      "spelling": "logic [63:0]"
+    },
+    {
+      "kind": "enum",
+      "name": "state_e",
+      "spelling": "mock_pkg::state_e",
+      "width": 2,
+      "states": 4,
+      "base": 1,
+      "decl": [
+        0,
+        24,
+        5,
+        24,
+        12
+      ],
+      "comment": "Pipeline state of the key schedule. The trace stores this as a bare 2-bit reg; this enum is why the viewer can show IDLE/BUSY/WAIT instead of 0/1/2.",
+      "values": [
+        {
+          "name": "IDLE",
+          "value": "0x0",
+          "decl": [
+            0,
+            21,
+            5,
+            21,
+            16
+          ]
+        },
+        {
+          "name": "BUSY",
+          "value": "0x1",
+          "decl": [
+            0,
+            22,
+            5,
+            22,
+            16
+          ]
+        },
+        {
+          "name": "WAIT",
+          "value": "0x2",
+          "decl": [
+            0,
+            23,
+            5,
+            23,
+            16
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "enum",
+      "name": "phase_e",
+      "spelling": "mock_pkg::phase_e",
+      "width": 3,
+      "states": 4,
+      "base": 2,
+      "decl": [
+        0,
+        31,
+        5,
+        31,
+        12
+      ],
+      "comment": "Arbiter phase.",
+      "values": [
+        {
+          "name": "P_IDLE",
+          "value": "0x0",
+          "decl": [
+            0,
+            28,
+            5,
+            28,
+            19
+          ]
+        },
+        {
+          "name": "P_FETCH",
+          "value": "0x1",
+          "decl": [
+            0,
+            29,
+            5,
+            29,
+            19
+          ]
+        },
+        {
+          "name": "P_APPLY",
+          "value": "0x4",
+          "decl": [
+            0,
+            30,
+            5,
+            30,
+            19
+          ]
+        }
+      ]
+    }
+  ],
+  "units": [
+    {
+      "kind": "package",
+      "name": "mock_pkg",
+      "decl": [
+        0,
+        17,
+        9,
+        17,
+        17
+      ],
+      "body": [
+        0,
+        17,
+        1,
+        32,
+        11
+      ],
+      "language": "systemverilog"
+    },
+    {
+      "kind": "module",
+      "name": "des",
+      "decl": [
+        0,
+        35,
+        8,
+        35,
+        11
+      ],
+      "body": [
+        0,
+        35,
+        1,
+        36,
+        10
+      ],
+      "language": "systemverilog",
+      "comment": "Empty by design: the trace declares this scope with no variables in it."
+    },
+    {
+      "kind": "module",
+      "name": "fsm",
+      "decl": [
+        0,
+        39,
+        8,
+        39,
+        11
+      ],
+      "body": [
+        0,
+        39,
+        1,
+        44,
+        10
+      ],
+      "language": "systemverilog",
+      "comment": "Next-phase logic for the key schedule.",
+      "ports": [
+        0,
+        1
+      ],
+      "vars": [
+        {
+          "name": "cur",
+          "type": 11,
+          "kind": "net",
+          "direction": "input",
+          "decl": [
+            0,
+            40,
+            28,
+            40,
+            31
+          ],
+          "comment": "current phase"
+        },
+        {
+          "name": "nxt",
+          "type": 11,
+          "kind": "net",
+          "direction": "output",
+          "decl": [
+            0,
+            41,
+            28,
+            41,
+            31
+          ],
+          "comment": "phase on the next clock"
+        }
+      ]
+    },
+    {
+      "kind": "module",
+      "name": "xbar",
+      "decl": [
+        0,
+        47,
+        8,
+        47,
+        12
+      ],
+      "body": [
+        0,
+        47,
+        1,
+        52,
+        10
+      ],
+      "language": "systemverilog",
+      "comment": "Four-requester round-robin arbiter.",
+      "ports": [
+        0,
+        1
+      ],
+      "vars": [
+        {
+          "name": "req",
+          "type": 3,
+          "kind": "net",
+          "direction": "input",
+          "decl": [
+            0,
+            48,
+            22,
+            48,
+            25
+          ],
+          "comment": "one bit per requester"
+        },
+        {
+          "name": "gnt",
+          "type": 3,
+          "kind": "net",
+          "direction": "output",
+          "decl": [
+            0,
+            49,
+            22,
+            49,
+            25
+          ],
+          "comment": "at most one bit set"
+        }
+      ]
+    },
+    {
+      "kind": "module",
+      "name": "waves",
+      "decl": [
+        0,
+        55,
+        8,
+        55,
+        13
+      ],
+      "body": [
+        0,
+        55,
+        1,
+        82,
+        10
+      ],
+      "language": "systemverilog",
+      "comment": "The signals the bundled view puts on screen.",
+      "ports": [
+        0
+      ],
+      "vars": [
+        {
+          "name": "clk",
+          "type": 0,
+          "kind": "net",
+          "direction": "input",
+          "decl": [
+            0,
+            56,
+            15,
+            56,
+            18
+          ],
+          "hints": {
+            "role": "clock"
+          },
+          "comment": "sample clock, 10 ns period"
+        },
+        {
+          "name": "rst",
+          "type": 0,
+          "kind": "var",
+          "decl": [
+            0,
+            58,
+            22,
+            58,
+            25
+          ],
+          "hints": {
+            "role": "reset",
+            "polarity": "activeHigh"
+          },
+          "comment": "reset, active high"
+        },
+        {
+          "name": "state",
+          "type": 10,
+          "kind": "var",
+          "decl": [
+            0,
+            59,
+            13,
+            59,
+            18
+          ],
+          "comment": "pipeline state"
+        },
+        {
+          "name": "cycle_count",
+          "type": 4,
+          "kind": "var",
+          "decl": [
+            0,
+            60,
+            22,
+            60,
+            33
+          ],
+          "comment": "cycles since reset"
+        },
+        {
+          "name": "in_valid",
+          "type": 0,
+          "kind": "var",
+          "decl": [
+            0,
+            61,
+            22,
+            61,
+            30
+          ],
+          "comment": "input beat is valid this cycle"
+        },
+        {
+          "name": "in_data",
+          "type": 4,
+          "kind": "var",
+          "decl": [
+            0,
+            62,
+            22,
+            62,
+            29
+          ],
+          "comment": "input payload"
+        },
+        {
+          "name": "in_addr",
+          "type": 7,
+          "kind": "var",
+          "decl": [
+            0,
+            63,
+            22,
+            63,
+            29
+          ],
+          "comment": "input address"
+        },
+        {
+          "name": "out_valid",
+          "type": 0,
+          "kind": "var",
+          "decl": [
+            0,
+            64,
+            22,
+            64,
+            31
+          ],
+          "comment": "output beat is valid this cycle"
+        },
+        {
+          "name": "out_data",
+          "type": 8,
+          "kind": "var",
+          "decl": [
+            0,
+            65,
+            22,
+            65,
+            30
+          ],
+          "comment": "output payload"
+        },
+        {
+          "name": "fifo_level",
+          "type": 3,
+          "kind": "var",
+          "decl": [
+            0,
+            66,
+            22,
+            66,
+            32
+          ],
+          "comment": "occupancy, 0..8"
+        },
+        {
+          "name": "wide_data",
+          "type": 9,
+          "kind": "var",
+          "decl": [
+            0,
+            67,
+            22,
+            67,
+            31
+          ],
+          "comment": "widest row in the bundled view"
+        },
+        {
+          "name": "fifo_empty",
+          "type": 0,
+          "kind": "net",
+          "netType": "wire",
+          "decl": [
+            0,
+            70,
+            22,
+            70,
+            32
+          ],
+          "comment": "no entries queued"
+        },
+        {
+          "name": "dbus",
+          "type": 4,
+          "kind": "net",
+          "netType": "wire",
+          "decl": [
+            0,
+            71,
+            22,
+            71,
+            26
+          ],
+          "comment": "debug bus tap"
+        }
+      ]
+    },
+    {
+      "kind": "module",
+      "name": "keysched",
+      "decl": [
+        0,
+        85,
+        8,
+        85,
+        16
+      ],
+      "body": [
+        0,
+        85,
+        1,
+        101,
+        10
+      ],
+      "language": "systemverilog",
+      "comment": "Key schedule: three load stages feeding a 32-bit working register.",
+      "ports": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "vars": [
+        {
+          "name": "clk",
+          "type": 0,
+          "kind": "net",
+          "direction": "input",
+          "decl": [
+            0,
+            86,
+            28,
+            86,
+            31
+          ],
+          "hints": {
+            "role": "clock"
+          }
+        },
+        {
+          "name": "rst_n",
+          "type": 0,
+          "kind": "net",
+          "direction": "input",
+          "decl": [
+            0,
+            87,
+            28,
+            87,
+            33
+          ],
+          "hints": {
+            "role": "reset",
+            "polarity": "activeLow"
+          },
+          "comment": "active-low reset"
+        },
+        {
+          "name": "c",
+          "type": 6,
+          "kind": "net",
+          "direction": "input",
+          "decl": [
+            0,
+            88,
+            14,
+            88,
+            15
+          ],
+          "comment": "round counter"
+        },
+        {
+          "name": "load1",
+          "type": 5,
+          "kind": "net",
+          "direction": "input",
+          "decl": [
+            0,
+            89,
+            28,
+            89,
+            33
+          ],
+          "comment": "stage 1 load, ascending range"
+        },
+        {
+          "name": "load2",
+          "type": 5,
+          "kind": "net",
+          "direction": "input",
+          "decl": [
+            0,
+            90,
+            28,
+            90,
+            33
+          ],
+          "comment": "stage 2 load"
+        },
+        {
+          "name": "load3",
+          "type": 5,
+          "kind": "net",
+          "direction": "input",
+          "decl": [
+            0,
+            91,
+            28,
+            91,
+            33
+          ],
+          "comment": "stage 3 load"
+        },
+        {
+          "name": "data",
+          "type": 8,
+          "kind": "net",
+          "direction": "output",
+          "decl": [
+            0,
+            92,
+            28,
+            92,
+            32
+          ],
+          "comment": "working register"
+        },
+        {
+          "name": "state",
+          "type": 10,
+          "kind": "net",
+          "direction": "output",
+          "decl": [
+            0,
+            93,
+            20,
+            93,
+            25
+          ],
+          "comment": "schedule state"
+        }
+      ],
+      "instances": [
+        {
+          "name": "fsm",
+          "kind": "instance",
+          "unit": 2,
+          "decl": [
+            0,
+            95,
+            9,
+            95,
+            17
+          ]
+        },
+        {
+          "name": "xbar",
+          "kind": "instance",
+          "unit": 3,
+          "decl": [
+            0,
+            96,
+            9,
+            96,
+            17
+          ]
+        },
+        {
+          "name": "waves",
+          "kind": "instance",
+          "unit": 4,
+          "decl": [
+            0,
+            97,
+            9,
+            97,
+            26
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "module",
+      "name": "mem_ctrl",
+      "decl": [
+        0,
+        104,
+        8,
+        104,
+        16
+      ],
+      "body": [
+        0,
+        104,
+        1,
+        110,
+        10
+      ],
+      "language": "systemverilog",
+      "comment": "Single-port memory interface.",
+      "ports": [
+        0,
+        1,
+        2
+      ],
+      "vars": [
+        {
+          "name": "addr",
+          "type": 4,
+          "kind": "net",
+          "direction": "input",
+          "decl": [
+            0,
+            105,
+            22,
+            105,
+            26
+          ],
+          "comment": "byte address"
+        },
+        {
+          "name": "wen",
+          "type": 0,
+          "kind": "net",
+          "direction": "input",
+          "decl": [
+            0,
+            106,
+            22,
+            106,
+            25
+          ],
+          "comment": "write enable"
+        },
+        {
+          "name": "rdata",
+          "type": 4,
+          "kind": "net",
+          "direction": "output",
+          "decl": [
+            0,
+            107,
+            22,
+            107,
+            27
+          ],
+          "comment": "read data, valid the cycle after addr"
+        }
+      ]
+    },
+    {
+      "kind": "module",
+      "name": "dma",
+      "decl": [
+        0,
+        113,
+        8,
+        113,
+        11
+      ],
+      "body": [
+        0,
+        113,
+        1,
+        119,
+        10
+      ],
+      "language": "systemverilog",
+      "comment": "Descriptor-driven copy engine.",
+      "ports": [
+        0,
+        1,
+        2
+      ],
+      "vars": [
+        {
+          "name": "src",
+          "type": 7,
+          "kind": "net",
+          "direction": "input",
+          "decl": [
+            0,
+            114,
+            23,
+            114,
+            26
+          ],
+          "comment": "source address"
+        },
+        {
+          "name": "dst",
+          "type": 7,
+          "kind": "net",
+          "direction": "input",
+          "decl": [
+            0,
+            115,
+            23,
+            115,
+            26
+          ],
+          "comment": "destination address"
+        },
+        {
+          "name": "active",
+          "type": 0,
+          "kind": "net",
+          "direction": "output",
+          "decl": [
+            0,
+            116,
+            23,
+            116,
+            29
+          ],
+          "comment": "high while a transfer is in flight"
+        }
+      ]
+    },
+    {
+      "kind": "module",
+      "name": "uart",
+      "decl": [
+        0,
+        122,
+        8,
+        122,
+        12
+      ],
+      "body": [
+        0,
+        122,
+        1,
+        128,
+        10
+      ],
+      "language": "systemverilog",
+      "comment": "8N1 serial port.",
+      "ports": [
+        0,
+        1,
+        2
+      ],
+      "vars": [
+        {
+          "name": "rx",
+          "type": 0,
+          "kind": "net",
+          "direction": "input",
+          "decl": [
+            0,
+            123,
+            23,
+            123,
+            25
+          ],
+          "comment": "receive line"
+        },
+        {
+          "name": "baud",
+          "type": 7,
+          "kind": "net",
+          "direction": "input",
+          "decl": [
+            0,
+            124,
+            23,
+            124,
+            27
+          ],
+          "comment": "divisor for the bit clock"
+        },
+        {
+          "name": "tx",
+          "type": 0,
+          "kind": "net",
+          "direction": "output",
+          "decl": [
+            0,
+            125,
+            23,
+            125,
+            25
+          ],
+          "comment": "transmit line, idles high"
+        }
+      ]
+    },
+    {
+      "kind": "module",
+      "name": "top",
+      "decl": [
+        0,
+        14,
+        62,
+        14,
+        65
+      ],
+      "body": [
+        0,
+        130,
+        1,
+        136,
+        10
+      ],
+      "language": "systemverilog",
+      "instances": [
+        {
+          "name": "des",
+          "kind": "instance",
+          "unit": 1,
+          "decl": [
+            0,
+            131,
+            12,
+            131,
+            23
+          ]
+        },
+        {
+          "name": "keysched",
+          "kind": "instance",
+          "unit": 5,
+          "decl": [
+            0,
+            132,
+            12,
+            132,
+            23
+          ]
+        },
+        {
+          "name": "mem_ctrl",
+          "kind": "instance",
+          "unit": 6,
+          "decl": [
+            0,
+            133,
+            12,
+            133,
+            23
+          ]
+        },
+        {
+          "name": "dma",
+          "kind": "instance",
+          "unit": 7,
+          "decl": [
+            0,
+            134,
+            12,
+            134,
+            23
+          ]
+        },
+        {
+          "name": "uart",
+          "kind": "instance",
+          "unit": 8,
+          "decl": [
+            0,
+            135,
+            12,
+            135,
+            23
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "package",
+      "name": "derived",
+      "comment": "Viewer-derived signals, precomputed into the trace rather than declared in the design.",
+      "vars": [
+        {
+          "name": "busy",
+          "type": 0,
+          "kind": "var"
+        },
+        {
+          "name": "done",
+          "type": 0,
+          "kind": "var"
+        }
+      ]
+    }
+  ]
+}

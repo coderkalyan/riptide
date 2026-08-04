@@ -11,6 +11,7 @@ use tide_core::Database;
 use tide_core::hierarchy::{Hierarchy, ScopeId, ScopeKind, VarKind};
 use tide_core::metadata::Width;
 
+use crate::design::{Design, ScopeFacts, VarFacts};
 use crate::search::Index;
 
 /// A node's index into [`Flat::nodes`].
@@ -25,11 +26,14 @@ pub enum Node {
         kind: &'static str,
         /// Variables then subscopes, in declaration order.
         children: Vec<NodeId>,
+        /// What source debug info adds about this scope.
+        facts: Option<ScopeFacts>,
     },
     Signal {
         parent: Option<NodeId>,
         name: String,
-        /// The renderer's `VarType`, which VCD's container axis collapses onto.
+        /// The renderer's `VarType`. VCD's container axis collapses onto two of
+        /// them; SDI, when there is any, supplies the declared one instead.
         var_type: &'static str,
         bit_width: Width,
         /// The database key, or zero when no signal backs this variable. Ids are
@@ -39,6 +43,9 @@ pub enum Node {
         /// variable whose type it cannot store, and for one declared but never
         /// assigned. The renderer refuses to add an unsupported signal to a row.
         supported: bool,
+        /// What source debug info adds, when an SDI file sits beside the trace.
+        /// `None` everywhere when it does not, which is the VCD-grade tree.
+        facts: Option<VarFacts>,
     },
 }
 
@@ -61,6 +68,9 @@ impl Node {
 pub struct Flat {
     pub nodes: Vec<Node>,
     pub root_ids: Vec<NodeId>,
+    /// Enum int->label tables from the SDI, empty without one. Referenced by a
+    /// signal's `facts.enum_type`.
+    pub enums: Vec<crate::design::EnumTable>,
     /// Fuzzy-searchable paths, entry `i` being `nodes[i]`. Immutable once built,
     /// so a background search shares it without synchronizing.
     pub search: Index,
@@ -157,7 +167,7 @@ fn var_kind(kind: VarKind) -> &'static str {
 
 /// Flattens `hierarchy` depth first. The synthetic root scope is not itself a
 /// node: its subscopes and any variable declared outside a scope become roots.
-pub fn flatten(hierarchy: &Hierarchy, db: &Database) -> Flat {
+pub fn flatten(hierarchy: &Hierarchy, db: &Database, design: Option<&Design>) -> Flat {
     let mut walk = Walk {
         nodes: Vec::with_capacity(hierarchy.scopes().len() + hierarchy.vars().len()),
         root_ids: Vec::new(),
@@ -173,7 +183,14 @@ pub fn flatten(hierarchy: &Hierarchy, db: &Database) -> Flat {
             None
         } else {
             let scope = hierarchy.scope(scope);
-            let kind = scope_kind(scope.kind);
+            let path = hierarchy.string(scope.path);
+            let facts = design.and_then(|d| d.scope(path)).cloned();
+            // A declared scope kind beats tide's four-way axis, which cannot tell a
+            // package from a module.
+            let kind = facts
+                .as_ref()
+                .and_then(|f| f.scope_type)
+                .unwrap_or_else(|| scope_kind(scope.kind));
             let name = hierarchy.string(scope.name).to_owned();
             Some(walk.attach(
                 parent,
@@ -182,22 +199,31 @@ pub fn flatten(hierarchy: &Hierarchy, db: &Database) -> Flat {
                     name,
                     kind,
                     children: Vec::new(),
+                    facts,
                 },
-                hierarchy.string(scope.path),
+                path,
             ))
         };
 
         for var in hierarchy.scope_vars(scope) {
+            let path = hierarchy.string(var.path);
+            let facts = design.and_then(|d| d.var(path)).cloned();
             let node = Node::Signal {
                 parent: owner,
                 name: hierarchy.string(var.name).to_owned(),
-                var_type: var_kind(var.kind),
+                // The declared type when SDI knows it, else the container axis,
+                // which is all the trace itself carries.
+                var_type: facts
+                    .as_ref()
+                    .and_then(|f| f.var_type)
+                    .unwrap_or_else(|| var_kind(var.kind)),
                 bit_width: var.ty.width(),
                 // Ids are one-based, so zero is free as "no signal behind it".
                 handle: var.signal.map_or(0, |id| id.0),
                 supported: var.signal.is_some_and(|id| db.contains(id)),
+                facts,
             };
-            walk.attach(owner, node, hierarchy.string(var.path));
+            walk.attach(owner, node, path);
         }
 
         for &child in hierarchy.children(scope).iter().rev() {
@@ -208,6 +234,7 @@ pub fn flatten(hierarchy: &Hierarchy, db: &Database) -> Flat {
     Flat {
         nodes: walk.nodes,
         root_ids: walk.root_ids,
+        enums: design.map(|d| d.enums.clone()).unwrap_or_default(),
         search: walk.search,
     }
 }
@@ -236,5 +263,66 @@ impl Walk {
         self.nodes.push(node);
         self.search.push(path);
         id
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use crate::design::Design;
+    use crate::hierarchy::Node;
+
+    /// The bundled mock ships an SDI, so flattening it must carry the declared
+    /// types, directions, declaration sites and enum tables through to the nodes
+    /// the renderer reads — and a trace without one must carry none of it.
+    #[test]
+    fn enriches_from_source_debug_info() {
+        let trace = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/mock.vcd");
+        let source = std::fs::read(&trace).unwrap();
+        let (parsed, _) = tide_vcd::load::load(&source).unwrap();
+
+        let design = Design::beside(&trace).expect("the mock ships an SDI");
+        let rich = super::flatten(&parsed.hierarchy, &parsed.db, Some(&design));
+        let bare = super::flatten(&parsed.hierarchy, &parsed.db, None);
+
+        assert!(!rich.enums.is_empty(), "enum tables should reach the tree");
+        assert!(bare.enums.is_empty(), "without an SDI there are none");
+
+        let find = |flat: &super::Flat, name: &str| -> usize {
+            flat.nodes
+                .iter()
+                .position(|n| n.name() == name)
+                .unwrap_or_else(|| panic!("no node named {name}"))
+        };
+
+        // A port whose declared type the VCD flattens to `wire`.
+        match &rich.nodes[find(&rich, "rst_n")] {
+            Node::Signal { var_type, facts, .. } => {
+                assert_eq!(*var_type, "sv_logic");
+                let facts = facts.as_ref().expect("facts");
+                assert_eq!(facts.direction, Some("input"));
+                assert_eq!(facts.comment.as_deref(), Some("active-low reset"));
+                assert!(facts.decl.is_some());
+            }
+            other => panic!("rst_n is not a signal: {:?}", other.name()),
+        }
+        // The same node, with no SDI: back to the container axis.
+        match &bare.nodes[find(&bare, "rst_n")] {
+            Node::Signal { var_type, facts, .. } => {
+                assert_eq!(*var_type, "vcd_wire");
+                assert!(facts.is_none());
+            }
+            other => panic!("rst_n is not a signal: {:?}", other.name()),
+        }
+        // A scope kind tide cannot express.
+        match &rich.nodes[find(&rich, "derived")] {
+            Node::Scope { kind, .. } => assert_eq!(*kind, "package"),
+            other => panic!("derived is not a scope: {:?}", other.name()),
+        }
+        match &bare.nodes[find(&bare, "derived")] {
+            Node::Scope { kind, .. } => assert_eq!(*kind, "module"),
+            other => panic!("derived is not a scope: {:?}", other.name()),
+        }
     }
 }
