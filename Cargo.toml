@@ -1,10 +1,16 @@
 [workspace]
 resolver = "3"
-members = ["native"]
+members = ["native", "crates/sdi", "crates/sdi-verilator"]
 exclude = ["tide"]
 
 # tide is a submodule at ./tide, with its own workspace, so it is excluded from
 # this one; native/Cargo.toml path-depends on two of its crates.
+#
+# `crates/sdi` is the format definition (docs/sdi.schema.json in Rust) and
+# `crates/sdi-verilator` converts `verilator --json-only` output into it. Neither is
+# part of the app: scripts/build.mjs builds `--package riptide-native`, so adding
+# them costs the app build nothing. `native` will depend on `sdi` when the importer
+# lands, which is why the format lives in its own crate rather than in the converter.
 
 [profile.release]
 lto = true

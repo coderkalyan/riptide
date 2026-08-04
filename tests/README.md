@@ -24,6 +24,7 @@ tests/
   format.test.cjs        seam C — native pill labels (getMockSegments) vs oracle
   differential.test.cjs  seam B — direct (query-fixture binary) vs through-addon, byte-equal
   malformed.test.cjs     malformed-input survival
+  sdi.test.cjs           SDI format contract — schema, consumer, verilator producer (no addon, no corpus)
   e2e/
     seed.cjs             temp .vcd copy + sidecar seeding helper
     app.test.cjs         seam D — Electron app: crash-smoke + value-cell vs oracle
@@ -43,6 +44,14 @@ they load the production N-API addon (`dist/native/riptide.node`) directly under
 node. Run `pnpm build` first (or `node scripts/build.mjs --steps=native`). The **e2e** suite drives the real Electron
 app and needs an X display (no xvfb in this env; run under a display or
 `xvfb-run -a node --test tests/e2e/app.test.cjs`).
+
+`sdi.test.cjs` is the exception to all of the above: it needs neither the addon nor
+the oracle corpus, only `samples/sdi/`, `tools/sdi-cone.mjs` and the `sdi*` crates. Its
+schema test self-skips unless an `ajv` binary is resolvable in `node_modules/.bin`
+(CI validates explicitly, see `docs/sdi.md`), and its four producer round-trip tests
+self-skip without `verilator` or `cargo` — they run `--json-only`, convert it with
+`crates/sdi-verilator` (built on demand), and assert the result validates, resolves every ref,
+binds every trace signal, and yields the same cone as the hand-authored fixture.
 
 ## Why each fixture runs in its own process
 

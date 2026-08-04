@@ -1,0 +1,270 @@
+$date
+	Thu Jul 30 23:02:26 2026
+$end
+$version
+	Icarus Verilog
+$end
+$timescale
+	1s
+$end
+$scope module tb $end
+$var wire 16 ! sum [15:0] $end
+$var wire 12 " hdr_out [11:0] $end
+$var reg 1 # clk $end
+$var reg 8 $ din [7:0] $end
+$var reg 1 % rst_n $end
+$var reg 1 & start $end
+$var reg 2 ' wptr [1:0] $end
+$scope module dut $end
+$var wire 1 # clk $end
+$var wire 8 ( din [7:0] $end
+$var wire 12 ) hdr_out [11:0] $end
+$var wire 1 % rst_n $end
+$var wire 1 & start $end
+$var wire 2 * wptr [1:0] $end
+$var wire 16 + sum [15:0] $end
+$var wire 12 , hdr [11:0] $end
+$var wire 8 - crc [7:0] $end
+$scope begin g_lane[0] $end
+$var parameter 2 . i $end
+$scope module u_lane $end
+$var wire 1 # clk $end
+$var wire 8 / din [7:0] $end
+$var wire 8 0 dout [7:0] $end
+$var wire 1 % rst_n $end
+$var wire 1 & start $end
+$var parameter 32 1 W $end
+$var reg 8 2 acc [7:0] $end
+$var reg 2 3 nxt [1:0] $end
+$var reg 2 4 state [1:0] $end
+$upscope $end
+$upscope $end
+$scope begin g_lane[1] $end
+$var parameter 2 5 i $end
+$scope module u_lane $end
+$var wire 1 # clk $end
+$var wire 8 6 din [7:0] $end
+$var wire 8 7 dout [7:0] $end
+$var wire 1 % rst_n $end
+$var wire 1 & start $end
+$var parameter 32 8 W $end
+$var reg 8 9 acc [7:0] $end
+$var reg 2 : nxt [1:0] $end
+$var reg 2 ; state [1:0] $end
+$upscope $end
+$upscope $end
+$scope module u_crc $end
+$var wire 8 < crc [7:0] $end
+$var wire 8 = data [7:0] $end
+$upscope $end
+$upscope $end
+$scope begin $ivl_for_loop0 $end
+$var integer 32 > c [31:0] $end
+$upscope $end
+$upscope $end
+$enddefinitions $end
+$comment Show the parameter values. $end
+$dumpall
+b1000 8
+b1 5
+b1000 1
+b0 .
+$end
+#0
+$dumpvars
+b0 >
+bx =
+bx <
+bx ;
+bx :
+bx 9
+bx 7
+b0 6
+bx 4
+bx 3
+bx 2
+bx 0
+b0 /
+bx -
+bx100x ,
+bx +
+b0 *
+bx100x )
+b0 (
+b0 '
+0&
+0%
+b0 $
+0#
+bx100x "
+bx !
+$end
+#5
+b0 3
+b0 :
+bx1000 "
+bx1000 )
+bx1000 ,
+b0 4
+b0 ;
+1#
+#10
+0#
+#12
+b100001 $
+b100001 (
+b100001 /
+b100001 6
+1%
+#15
+b1 3
+b1 :
+b110010 $
+b110010 (
+b110010 /
+b110010 6
+1&
+b1 >
+1#
+#20
+0#
+#25
+b11 3
+b11 :
+b1 4
+b1 ;
+b1000011 $
+b1000011 (
+b1000011 /
+b1000011 6
+b1 '
+b1 *
+0&
+b10 >
+1#
+#30
+0#
+#35
+b0 :
+bx1001 "
+bx1001 )
+bx1001 ,
+b0 3
+b11 ;
+b11 4
+b1010100 $
+b1010100 (
+b1010100 /
+b1010100 6
+b10 '
+b10 *
+b11 >
+1#
+#40
+0#
+#45
+bx1000 "
+bx1000 )
+bx1000 ,
+b1 3
+b1 :
+b0 4
+b0 ;
+b1100101 $
+b1100101 (
+b1100101 /
+b1100101 6
+b11 '
+b11 *
+1&
+b100 >
+1#
+#50
+0#
+#55
+b11 3
+b11 :
+b1 ;
+b1 4
+b1110110 $
+b1110110 (
+b1110110 /
+b1110110 6
+b0 '
+b0 *
+0&
+b101 >
+1#
+#60
+0#
+#65
+b0 3
+b0 :
+bx1001 "
+bx1001 )
+bx1001 ,
+b11 4
+b11 ;
+b10000111 $
+b10000111 (
+b10000111 /
+b10000111 6
+b1 '
+b1 *
+b110 >
+1#
+#70
+0#
+#75
+bx1000 "
+bx1000 )
+bx1000 ,
+b1 3
+b1 :
+b0 ;
+b0 4
+b10011000 $
+b10011000 (
+b10011000 /
+b10011000 6
+b10 '
+b10 *
+1&
+b111 >
+1#
+#80
+0#
+#85
+b11 3
+b11 :
+b1 4
+b1 ;
+b10101001 $
+b10101001 (
+b10101001 /
+b10101001 6
+b11 '
+b11 *
+0&
+b1000 >
+1#
+#90
+0#
+#95
+b0 :
+bx1001 "
+bx1001 )
+bx1001 ,
+b0 3
+b11 ;
+b11 4
+1#
+#100
+0#
+#105
+bx1000 "
+bx1000 )
+bx1000 ,
+b0 4
+b0 ;
+1#

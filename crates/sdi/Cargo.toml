@@ -1,0 +1,17 @@
+[package]
+name = "sdi"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Riptide source debug info: the format's types, encodings and structural invariants"
+
+[dependencies]
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.151"
+# Transparent gzip both ways: docs/sdi.md recommends `<trace>.sdi.json.gz` at
+# industrial scale, and the default `rust_backend` is miniz_oxide, so this pulls in
+# no C toolchain and no external `gzip` binary.
+flate2 = "1.1.9"
+# `pure` keeps BLAKE3 off the `cc` build dependency its SIMD paths would need.
+# Hashing a source tree is not the hot path; not needing a C compiler is worth more.
+blake3 = { version = "1.8.5", features = ["pure"] }

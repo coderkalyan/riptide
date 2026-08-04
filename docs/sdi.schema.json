@@ -1,0 +1,807 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://riptide.dev/sdi.schema.json",
+  "title": "Riptide source debug info (SDI)",
+  "description": "Design facts imported alongside a waveform trace: a typed signal tree richer than VCD/FST, source spans for declarations and for every construct that writes or reads a signal, and the connectivity needed to compute a static cone of influence. Produced by an elaborating front end (Verilator, slang, Yosys, a simulator), never by Riptide. Read-only to the viewer: nothing here is viewer state (that is the sidecar).",
+  "type": "object",
+  "required": ["version", "files", "types", "units", "design"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 1,
+      "description": "SDI format major version. Riptide ignores an SDI file whose version it does not understand."
+    },
+    "generator": {
+      "$ref": "#/$defs/generator",
+      "description": "Provenance. Advisory; never gates loading."
+    },
+    "fidelity": {
+      "$ref": "#/$defs/fidelity",
+      "description": "What the producer actually resolved. Absent = assume the weakest level for every axis."
+    },
+    "trace": {
+      "$ref": "#/$defs/traceBinding",
+      "description": "How design names map onto trace paths. Absent = the defaults documented in docs/sdi.md."
+    },
+    "design": { "$ref": "#/$defs/design" },
+    "files": {
+      "type": "array",
+      "description": "Interned source files. A `span` names one by index into this array, so a path is stored once and may contain any character.",
+      "items": { "$ref": "#/$defs/file" }
+    },
+    "types": {
+      "type": "array",
+      "description": "Interned type table. A `type` reference is an index into this array. Entries may reference each other by index (element/base/member types), but the graph must be acyclic apart from self-recursive class references.",
+      "items": { "$ref": "#/$defs/type" }
+    },
+    "units": {
+      "type": "array",
+      "description": "Scope definitions: modules, interfaces, packages, generate blocks, named blocks, subprograms, and the synthetic scopes a dumper creates for structs and unpacked arrays. One entry per *specialization* — a parameterized module instantiated with two parameter sets is two units. Referenced by index.",
+      "items": { "$ref": "#/$defs/unit" }
+    },
+    "warnings": {
+      "type": "array",
+      "description": "Producer diagnostics: units it could not parse, references it could not resolve, analyses it skipped. Surfacing these is how a viewer explains an incomplete cone.",
+      "items": { "type": "string" }
+    }
+  },
+  "patternProperties": { "^x-": true },
+  "additionalProperties": false,
+
+  "$defs": {
+    "generator": {
+      "type": "object",
+      "description": "Who produced this file and from what.",
+      "properties": {
+        "tool": { "type": "string", "description": "Producing program, e.g. \"verilator\", \"slang\", \"yosys\", \"riptide-sdi\"." },
+        "toolVersion": { "type": "string", "description": "Exact version string. Required in spirit: every producer surveyed has an unversioned, drifting output format." },
+        "command": { "type": "string", "description": "Command line that produced the design info, for reproduction." },
+        "createdAt": { "type": "string", "description": "ISO 8601 timestamp." },
+        "sourceRoot": { "type": "string", "description": "Directory that relative `files[].path` entries are relative to. Absent = the SDI file's own directory." }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+
+    "fidelity": {
+      "type": "object",
+      "description": "Positive claims about what the producer actually resolved, one per axis. **Every axis is elidable, and an absent axis means \"the producer said nothing\", which a consumer must treat as the weakest possible claim.** So only the claim worth making is ever written, and an absent `fidelity` is the same as an empty one. This section exists because data absence alone is ambiguous: a unit with no `processes` is either a purely structural wrapper (a fact worth showing) or a unit nobody analyzed (an admission), and only the producer can tell those apart.",
+      "properties": {
+        "tree": {
+          "enum": ["complete"],
+          "description": "complete = every scope and variable the trace can contain is present, so a signal missing from SDI is a genuine mismatch rather than an unparsed file. Absent = some scopes or variables may be missing."
+        },
+        "types": {
+          "enum": ["declared"],
+          "description": "declared = each variable's declared type is modelled, including enums, structs and array dimensions. Absent = types may be VCD-grade approximations, so a viewer should not offer enum decode or member slicing."
+        },
+        "drivers": {
+          "enum": ["partial", "complete"],
+          "description": "complete = every write and read of every variable in every unit is recorded, so an empty driver list means the signal genuinely has no driver. partial = some writers and readers are recorded but the set is not closed. Absent = no claim; treat `processes` as illustrative only."
+        },
+        "bits": {
+          "enum": ["exact"],
+          "description": "exact = every static part-select is recorded as a `bits` range and every non-static one carries `dynamic: true`. Absent = refs may be whole-variable regardless of what the source selected, so per-member driver queries would mislead."
+        },
+        "coi": {
+          "enum": ["partial", "complete"],
+          "description": "complete = the dependency graph is closed: every driver of every variable is reachable and every unanalyzable boundary is marked `blackBox`. partial = traversal may dead-end. Absent = no claim. Never claim complete when `drivers` is not complete."
+        }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+
+    "traceBinding": {
+      "type": "object",
+      "description": "How to turn a design path into the trace path a viewer resolves. Every field is a hint that removes guesswork; see \"Binding to the trace\" in docs/sdi.md for the resolution order.",
+      "properties": {
+        "format": { "type": "string", "description": "Trace format this SDI was authored against, e.g. \"vcd\", \"fst\". Advisory." },
+        "files": {
+          "type": "array",
+          "description": "Trace files this SDI was authored against. Advisory; never gates loading.",
+          "items": { "type": "string" }
+        },
+        "separator": {
+          "type": "string",
+          "default": ".",
+          "description": "Hierarchy separator the dumper used."
+        },
+        "rootPrefix": {
+          "type": "string",
+          "description": "Scope the dumper inserts above every design root and that has no design counterpart (Verilator's \"TOP\"). Prepended to every trace path."
+        },
+        "rangeInName": {
+          "type": "boolean",
+          "default": false,
+          "description": "True when the dumper appends the packed range to a vector's leaf name (VCD writes `$var reg 4 ! count [3:0]`). The loader then also tries `<name>[<msb>:<lsb>]` and `<name> [<msb>:<lsb>]`."
+        },
+        "caseSensitive": { "type": "boolean", "default": true, "description": "False only for a dumper that folded identifier case (some VHDL flows). Riptide keys paths case-sensitively, so a producer for such a flow must emit `traceName` in the trace's own casing." },
+        "escapeStyle": {
+          "enum": ["none", "verilog"],
+          "description": "verilog = escaped identifiers appear in the trace as `\\name ` (leading backslash, trailing space). Riptide's paths have no escaping, so a producer should prefer explicit `traceName` for these."
+        }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+
+    "design": {
+      "type": "object",
+      "description": "Where elaboration starts. A trace may contain several top scopes (a testbench and a bound DUT), so roots is a list.",
+      "required": ["roots"],
+      "properties": {
+        "name": { "type": "string" },
+        "language": { "$ref": "#/$defs/language" },
+        "roots": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["name", "unit"],
+            "properties": {
+              "name": { "type": "string", "description": "Trace scope name of this root, e.g. \"tb\". Combined with `trace.rootPrefix` to form the path prefix for everything beneath it." },
+              "unit": { "$ref": "#/$defs/unitRef" },
+              "decl": { "$ref": "#/$defs/span", "description": "Instantiation site, when the root is instantiated from somewhere (a bind, a harness)." }
+            },
+            "patternProperties": { "^x-": true },
+            "additionalProperties": false
+          }
+        }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+
+    "file": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": { "type": "string", "description": "Path as the producer saw it. Relative paths resolve against `generator.sourceRoot`." },
+        "realPath": { "type": "string", "description": "Absolute canonical path on the producing machine. Useless to a reviewer on another machine — which is why `path` + `sourceRoot` exist." },
+        "language": { "$ref": "#/$defs/language" },
+        "blake3": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "BLAKE3 digest (default 32-byte output, lowercase hex) of the file contents. A mismatch means the source moved under the spans, and a viewer must say so rather than render the wrong line — the failure that makes source integration worse than none. Also the only staleness check needed: it subsumes coarser guards like a line count, and unlike one it cannot itself go stale." }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+
+    "language": {
+      "enum": ["verilog", "systemverilog", "vhdl", "spinalhdl", "chisel", "spade", "other"],
+      "description": "Source language. Drives how a viewer spells a type and how it interprets `keyword`."
+    },
+
+    "span": {
+      "type": "array",
+      "description": "Source range, positional: [file, line, col?, endLine?, endCol?]. `file` is an index into `files`. Lines and columns are 1-based; `col` 0 means unknown. `endLine` defaults to `line`; `endCol` defaults to end-of-line and is exclusive. A whole-line span is therefore [f, l] and a single token [f, l, c, l, c2].",
+      "minItems": 2,
+      "maxItems": 5,
+      "prefixItems": [
+        { "type": "integer", "minimum": 0, "description": "file index" },
+        { "type": "integer", "minimum": 1, "description": "line" },
+        { "type": "integer", "minimum": 0, "description": "column" },
+        { "type": "integer", "minimum": 1, "description": "end line" },
+        { "type": "integer", "minimum": 0, "description": "end column, exclusive" }
+      ],
+      "items": false
+    },
+
+    "bitRange": {
+      "type": "array",
+      "description": "Bit slice, positional: [lsb, width]. Bit 0 is the least significant bit of the variable as the *trace* stores it — the flattened bit order the viewer already indexes samples with, not per-dimension indices. A whole-variable reference omits `bits` entirely rather than writing [0, width].",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        { "type": "integer", "minimum": 0, "description": "lsb" },
+        { "type": "integer", "minimum": 0, "description": "width in bits; 0 is legal and means the reference carries no bits — a void- or unit-typed signal, which still participates in dataflow" }
+      ],
+      "items": false
+    },
+
+    "value": {
+      "description": "A constant, interpreted against the type it belongs to. Bit types: a string `0x…`/`0b…` (hex/binary digits, `x`/`z` allowed, `_` ignored) or a decimal integer string with optional sign; a JSON integer is also accepted when it is exact in a double. Real types: a JSON number, or \"inf\"/\"-inf\"/\"nan\". String types: the JSON string verbatim. Never store a wide bit value as a JSON number.",
+      "anyOf": [
+        { "type": "string" },
+        { "type": "number" },
+        { "type": "boolean" }
+      ]
+    },
+
+    "typeRef": { "type": "integer", "minimum": 0, "description": "Index into `types`." },
+    "unitRef": { "type": "integer", "minimum": 0, "description": "Index into `units`." },
+    "varRefIndex": { "type": "integer", "minimum": 0, "description": "Index into the enclosing unit's `vars`." },
+    "instRefIndex": { "type": "integer", "minimum": 0, "description": "Index into the enclosing unit's `instances`." },
+    "portOrdinal": { "type": "integer", "minimum": 0, "description": "Index into a unit's `ports` array (the port's declaration ordinal), not into `vars`." },
+
+    "typeCommon": {
+      "type": "object",
+      "properties": {
+        "kind": { "type": "string" },
+        "name": { "type": "string", "description": "Declared type name when the type has one (`state_e`, `hdr_t`, `std_logic_vector`). Absent for anonymous types." },
+        "spelling": { "type": "string", "description": "Display form, e.g. \"logic [7:0][3:0]\" or \"logic [7:0] $ [0:3]\". A viewer shows this and switches on the structured fields." },
+        "width": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total flattened bit count as the trace stores the variable. REQUIRED for every bit-representable type. This is the single most valuable precomputed fact in the file: no surveyed producer emits it, every consumer needs it, and recomputing it means reimplementing the front end's width rules."
+        },
+        "states": {
+          "enum": [2, 4, 9],
+          "description": "Logic value count: 2 (bit, int, VHDL bit/boolean), 4 (logic, reg, wire), 9 (VHDL std_logic). VCD bins all of these together; this is what un-bins them."
+        },
+        "signed": { "type": "boolean", "default": false, "description": "Two's-complement interpretation. Drives the default signed/unsigned radix; VCD carries it only for `integer`, so a `logic signed [7:0]` is indistinguishable from unsigned without this." },
+        "decl": { "$ref": "#/$defs/span", "description": "Where the type is declared (the typedef / enum / struct site)." },
+        "comment": { "type": "string", "description": "Doc comment attached to the declaration." }
+      },
+      "patternProperties": { "^x-": true }
+    },
+
+    "type": {
+      "description": "One entry in the interned type table, discriminated by `kind`.",
+      "oneOf": [
+        { "$ref": "#/$defs/typeBits" },
+        { "$ref": "#/$defs/typeEnum" },
+        { "$ref": "#/$defs/typeStruct" },
+        { "$ref": "#/$defs/typePackedArray" },
+        { "$ref": "#/$defs/typeUnpackedArray" },
+        { "$ref": "#/$defs/typeAlias" },
+        { "$ref": "#/$defs/typeReal" },
+        { "$ref": "#/$defs/typeString" },
+        { "$ref": "#/$defs/typeScalarOther" },
+        { "$ref": "#/$defs/typeRefOpaque" }
+      ]
+    },
+
+    "typeBits": {
+      "description": "An elemental bit vector: `logic`, `bit`, `reg`, `wire`, `int`, `byte`, `time`, VHDL `std_logic_vector`, `unsigned`. One packed dimension is expressed here via `range`; two or more use `packedArray` over this.",
+      "allOf": [{ "$ref": "#/$defs/typeCommon" }],
+      "required": ["kind", "width"],
+      "properties": {
+        "kind": { "const": "bits" },
+        "keyword": {
+          "type": "string",
+          "description": "Declared keyword, verbatim from the source language: \"logic\", \"bit\", \"reg\", \"wire\", \"int\", \"integer\", \"shortint\", \"longint\", \"byte\", \"time\", \"std_logic\", \"std_ulogic_vector\", \"unsigned\", \"signed\", \"boolean\", \"natural\". Normalized meaning lives in `width`/`states`/`signed`; this is the spelling a viewer shows and the axis VCD destroys."
+        },
+        "range": {
+          "type": "array",
+          "description": "Declared packed range [msb, lsb] as written, so `[0:7]` stays ascending. Display only — `bits` slices always use flattened lsb-based indices.",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [{ "type": "integer" }, { "type": "integer" }],
+          "items": false
+        }
+      },
+      "unevaluatedProperties": false
+    },
+
+    "typeEnum": {
+      "description": "An enumeration. Carries the base type (so width/signedness/state count are exact) and every member with its value and declaration site — strictly more than FST's flat literal↔bitstring table.",
+      "allOf": [{ "$ref": "#/$defs/typeCommon" }],
+      "required": ["kind", "width", "base", "values"],
+      "properties": {
+        "kind": { "const": "enum" },
+        "base": { "$ref": "#/$defs/typeRef", "description": "Underlying bit type." },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "value"],
+            "properties": {
+              "name": { "type": "string" },
+              "value": { "$ref": "#/$defs/value" },
+              "decl": { "$ref": "#/$defs/span" },
+              "comment": { "type": "string" }
+            },
+            "patternProperties": { "^x-": true },
+            "additionalProperties": false
+          }
+        }
+      },
+      "unevaluatedProperties": false
+    },
+
+    "typeStruct": {
+      "description": "A packed or unpacked struct or union. Member `lsb` is the flattened bit offset — required for packed aggregates because that is how a viewer slices one member out of the parent's samples, and no surveyed producer emits it.",
+      "allOf": [{ "$ref": "#/$defs/typeCommon" }],
+      "required": ["kind", "members"],
+      "properties": {
+        "kind": { "enum": ["struct", "union"] },
+        "packed": { "type": "boolean", "default": false },
+        "tagged": { "type": "boolean", "default": false, "description": "SystemVerilog tagged union." },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "type"],
+            "properties": {
+              "name": { "type": "string" },
+              "type": { "$ref": "#/$defs/typeRef" },
+              "lsb": { "type": "integer", "minimum": 0, "description": "Flattened bit offset within the parent. Required when `packed` is true." },
+              "decl": { "$ref": "#/$defs/span" },
+              "comment": { "type": "string" },
+              "value": { "$ref": "#/$defs/value", "description": "Default/initial member value, when the declaration has one." }
+            },
+            "patternProperties": { "^x-": true },
+            "additionalProperties": false
+          }
+        }
+      },
+      "unevaluatedProperties": false
+    },
+
+    "typePackedArray": {
+      "description": "A packed dimension over an element type: `logic [3:0][7:0]`. Element `k` occupies flattened bits [k*elemWidth, elemWidth) counting from the range's right end.",
+      "allOf": [{ "$ref": "#/$defs/typeCommon" }],
+      "required": ["kind", "width", "elem", "range"],
+      "properties": {
+        "kind": { "const": "packedArray" },
+        "elem": { "$ref": "#/$defs/typeRef" },
+        "range": {
+          "type": "array",
+          "description": "[left, right] as declared.",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [{ "type": "integer" }, { "type": "integer" }],
+          "items": false
+        }
+      },
+      "unevaluatedProperties": false
+    },
+
+    "typeUnpackedArray": {
+      "description": "An unpacked collection. `fixed` has a declared range; the dynamic kinds have none and are typically absent from a trace entirely.",
+      "allOf": [{ "$ref": "#/$defs/typeCommon" }],
+      "required": ["kind", "elem"],
+      "properties": {
+        "kind": { "const": "unpackedArray" },
+        "shape": { "enum": ["fixed", "dynamic", "queue", "assoc"], "default": "fixed", "description": "Which unpacked collection. Only `fixed` has a `range` and a `width`; the dynamic kinds have no trace representation at all and exist here so the tree can show them as present-but-unplottable." },
+        "elem": { "$ref": "#/$defs/typeRef" },
+        "keyType": { "$ref": "#/$defs/typeRef", "description": "Associative array key type." },
+        "range": {
+          "type": "array",
+          "description": "[left, right] as declared, for `fixed`.",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [{ "type": "integer" }, { "type": "integer" }],
+          "items": false
+        }
+      },
+      "unevaluatedProperties": false
+    },
+
+    "typeAlias": {
+      "description": "A typedef. Kept as its own entry so the declared name survives even when two designs share a structural type.",
+      "allOf": [{ "$ref": "#/$defs/typeCommon" }],
+      "required": ["kind", "name", "target"],
+      "properties": {
+        "kind": { "const": "alias" },
+        "target": { "$ref": "#/$defs/typeRef" }
+      },
+      "unevaluatedProperties": false
+    },
+
+    "typeReal": {
+      "description": "Floating point: `real`, `shortreal`, VHDL `real`.",
+      "allOf": [{ "$ref": "#/$defs/typeCommon" }],
+      "required": ["kind", "width"],
+      "properties": {
+        "kind": { "const": "real" },
+        "keyword": { "type": "string", "description": "Declared spelling: \"real\", \"shortreal\", VHDL \"real\". Width already says 64 vs 32; this is what a viewer displays." }
+      },
+      "unevaluatedProperties": false
+    },
+
+    "typeString": {
+      "allOf": [{ "$ref": "#/$defs/typeCommon" }],
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "string" },
+        "keyword": { "type": "string", "description": "Declared spelling, e.g. \"string\" or VHDL \"character\"." }
+      },
+      "unevaluatedProperties": false
+    },
+
+    "typeScalarOther": {
+      "description": "Types with no bit representation a waveform can hold: `event`, `void`, `chandle`, `virtual interface`, `class`. A variable of one of these still belongs in the tree — it shows as present but unplottable instead of vanishing, which is what VCD does to `event`.",
+      "allOf": [{ "$ref": "#/$defs/typeCommon" }],
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["event", "void", "chandle", "class", "interface"] },
+        "keyword": { "type": "string", "description": "Declared spelling, e.g. \"event\", \"chandle\", \"virtual interface\"." },
+        "unit": { "$ref": "#/$defs/unitRef", "description": "For `class`/`interface`: the unit that defines it." },
+        "modport": { "type": "string", "description": "For an interface reference: which modport view this variable is declared against, since the direction of every signal reached through it depends on the view." }
+      },
+      "unevaluatedProperties": false
+    },
+
+    "typeRefOpaque": {
+      "description": "An escape hatch: the producer knows a type exists but not its structure (encrypted IP, an unsupported construct). Better than lying with `bits`.",
+      "allOf": [{ "$ref": "#/$defs/typeCommon" }],
+      "required": ["kind"],
+      "properties": {
+        "kind": { "const": "opaque" },
+        "keyword": { "type": "string", "description": "Whatever spelling the producer saw, even if it could not model it." },
+        "note": { "type": "string", "description": "Why it is opaque — \"encrypted IP\", \"unsupported construct\". Shown to the user instead of a silently wrong type." }
+      },
+      "unevaluatedProperties": false
+    },
+
+    "unit": {
+      "type": "object",
+      "description": "A scope definition. Contents are stored once per definition, not once per instance: the elaborated tree is the walk of `design.roots` through `instances`, so file size tracks design source, not instance count.",
+      "required": ["kind", "name"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "module", "interface", "program", "package", "class", "udp",
+            "genBlock", "block", "function", "task",
+            "structScope", "arrayScope",
+            "vhdlArchitecture", "vhdlProcess", "vhdlBlock", "vhdlGenerate", "vhdlPackage", "vhdlRecord", "vhdlProcedure", "vhdlFunction",
+            "blackBox", "other"
+          ],
+          "description": "What kind of scope this is. `structScope`/`arrayScope` model the synthetic scopes a dumper creates when it splits a packed struct or unpacked array into one signal per member/element (Verilator's FST writer does exactly this). `blackBox` is a cell with no body."
+        },
+        "name": { "type": "string", "description": "Specialized definition name, e.g. \"fifo__W8_D16\". Display name for \"which module is this\"." },
+        "origName": { "type": "string", "description": "Source-level definition name before parameter specialization or mangling, e.g. \"fifo\"." },
+        "decl": { "$ref": "#/$defs/span", "description": "The definition's identifier — where \"go to definition\" lands. Convention for every `decl` in this format: the span covers exactly the declared name, no surrounding punctuation or type text, so a consumer can highlight the identifier without re-lexing. The one exception is an enum value, whose declaration is the whole `NAME = value`." },
+        "body": { "$ref": "#/$defs/span", "description": "Full extent of the definition, first line through `endmodule`. Two things need it and neither can recover it: the source slice an RTL browser shows, and the reverse lookup from a source line to the scope that owns it (source-to-waveform cross-probing). Finding the end of a construct otherwise means a language-aware parser in the viewer — `.stems` omits it, and its consumer re-lexes the file, which fails outright for generate blocks and renders a one-line source pane." },
+        "language": { "$ref": "#/$defs/language" },
+        "comment": { "type": "string" },
+        "attrs": { "$ref": "#/$defs/attrs" },
+        "fidelity": { "$ref": "#/$defs/fidelity", "description": "Per-unit override, for a design where only part of the source was analyzed." },
+        "params": {
+          "type": "array",
+          "description": "Parameters and generics of this specialization, with the values it was specialized with. Two instances differing only in a parameter are two units, so these values are concrete.",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "type": { "$ref": "#/$defs/typeRef" },
+              "value": { "$ref": "#/$defs/value" },
+              "local": { "type": "boolean", "default": false, "description": "localparam / constant rather than an overridable parameter." },
+              "decl": { "$ref": "#/$defs/span" },
+              "comment": { "type": "string" }
+            },
+            "patternProperties": { "^x-": true },
+            "additionalProperties": false
+          }
+        },
+        "ports": {
+          "type": "array",
+          "description": "Port declaration order. Each entry is an index into this unit's `vars`; a port is a variable that also has a `direction`. Connections and port refs address ports by ordinal in this array, which is what makes positional connections representable.",
+          "items": { "$ref": "#/$defs/varRefIndex" }
+        },
+        "vars": {
+          "type": "array",
+          "description": "Every variable declared directly in this scope, in declaration order.",
+          "items": { "$ref": "#/$defs/var" }
+        },
+        "instances": {
+          "type": "array",
+          "description": "Child scopes: module instantiations, generate/named blocks, subprograms, and dumper-synthesized struct/array scopes.",
+          "items": { "$ref": "#/$defs/instance" }
+        },
+        "processes": {
+          "type": "array",
+          "description": "Every construct that writes or reads a variable of this unit. Stored once per definition; a cone traversal instantiates it against a path. This is the section that makes both \"where does this signal go\" and cone of influence computable.",
+          "items": { "$ref": "#/$defs/process" }
+        }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+
+    "var": {
+      "type": "object",
+      "description": "A declared variable, net, port, parameter or memory.",
+      "required": ["name", "type"],
+      "properties": {
+        "name": { "type": "string", "description": "Source-level identifier, without any bit-range suffix and without hierarchy." },
+        "type": { "$ref": "#/$defs/typeRef" },
+        "kind": {
+          "enum": ["net", "var", "param", "genvar", "memory", "port", "alias", "other"],
+          "default": "var",
+          "description": "How the variable is driven, independent of its value type: `net` for wire/tri/supply/VHDL signal, `var` for reg/logic/VHDL variable, `param` for a constant that never transitions, `memory` for an unpacked array a dumper may split, `alias` for a second name onto the same storage."
+        },
+        "netType": {
+          "type": "string",
+          "description": "Declared net/var keyword when it carries resolution semantics that `type.keyword` does not: \"wire\", \"tri\", \"triand\", \"trior\", \"tri0\", \"tri1\", \"trireg\", \"wand\", \"wor\", \"supply0\", \"supply1\". A viewer uses it to explain a multi-driver resolution."
+        },
+        "direction": {
+          "enum": ["input", "output", "inout", "ref", "internal"],
+          "default": "internal",
+          "description": "Port direction. `internal` = not a port. VCD carries none of this."
+        },
+        "decl": { "$ref": "#/$defs/span", "description": "The declaration. \"Go to declaration\" lands here." },
+        "value": { "$ref": "#/$defs/value", "description": "Constant value for `param`, or the declared initializer." },
+        "comment": { "type": "string", "description": "Doc comment on the declaration — the tooltip text." },
+        "attrs": { "$ref": "#/$defs/attrs" },
+        "hints": { "$ref": "#/$defs/hints" },
+        "traceName": {
+          "type": "string",
+          "description": "Exact leaf name the dumper wrote, when it differs from `name` (a baked-in `[7:0]` suffix, an escaped identifier, a mangled name). Providing this removes all guesswork from resolution."
+        },
+        "traceSignals": {
+          "type": "array",
+          "description": "For one source variable that the dumper split into several trace signals — a packed struct exploded into per-member signals, an unpacked array into per-element signals, a wide net bit-blasted. Each entry maps a trace path (relative to the enclosing scope, `separator`-joined) to the slice of this variable it holds. Absent = one signal, resolved from `traceName`/`name`.",
+          "items": {
+            "type": "object",
+            "required": ["path"],
+            "properties": {
+              "path": { "type": "string", "description": "Path relative to the enclosing scope, e.g. \"hdr.hi\" or \"mem[3]\"." },
+              "bits": { "$ref": "#/$defs/bitRange" },
+              "member": { "type": "string", "description": "Human label for the slice: \"hi\", \"[3]\"." }
+            },
+            "patternProperties": { "^x-": true },
+            "additionalProperties": false
+          }
+        },
+        "traceOmitted": {
+          "type": "boolean",
+          "default": false,
+          "description": "Producer knows this variable is not in the trace (not dumped, optimized away, unsupported type). A viewer shows it greyed rather than reporting a failed lookup."
+        }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+
+    "attrs": {
+      "type": "object",
+      "description": "Source attributes verbatim: SystemVerilog `(* … *)`, VHDL attributes, Yosys/RTLIL attributes. Open bag, string values, never interpreted by the schema.",
+      "additionalProperties": { "type": "string" }
+    },
+
+    "hints": {
+      "type": "object",
+      "description": "Producer suggestions for presentation. A viewer may apply them as defaults; the sidecar always wins, because the sidecar is the user's decision.",
+      "properties": {
+        "role": { "enum": ["clock", "reset", "enable", "valid", "ready", "data"], "description": "Riptide maps clock/reset onto its row roles, so a design can arrive already configured." },
+        "polarity": { "enum": ["activeHigh", "activeLow"], "description": "With `role: \"reset\"` (or any active-level signal), the asserted level, so a viewer shades the band on the right value. An enum rather than a boolean because absence must mean \"not stated\" — a `false` would be indistinguishable from an unset default. Guessing it from waveform shape is unreliable for a design held in reset at time 0." },
+        "radix": { "enum": ["bin", "hex", "dec", "sdec", "enum"], "description": "Suggested default radix. An enum-typed variable implies `enum` without needing this." },
+        "group": { "type": "string", "description": "Producer-defined grouping label, e.g. a bus or interface name." },
+        "hide": { "type": "boolean", "description": "Producer considers this variable noise (a temporary, a duplicate). A viewer may collapse it by default." }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+
+    "instance": {
+      "type": "object",
+      "description": "A child scope inside a unit. `unit` names the definition; everything else is per-instantiation.",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "description": "Instance/scope name as it appears in the trace path, e.g. \"u_fifo\", \"g_lane[2]\"." },
+        "kind": {
+          "enum": ["instance", "genBlock", "block", "function", "task", "structScope", "arrayScope", "interface", "package", "other"],
+          "default": "instance",
+          "description": "Matches the referenced unit's kind family. `instance` = a module/UDP instantiation with port connections; the block kinds are lexical scopes with no ports."
+        },
+        "unit": { "$ref": "#/$defs/unitRef", "description": "The definition. Absent + `blackBox` = an opaque cell." },
+        "blackBox": {
+          "type": "boolean",
+          "default": false,
+          "description": "No body available (DPI, primitive, encrypted IP). A cone traversal must then assume every input port reaches every output port; a viewer should mark the result as conservative."
+        },
+        "decl": { "$ref": "#/$defs/span", "description": "The instantiation site — where \"go to instantiation\" lands. FST's SOURCEISTEM carries only this, and only per scope." },
+        "array": {
+          "type": "array",
+          "description": "Instance array range [left, right]. Trace scopes are `name[i]` for each i in the range.",
+          "minItems": 2,
+          "maxItems": 2,
+          "prefixItems": [{ "type": "integer" }, { "type": "integer" }],
+          "items": false
+        },
+        "inlined": {
+          "type": "boolean",
+          "default": false,
+          "description": "The dumper did not create a scope for this instance; its contents appear in the parent's scope (front-end inlining, `flatten`). The path contributes nothing, and children may need `tracePrefix`."
+        },
+        "tracePrefix": {
+          "type": "string",
+          "description": "Prefix the dumper mangled onto every child leaf name when `inlined` is set, e.g. \"u_fifo__DOT__\"."
+        },
+        "params": {
+          "type": "array",
+          "description": "Parameter overrides written at this instantiation. The resulting values live on the referenced unit's `params`; these are the source-level overrides, with locations.",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "value": { "$ref": "#/$defs/value" },
+              "loc": { "$ref": "#/$defs/span" },
+              "text": { "type": "string" }
+            },
+            "patternProperties": { "^x-": true },
+            "additionalProperties": false
+          }
+        },
+        "conns": {
+          "type": "array",
+          "description": "Port connections. Each carries the parent-side variables it reads and writes, so a cone traversal crosses the boundary without re-parsing an expression. An expression connection (`.a(x & y)`) simply lists several reads.",
+          "items": { "$ref": "#/$defs/conn" }
+        },
+        "comment": { "type": "string" },
+        "attrs": { "$ref": "#/$defs/attrs" }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+
+    "conn": {
+      "type": "object",
+      "description": "One port connection of an instance.",
+      "properties": {
+        "port": { "$ref": "#/$defs/portOrdinal", "description": "Which port of the child unit. Omit only for an unresolved connection on a black box, and then give `name`." },
+        "name": { "type": "string", "description": "Formal port name. Redundant with `port` but makes the file readable and survives a black box." },
+        "bits": { "$ref": "#/$defs/bitRange", "description": "Slice of the *port* this connection covers, for a partially connected port." },
+        "loc": { "$ref": "#/$defs/span", "description": "The connection text in the parent — where a driver list points for a signal driven through a port." },
+        "reads": {
+          "type": "array",
+          "description": "Parent-side variables feeding into the port (any port whose direction is input/inout, or an expression connection).",
+          "items": { "$ref": "#/$defs/ref" }
+        },
+        "writes": {
+          "type": "array",
+          "description": "Parent-side variables the port drives (output/inout).",
+          "items": { "$ref": "#/$defs/ref" }
+        },
+        "positional": { "type": "boolean", "default": false, "description": "Connected by position rather than by name." },
+        "text": { "type": "string", "description": "Source text of the connection, e.g. \".dout(w_data[7:0])\", so a driver list reads well without opening the file." }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+
+    "process": {
+      "type": "object",
+      "description": "One RTL construct that writes and/or reads variables: a continuous assign, a procedural block, an initial block, an assertion. The unit of *sensitivity*; individual writes are its `assigns`, each with its own location.",
+      "required": ["kind"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "contAssign", "alwaysComb", "alwaysFF", "alwaysLatch", "always",
+            "initial", "final", "assertion", "vhdlProcess", "vhdlConcurrent", "primitive", "other"
+          ],
+          "description": "Which construct. `alwaysFF`/`alwaysLatch` (and any process whose sensitivity has an edge) create sequential edges; the rest are combinational. `assertion` typically has no `assigns` at all and exists purely so its reads show up in a signal's use list."
+        },
+        "loc": { "$ref": "#/$defs/span", "description": "The construct's header, e.g. the `always_ff @(...)` line." },
+        "label": { "type": "string", "description": "Block name (`always_ff : main_fsm`), or the VHDL process label." },
+        "sense": {
+          "type": "array",
+          "description": "Sensitivity list. Presence of an `edge` other than `any`/`level` is what makes this process sequential.",
+          "items": {
+            "type": "object",
+            "required": ["ref"],
+            "properties": {
+              "edge": { "enum": ["pos", "neg", "any", "level"], "default": "any", "description": "Edge sensitivity. `pos`/`neg` are what classify a process as sequential, which is the single bit that separates a same-cycle cone from a whole-design one." },
+              "ref": { "$ref": "#/$defs/ref" },
+              "role": { "enum": ["clock", "reset", "enable", "data"], "description": "Semantic role. `clock`/`reset` let a viewer offer \"cone within one cycle\" and let Riptide auto-detect a clock without measuring waveform periods." }
+            },
+            "patternProperties": { "^x-": true },
+            "additionalProperties": false
+          }
+        },
+        "assigns": {
+          "type": "array",
+          "description": "Individual writes inside the construct. One entry per lvalue statement, because the statement line is what a user wants when asking \"where is this assigned\".",
+          "items": { "$ref": "#/$defs/assign" }
+        },
+        "reads": {
+          "type": "array",
+          "description": "Reads not attributable to a single assignment: assertion expressions, `$display` arguments, loop bounds. They make a variable's use list complete without inventing a fake target.",
+          "items": { "$ref": "#/$defs/ref" }
+        },
+        "comment": { "type": "string" },
+        "attrs": { "$ref": "#/$defs/attrs" }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+
+    "assign": {
+      "type": "object",
+      "description": "One write: targets on the left, everything it depends on in `sources`. Data and control dependence are distinguished by the source's `role`, not by separate lists.",
+      "required": ["targets"],
+      "properties": {
+        "loc": { "$ref": "#/$defs/span", "description": "The statement. This is the location a driver list shows." },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Lvalues. Several entries for a concatenation lvalue (`{a, b} = x`).",
+          "items": { "$ref": "#/$defs/ref" }
+        },
+        "sources": {
+          "type": "array",
+          "description": "Everything the written value depends on, including the conditions of enclosing `if`/`case` statements (role `control`) and any non-constant index (role `index`).",
+          "items": { "$ref": "#/$defs/ref" }
+        },
+        "nonBlocking": { "type": "boolean", "default": false, "description": "`<=` rather than `=`." },
+        "delay": { "type": "string", "description": "Delay/timing control as written, e.g. \"#5\", \"@(posedge clk)\". Presence means this assignment is not a same-instant function of its sources." },
+        "guarded": { "type": "boolean", "default": false, "description": "The write is conditional, so the target holds its previous value when the condition is false — a latch/enable, not a pure function of `sources`." },
+        "text": { "type": "string", "description": "Single-line source text of the statement. Lets a viewer list drivers with their code even when the source files are not on the reviewer's machine." }
+      },
+      "patternProperties": { "^x-": true },
+      "additionalProperties": false
+    },
+
+    "ref": {
+      "description": "A reference to a bit slice of something, in the coordinate system of the enclosing unit. Exactly one of `var`, `inst`, `xmr` selects what is referenced.",
+      "oneOf": [
+        {
+          "type": "object",
+          "description": "A variable of the enclosing unit.",
+          "required": ["var"],
+          "properties": {
+            "var": { "$ref": "#/$defs/varRefIndex" },
+            "up": { "$ref": "#/$defs/refUp" },
+            "bits": { "$ref": "#/$defs/bitRange" },
+            "role": { "$ref": "#/$defs/refRole" },
+            "dynamic": { "$ref": "#/$defs/refDynamic" },
+            "select": { "$ref": "#/$defs/refSelect" },
+            "loc": { "$ref": "#/$defs/span", "description": "This occurrence of the identifier, when it is worth pointing at more precisely than the enclosing statement." }
+          },
+          "patternProperties": { "^x-": true },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "A port of a child instance, addressed from the parent. Used when a value is taken straight off an instance port without an intermediate net.",
+          "required": ["inst", "port"],
+          "properties": {
+            "inst": { "$ref": "#/$defs/instRefIndex" },
+            "up": { "$ref": "#/$defs/refUp" },
+            "port": { "$ref": "#/$defs/portOrdinal" },
+            "bits": { "$ref": "#/$defs/bitRange" },
+            "role": { "$ref": "#/$defs/refRole" },
+            "dynamic": { "$ref": "#/$defs/refDynamic" },
+            "select": { "$ref": "#/$defs/refSelect" },
+            "loc": { "$ref": "#/$defs/span" }
+          },
+          "patternProperties": { "^x-": true },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "description": "A cross-module reference: a dotted path the producer could not or would not resolve to a local index. Resolved by the consumer against the elaborated tree; unresolvable ones widen the cone conservatively instead of breaking it.",
+          "required": ["xmr"],
+          "properties": {
+            "xmr": { "type": "string", "description": "Dotted path. Absolute from a design root unless it starts with \".\", which means \"relative to the enclosing instance path\"." },
+            "bits": { "$ref": "#/$defs/bitRange" },
+            "role": { "$ref": "#/$defs/refRole" },
+            "dynamic": { "$ref": "#/$defs/refDynamic" },
+            "select": { "$ref": "#/$defs/refSelect" },
+            "loc": { "$ref": "#/$defs/span" }
+          },
+          "patternProperties": { "^x-": true },
+          "additionalProperties": false
+        }
+      ]
+    },
+
+    "refUp": {
+      "type": "integer",
+      "minimum": 0,
+      "default": 0,
+      "description": "Lexical scope hops to walk up before resolving `var`/`inst`. 0 (the default) means the enclosing unit. A generate or named block referring to a signal of the module around it — the common case in real RTL — is `up: 1`. Only valid across block-like scopes (genBlock, block, function, task, structScope, arrayScope): a module, interface or program boundary is opaque, so a consumer that hits one while walking up must treat the reference as unresolved rather than crossing it."
+    },
+
+    "refRole": {
+      "enum": ["data", "control", "clock", "reset", "enable", "index"],
+      "default": "data",
+      "description": "Why this reference participates. `control` is a condition the write depends on, `index` a non-constant select. A cone can be filtered by role — data-only cones are far smaller and usually what a debugger wants first."
+    },
+
+    "refDynamic": {
+      "type": "boolean",
+      "default": false,
+      "description": "The slice was not statically known (a variable index). `bits`, if present, is a conservative bound; a consumer should widen to the whole variable and mark results approximate."
+    },
+
+    "refSelect": {
+      "type": "string",
+      "description": "Human-readable select expression as written: \"hdr.hi\", \"mem[i]\", \"data[7:4]\". Display only; `bits` is authoritative."
+    }
+  }
+}

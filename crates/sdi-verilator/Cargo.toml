@@ -1,0 +1,10 @@
+[package]
+name = "sdi-verilator"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+sdi = { path = "../sdi" }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = { version = "1.0.151", features = ["unbounded_depth"] }

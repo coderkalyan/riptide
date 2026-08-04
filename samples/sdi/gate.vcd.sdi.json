@@ -1,0 +1,1631 @@
+{
+  "version": 1,
+  "generator": {
+    "tool": "hand-authored",
+    "toolVersion": "docs/sdi.md worked example",
+    "sourceRoot": ".",
+    "command": "see docs/sdi.md \u2014 a real producer emits this from an elaborated front end"
+  },
+  "fidelity": {
+    "tree": "complete",
+    "types": "declared",
+    "drivers": "complete",
+    "bits": "exact",
+    "coi": "partial"
+  },
+  "trace": {
+    "format": "vcd",
+    "separator": ".",
+    "rootPrefix": "tb",
+    "rangeInName": true,
+    "caseSensitive": true,
+    "files": [
+      "gate.vcd"
+    ]
+  },
+  "design": {
+    "name": "gate",
+    "language": "systemverilog",
+    "roots": [
+      {
+        "name": "dut",
+        "unit": 4
+      }
+    ]
+  },
+  "files": [
+    {
+      "path": "gate.sv",
+      "language": "systemverilog",
+      "blake3": "3ec558007ae7c0c978c362364621db4e4eeab1802d73b2b6d481c931bf2f24ae"
+    }
+  ],
+  "types": [
+    {
+      "kind": "bits",
+      "keyword": "logic",
+      "width": 1,
+      "states": 4,
+      "spelling": "logic"
+    },
+    {
+      "kind": "bits",
+      "keyword": "logic",
+      "width": 2,
+      "states": 4,
+      "range": [
+        1,
+        0
+      ],
+      "spelling": "logic [1:0]"
+    },
+    {
+      "kind": "enum",
+      "name": "state_e",
+      "spelling": "pkt_pkg::state_e",
+      "width": 2,
+      "states": 4,
+      "base": 1,
+      "decl": [
+        0,
+        13,
+        5,
+        13,
+        12
+      ],
+      "values": [
+        {
+          "name": "IDLE",
+          "value": "0x0",
+          "decl": [
+            0,
+            10,
+            5,
+            10,
+            16
+          ]
+        },
+        {
+          "name": "BUSY",
+          "value": "0x1",
+          "decl": [
+            0,
+            11,
+            5,
+            11,
+            16
+          ]
+        },
+        {
+          "name": "DONE",
+          "value": "0x3",
+          "decl": [
+            0,
+            12,
+            5,
+            12,
+            16
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "bits",
+      "keyword": "logic",
+      "width": 8,
+      "states": 4,
+      "range": [
+        7,
+        0
+      ],
+      "spelling": "logic [7:0]"
+    },
+    {
+      "kind": "bits",
+      "keyword": "logic",
+      "width": 3,
+      "states": 4,
+      "range": [
+        2,
+        0
+      ],
+      "spelling": "logic [2:0]"
+    },
+    {
+      "kind": "struct",
+      "name": "pkt_t",
+      "spelling": "pkt_pkg::pkt_t",
+      "packed": true,
+      "width": 12,
+      "states": 4,
+      "decl": [
+        0,
+        20,
+        5,
+        20,
+        10
+      ],
+      "members": [
+        {
+          "name": "payload",
+          "type": 3,
+          "lsb": 4,
+          "decl": [
+            0,
+            17,
+            17,
+            17,
+            24
+          ]
+        },
+        {
+          "name": "len",
+          "type": 4,
+          "lsb": 1,
+          "decl": [
+            0,
+            18,
+            17,
+            18,
+            20
+          ]
+        },
+        {
+          "name": "last",
+          "type": 0,
+          "lsb": 0,
+          "decl": [
+            0,
+            19,
+            17,
+            19,
+            21
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "bits",
+      "keyword": "logic",
+      "width": 16,
+      "states": 4,
+      "range": [
+        15,
+        0
+      ],
+      "spelling": "logic [15:0]"
+    },
+    {
+      "kind": "bits",
+      "keyword": "logic",
+      "width": 12,
+      "states": 4,
+      "range": [
+        11,
+        0
+      ],
+      "spelling": "logic [11:0]"
+    },
+    {
+      "kind": "unpackedArray",
+      "shape": "fixed",
+      "elem": 2,
+      "range": [
+        0,
+        1
+      ],
+      "width": 4,
+      "spelling": "pkt_pkg::state_e [2]"
+    },
+    {
+      "kind": "unpackedArray",
+      "shape": "fixed",
+      "elem": 3,
+      "range": [
+        0,
+        1
+      ],
+      "width": 16,
+      "spelling": "logic [7:0] [2]"
+    },
+    {
+      "kind": "unpackedArray",
+      "shape": "fixed",
+      "elem": 3,
+      "range": [
+        0,
+        3
+      ],
+      "width": 32,
+      "spelling": "logic [7:0] [0:3]"
+    },
+    {
+      "kind": "bits",
+      "keyword": "int unsigned",
+      "width": 32,
+      "states": 2,
+      "spelling": "int unsigned"
+    },
+    {
+      "kind": "bits",
+      "keyword": "integer",
+      "width": 32,
+      "states": 4,
+      "signed": true,
+      "spelling": "integer"
+    }
+  ],
+  "units": [
+    {
+      "kind": "package",
+      "name": "pkt_pkg",
+      "decl": [
+        0,
+        7,
+        9,
+        7,
+        16
+      ],
+      "body": [
+        0,
+        7,
+        1,
+        21,
+        11
+      ],
+      "comment": "Shared packet types."
+    },
+    {
+      "kind": "module",
+      "name": "lane",
+      "origName": "lane",
+      "decl": [
+        0,
+        23,
+        8,
+        23,
+        12
+      ],
+      "body": [
+        0,
+        23,
+        1,
+        55,
+        10
+      ],
+      "language": "systemverilog",
+      "params": [
+        {
+          "name": "W",
+          "type": 11,
+          "value": 8,
+          "decl": [
+            0,
+            26,
+            26,
+            26,
+            27
+          ]
+        }
+      ],
+      "ports": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "vars": [
+        {
+          "name": "clk",
+          "type": 0,
+          "kind": "var",
+          "direction": "input",
+          "decl": [
+            0,
+            28,
+            24,
+            28,
+            27
+          ],
+          "hints": {
+            "role": "clock"
+          }
+        },
+        {
+          "name": "rst_n",
+          "type": 0,
+          "kind": "var",
+          "direction": "input",
+          "decl": [
+            0,
+            29,
+            24,
+            29,
+            29
+          ],
+          "hints": {
+            "role": "reset",
+            "polarity": "activeLow"
+          },
+          "comment": "active-low reset"
+        },
+        {
+          "name": "start",
+          "type": 0,
+          "kind": "var",
+          "direction": "input",
+          "decl": [
+            0,
+            30,
+            24,
+            30,
+            29
+          ]
+        },
+        {
+          "name": "din",
+          "type": 3,
+          "kind": "var",
+          "direction": "input",
+          "decl": [
+            0,
+            31,
+            24,
+            31,
+            27
+          ]
+        },
+        {
+          "name": "state",
+          "type": 2,
+          "kind": "var",
+          "direction": "output",
+          "decl": [
+            0,
+            32,
+            24,
+            32,
+            29
+          ]
+        },
+        {
+          "name": "dout",
+          "type": 3,
+          "kind": "var",
+          "direction": "output",
+          "decl": [
+            0,
+            33,
+            24,
+            33,
+            28
+          ]
+        },
+        {
+          "name": "nxt",
+          "type": 2,
+          "kind": "var",
+          "decl": [
+            0,
+            35,
+            17,
+            35,
+            20
+          ]
+        },
+        {
+          "name": "acc",
+          "type": 3,
+          "kind": "var",
+          "decl": [
+            0,
+            36,
+            17,
+            36,
+            20
+          ]
+        }
+      ],
+      "processes": [
+        {
+          "kind": "alwaysComb",
+          "loc": [
+            0,
+            38,
+            3,
+            38,
+            14
+          ],
+          "assigns": [
+            {
+              "loc": [
+                0,
+                39,
+                5,
+                39,
+                17
+              ],
+              "text": "nxt = state;",
+              "targets": [
+                {
+                  "var": 6
+                }
+              ],
+              "sources": [
+                {
+                  "var": 4
+                }
+              ]
+            },
+            {
+              "loc": [
+                0,
+                40,
+                5,
+                40,
+                44
+              ],
+              "text": "if (state == IDLE && start) nxt = BUSY;",
+              "guarded": true,
+              "targets": [
+                {
+                  "var": 6
+                }
+              ],
+              "sources": [
+                {
+                  "var": 4,
+                  "role": "control"
+                },
+                {
+                  "var": 2,
+                  "role": "control"
+                }
+              ]
+            },
+            {
+              "loc": [
+                0,
+                41,
+                5,
+                41,
+                44
+              ],
+              "text": "else if (state == BUSY) nxt = DONE;",
+              "guarded": true,
+              "targets": [
+                {
+                  "var": 6
+                }
+              ],
+              "sources": [
+                {
+                  "var": 4,
+                  "role": "control"
+                }
+              ]
+            },
+            {
+              "loc": [
+                0,
+                42,
+                5,
+                42,
+                44
+              ],
+              "text": "else if (state == DONE) nxt = IDLE;",
+              "guarded": true,
+              "targets": [
+                {
+                  "var": 6
+                }
+              ],
+              "sources": [
+                {
+                  "var": 4,
+                  "role": "control"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "alwaysFF",
+          "loc": [
+            0,
+            45,
+            3,
+            45,
+            44
+          ],
+          "sense": [
+            {
+              "edge": "pos",
+              "ref": {
+                "var": 0
+              },
+              "role": "clock"
+            },
+            {
+              "edge": "neg",
+              "ref": {
+                "var": 1
+              },
+              "role": "reset"
+            }
+          ],
+          "assigns": [
+            {
+              "loc": [
+                0,
+                46,
+                17,
+                46,
+                31
+              ],
+              "text": "if (!rst_n) state <= IDLE;",
+              "nonBlocking": true,
+              "guarded": true,
+              "targets": [
+                {
+                  "var": 4
+                }
+              ],
+              "sources": [
+                {
+                  "var": 1,
+                  "role": "control"
+                }
+              ]
+            },
+            {
+              "loc": [
+                0,
+                47,
+                17,
+                47,
+                30
+              ],
+              "text": "else state <= nxt;",
+              "nonBlocking": true,
+              "guarded": true,
+              "targets": [
+                {
+                  "var": 4
+                }
+              ],
+              "sources": [
+                {
+                  "var": 6
+                },
+                {
+                  "var": 1,
+                  "role": "control"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "alwaysFF",
+          "loc": [
+            0,
+            50,
+            3,
+            50,
+            27
+          ],
+          "sense": [
+            {
+              "edge": "pos",
+              "ref": {
+                "var": 0
+              },
+              "role": "clock"
+            }
+          ],
+          "assigns": [
+            {
+              "loc": [
+                0,
+                51,
+                24,
+                51,
+                41
+              ],
+              "text": "if (state == BUSY) acc <= acc + din;",
+              "nonBlocking": true,
+              "guarded": true,
+              "targets": [
+                {
+                  "var": 7
+                }
+              ],
+              "sources": [
+                {
+                  "var": 7
+                },
+                {
+                  "var": 3
+                },
+                {
+                  "var": 4,
+                  "role": "control"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "contAssign",
+          "loc": [
+            0,
+            54,
+            3,
+            54,
+            21
+          ],
+          "assigns": [
+            {
+              "loc": [
+                0,
+                54,
+                3,
+                54,
+                21
+              ],
+              "text": "assign dout = acc;",
+              "targets": [
+                {
+                  "var": 5
+                }
+              ],
+              "sources": [
+                {
+                  "var": 7
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "genBlock",
+      "name": "g_lane[0]",
+      "origName": "g_lane",
+      "decl": [
+        0,
+        74,
+        42,
+        74,
+        48
+      ],
+      "body": [
+        0,
+        74,
+        3,
+        83,
+        6
+      ],
+      "comment": "One generate iteration; `i` is concrete, so each iteration is its own unit.",
+      "vars": [
+        {
+          "name": "i",
+          "type": 12,
+          "kind": "genvar",
+          "value": 0,
+          "decl": [
+            0,
+            74,
+            15,
+            74,
+            16
+          ]
+        }
+      ],
+      "instances": [
+        {
+          "name": "u_lane",
+          "kind": "instance",
+          "unit": 1,
+          "decl": [
+            0,
+            75,
+            19,
+            75,
+            25
+          ],
+          "params": [
+            {
+              "name": "W",
+              "value": 8,
+              "loc": [
+                0,
+                75,
+                12,
+                75,
+                17
+              ],
+              "text": ".W(8)"
+            }
+          ],
+          "conns": [
+            {
+              "port": 0,
+              "name": "clk",
+              "loc": [
+                0,
+                76,
+                7,
+                76,
+                19
+              ],
+              "text": ".clk (clk)",
+              "reads": [
+                {
+                  "up": 1,
+                  "var": 0,
+                  "role": "clock"
+                }
+              ]
+            },
+            {
+              "port": 1,
+              "name": "rst_n",
+              "loc": [
+                0,
+                77,
+                7,
+                77,
+                21
+              ],
+              "text": ".rst_n (rst_n)",
+              "reads": [
+                {
+                  "up": 1,
+                  "var": 1,
+                  "role": "reset"
+                }
+              ]
+            },
+            {
+              "port": 2,
+              "name": "start",
+              "loc": [
+                0,
+                78,
+                7,
+                78,
+                21
+              ],
+              "text": ".start (start)",
+              "reads": [
+                {
+                  "up": 1,
+                  "var": 2
+                }
+              ]
+            },
+            {
+              "port": 3,
+              "name": "din",
+              "loc": [
+                0,
+                79,
+                7,
+                79,
+                19
+              ],
+              "text": ".din (din)",
+              "reads": [
+                {
+                  "up": 1,
+                  "var": 3
+                }
+              ]
+            },
+            {
+              "port": 4,
+              "name": "state",
+              "loc": [
+                0,
+                80,
+                7,
+                80,
+                21
+              ],
+              "text": ".state (st[i])",
+              "writes": [
+                {
+                  "up": 1,
+                  "var": 7,
+                  "bits": [
+                    0,
+                    2
+                  ],
+                  "select": "st[0]"
+                }
+              ]
+            },
+            {
+              "port": 5,
+              "name": "dout",
+              "loc": [
+                0,
+                81,
+                7,
+                81,
+                27
+              ],
+              "text": ".dout (lane_out[i])",
+              "writes": [
+                {
+                  "up": 1,
+                  "var": 8,
+                  "bits": [
+                    0,
+                    8
+                  ],
+                  "select": "lane_out[0]"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "genBlock",
+      "name": "g_lane[1]",
+      "origName": "g_lane",
+      "decl": [
+        0,
+        74,
+        42,
+        74,
+        48
+      ],
+      "body": [
+        0,
+        74,
+        3,
+        83,
+        6
+      ],
+      "comment": "One generate iteration; `i` is concrete, so each iteration is its own unit.",
+      "vars": [
+        {
+          "name": "i",
+          "type": 12,
+          "kind": "genvar",
+          "value": 1,
+          "decl": [
+            0,
+            74,
+            15,
+            74,
+            16
+          ]
+        }
+      ],
+      "instances": [
+        {
+          "name": "u_lane",
+          "kind": "instance",
+          "unit": 1,
+          "decl": [
+            0,
+            75,
+            19,
+            75,
+            25
+          ],
+          "params": [
+            {
+              "name": "W",
+              "value": 8,
+              "loc": [
+                0,
+                75,
+                12,
+                75,
+                17
+              ],
+              "text": ".W(8)"
+            }
+          ],
+          "conns": [
+            {
+              "port": 0,
+              "name": "clk",
+              "loc": [
+                0,
+                76,
+                7,
+                76,
+                19
+              ],
+              "text": ".clk (clk)",
+              "reads": [
+                {
+                  "up": 1,
+                  "var": 0,
+                  "role": "clock"
+                }
+              ]
+            },
+            {
+              "port": 1,
+              "name": "rst_n",
+              "loc": [
+                0,
+                77,
+                7,
+                77,
+                21
+              ],
+              "text": ".rst_n (rst_n)",
+              "reads": [
+                {
+                  "up": 1,
+                  "var": 1,
+                  "role": "reset"
+                }
+              ]
+            },
+            {
+              "port": 2,
+              "name": "start",
+              "loc": [
+                0,
+                78,
+                7,
+                78,
+                21
+              ],
+              "text": ".start (start)",
+              "reads": [
+                {
+                  "up": 1,
+                  "var": 2
+                }
+              ]
+            },
+            {
+              "port": 3,
+              "name": "din",
+              "loc": [
+                0,
+                79,
+                7,
+                79,
+                19
+              ],
+              "text": ".din (din)",
+              "reads": [
+                {
+                  "up": 1,
+                  "var": 3
+                }
+              ]
+            },
+            {
+              "port": 4,
+              "name": "state",
+              "loc": [
+                0,
+                80,
+                7,
+                80,
+                21
+              ],
+              "text": ".state (st[i])",
+              "writes": [
+                {
+                  "up": 1,
+                  "var": 7,
+                  "bits": [
+                    2,
+                    2
+                  ],
+                  "select": "st[1]"
+                }
+              ]
+            },
+            {
+              "port": 5,
+              "name": "dout",
+              "loc": [
+                0,
+                81,
+                7,
+                81,
+                27
+              ],
+              "text": ".dout (lane_out[i])",
+              "writes": [
+                {
+                  "up": 1,
+                  "var": 8,
+                  "bits": [
+                    8,
+                    8
+                  ],
+                  "select": "lane_out[1]"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "kind": "module",
+      "name": "gate",
+      "origName": "gate",
+      "decl": [
+        0,
+        57,
+        8,
+        57,
+        12
+      ],
+      "body": [
+        0,
+        57,
+        1,
+        98,
+        10
+      ],
+      "language": "systemverilog",
+      "ports": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "vars": [
+        {
+          "name": "clk",
+          "type": 0,
+          "kind": "var",
+          "direction": "input",
+          "decl": [
+            0,
+            60,
+            23,
+            60,
+            26
+          ],
+          "hints": {
+            "role": "clock"
+          }
+        },
+        {
+          "name": "rst_n",
+          "type": 0,
+          "kind": "var",
+          "direction": "input",
+          "decl": [
+            0,
+            61,
+            23,
+            61,
+            28
+          ],
+          "hints": {
+            "role": "reset",
+            "polarity": "activeLow"
+          }
+        },
+        {
+          "name": "start",
+          "type": 0,
+          "kind": "var",
+          "direction": "input",
+          "decl": [
+            0,
+            62,
+            23,
+            62,
+            28
+          ]
+        },
+        {
+          "name": "din",
+          "type": 3,
+          "kind": "var",
+          "direction": "input",
+          "decl": [
+            0,
+            63,
+            23,
+            63,
+            26
+          ]
+        },
+        {
+          "name": "wptr",
+          "type": 1,
+          "kind": "var",
+          "direction": "input",
+          "decl": [
+            0,
+            64,
+            23,
+            64,
+            27
+          ]
+        },
+        {
+          "name": "sum",
+          "type": 6,
+          "kind": "var",
+          "direction": "output",
+          "decl": [
+            0,
+            65,
+            23,
+            65,
+            26
+          ]
+        },
+        {
+          "name": "hdr_out",
+          "type": 7,
+          "kind": "var",
+          "direction": "output",
+          "decl": [
+            0,
+            66,
+            23,
+            66,
+            30
+          ]
+        },
+        {
+          "name": "st",
+          "type": 8,
+          "kind": "memory",
+          "decl": [
+            0,
+            68,
+            15,
+            68,
+            17
+          ],
+          "traceOmitted": true
+        },
+        {
+          "name": "lane_out",
+          "type": 9,
+          "kind": "memory",
+          "decl": [
+            0,
+            69,
+            15,
+            69,
+            23
+          ],
+          "traceOmitted": true
+        },
+        {
+          "name": "hdr",
+          "type": 5,
+          "kind": "var",
+          "decl": [
+            0,
+            70,
+            15,
+            70,
+            18
+          ],
+          "traceName": "hdr"
+        },
+        {
+          "name": "mem",
+          "type": 10,
+          "kind": "memory",
+          "decl": [
+            0,
+            71,
+            15,
+            71,
+            18
+          ],
+          "traceOmitted": true
+        },
+        {
+          "name": "crc",
+          "type": 3,
+          "kind": "var",
+          "decl": [
+            0,
+            72,
+            15,
+            72,
+            18
+          ]
+        }
+      ],
+      "instances": [
+        {
+          "name": "g_lane[0]",
+          "kind": "genBlock",
+          "unit": 2,
+          "decl": [
+            0,
+            74,
+            42,
+            74,
+            48
+          ]
+        },
+        {
+          "name": "g_lane[1]",
+          "kind": "genBlock",
+          "unit": 3,
+          "decl": [
+            0,
+            74,
+            42,
+            74,
+            48
+          ]
+        },
+        {
+          "name": "u_crc",
+          "kind": "instance",
+          "blackBox": true,
+          "decl": [
+            0,
+            85,
+            8,
+            85,
+            13
+          ],
+          "comment": "Opaque cell: no source available, so every input reaches every output.",
+          "conns": [
+            {
+              "name": "data",
+              "loc": [
+                0,
+                85,
+                15,
+                85,
+                33
+              ],
+              "text": ".data(lane_out[0])",
+              "reads": [
+                {
+                  "var": 8,
+                  "bits": [
+                    0,
+                    8
+                  ],
+                  "select": "lane_out[0]"
+                }
+              ]
+            },
+            {
+              "name": "crc",
+              "loc": [
+                0,
+                85,
+                35,
+                85,
+                44
+              ],
+              "text": ".crc(crc)",
+              "writes": [
+                {
+                  "var": 11
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "processes": [
+        {
+          "kind": "alwaysFF",
+          "loc": [
+            0,
+            87,
+            3,
+            87,
+            27
+          ],
+          "sense": [
+            {
+              "edge": "pos",
+              "ref": {
+                "var": 0
+              },
+              "role": "clock"
+            }
+          ],
+          "assigns": [
+            {
+              "loc": [
+                0,
+                88,
+                24,
+                88,
+                48
+              ],
+              "text": "if (st[0] == DONE) mem[wptr] <= lane_out[0];",
+              "nonBlocking": true,
+              "guarded": true,
+              "targets": [
+                {
+                  "var": 10,
+                  "dynamic": true,
+                  "select": "mem[wptr]"
+                }
+              ],
+              "sources": [
+                {
+                  "var": 8,
+                  "bits": [
+                    0,
+                    8
+                  ],
+                  "select": "lane_out[0]"
+                },
+                {
+                  "var": 4,
+                  "role": "index"
+                },
+                {
+                  "var": 7,
+                  "bits": [
+                    0,
+                    2
+                  ],
+                  "role": "control",
+                  "select": "st[0]"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "contAssign",
+          "loc": [
+            0,
+            91,
+            3,
+            91,
+            31
+          ],
+          "assigns": [
+            {
+              "loc": [
+                0,
+                91,
+                3,
+                91,
+                31
+              ],
+              "text": "assign hdr.payload = mem[0];",
+              "targets": [
+                {
+                  "var": 9,
+                  "bits": [
+                    4,
+                    8
+                  ],
+                  "select": "hdr.payload"
+                }
+              ],
+              "sources": [
+                {
+                  "var": 10,
+                  "bits": [
+                    0,
+                    8
+                  ],
+                  "select": "mem[0]"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "contAssign",
+          "loc": [
+            0,
+            92,
+            3,
+            92,
+            29
+          ],
+          "assigns": [
+            {
+              "loc": [
+                0,
+                92,
+                3,
+                92,
+                29
+              ],
+              "text": "assign hdr.len = 3'd4;",
+              "targets": [
+                {
+                  "var": 9,
+                  "bits": [
+                    1,
+                    3
+                  ],
+                  "select": "hdr.len"
+                }
+              ],
+              "sources": []
+            }
+          ]
+        },
+        {
+          "kind": "contAssign",
+          "loc": [
+            0,
+            93,
+            3,
+            93,
+            40
+          ],
+          "assigns": [
+            {
+              "loc": [
+                0,
+                93,
+                3,
+                93,
+                40
+              ],
+              "text": "assign hdr.last = (st[1] == DONE);",
+              "targets": [
+                {
+                  "var": 9,
+                  "bits": [
+                    0,
+                    1
+                  ],
+                  "select": "hdr.last"
+                }
+              ],
+              "sources": [
+                {
+                  "var": 7,
+                  "bits": [
+                    2,
+                    2
+                  ],
+                  "select": "st[1]"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "contAssign",
+          "loc": [
+            0,
+            94,
+            3,
+            94,
+            28
+          ],
+          "assigns": [
+            {
+              "loc": [
+                0,
+                94,
+                3,
+                94,
+                28
+              ],
+              "text": "assign hdr_out = hdr;",
+              "targets": [
+                {
+                  "var": 6
+                }
+              ],
+              "sources": [
+                {
+                  "var": 9
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "contAssign",
+          "loc": [
+            0,
+            95,
+            3,
+            95,
+            23
+          ],
+          "assigns": [
+            {
+              "loc": [
+                0,
+                95,
+                3,
+                95,
+                23
+              ],
+              "text": "assign sum = {8'h00, lane_out[0]} + {8'h00, lane_out[1]} + {8'h00, crc};",
+              "targets": [
+                {
+                  "var": 5
+                }
+              ],
+              "sources": [
+                {
+                  "var": 8,
+                  "bits": [
+                    0,
+                    8
+                  ],
+                  "select": "lane_out[0]"
+                },
+                {
+                  "var": 8,
+                  "bits": [
+                    8,
+                    8
+                  ],
+                  "select": "lane_out[1]"
+                },
+                {
+                  "var": 11
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "assertion",
+          "loc": [
+            0,
+            97,
+            3,
+            97,
+            18
+          ],
+          "label": "st0_known",
+          "reads": [
+            {
+              "var": 7,
+              "bits": [
+                0,
+                2
+              ]
+            },
+            {
+              "var": 0,
+              "role": "clock"
+            },
+            {
+              "var": 1,
+              "role": "control"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "warnings": [
+    "cone of influence is partial: gate.u_crc is a black box, so its input-to-output paths are assumed complete rather than analyzed",
+    "the testbench tb was not analyzed; gate binds to the trace as tb.dut via trace.rootPrefix"
+  ]
+}

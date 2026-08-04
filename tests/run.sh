@@ -2,7 +2,7 @@
 # Regression/integration runner for riptide against the vcd-tests oracle corpus.
 #
 #   tests/run.sh            # node suites (headless) + e2e if a display exists
-#   tests/run.sh native     # one suite: native | format | malformed | e2e
+#   tests/run.sh native     # one suite: native | format | malformed | sdi | e2e
 #
 # Env:
 #   VCD_TESTS_DIR   path to the vcd-tests checkout (default ~/Documents/vcd-tests)
@@ -20,6 +20,19 @@ run_native()       { node --test tests/native.test.cjs; }
 run_format()       { node --test tests/format.test.cjs; }
 run_differential() { node --test tests/differential.test.cjs; }
 run_malformed()    { node --test tests/malformed.test.cjs; }
+# The SDI suite is two halves: cargo unit tests for the format crate and the
+# verilator converter, then the node end-to-end (schema, binding, cone, producer
+# round-trip). Both self-skip what they cannot find.
+run_sdi() {
+  local rc=0
+  if command -v cargo >/dev/null 2>&1; then
+    cargo test -p sdi -p sdi-verilator || rc=$?
+  else
+    echo "sdi: cargo tests skipped (no cargo)"
+  fi
+  node --test tests/sdi.test.cjs || rc=$?
+  return $rc
+}
 run_e2e() {
   if [[ "${SKIP_E2E:-}" == "1" ]]; then echo "e2e: skipped (SKIP_E2E=1)"; return 0; fi
   if [[ -z "${DISPLAY:-}" ]]; then echo "e2e: skipped (no DISPLAY — needs a display or xvfb)"; return 0; fi
@@ -33,6 +46,7 @@ case "${1:-all}" in
   format)       run_format       || rc=$? ;;
   differential) run_differential || rc=$? ;;
   malformed)    run_malformed    || rc=$? ;;
+  sdi)          run_sdi          || rc=$? ;;
   e2e)          run_e2e          || rc=$? ;;
   all)
     run_seam_a       || rc=$?
@@ -40,6 +54,7 @@ case "${1:-all}" in
     run_format       || rc=$?
     run_differential || rc=$?
     run_malformed    || rc=$?
+    run_sdi          || rc=$?
     run_e2e          || rc=$?
     ;;
   *) echo "unknown suite: $1" >&2; exit 2 ;;
