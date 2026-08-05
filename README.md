@@ -10,7 +10,7 @@ nanoseconds. Buses decode into the radix you actually want. And every bit of tha
 small JSON file next to the trace — so the view you built survives the next simulation run, and
 can be handed to whoever reviews the bug.
 
-> **Alpha.** Version 0.1.0-alpha.2 reads VCD and nothing else, and the builds are unsigned.
+> **Alpha.** Version 0.1.0-alpha.4 reads VCD and nothing else, and the builds are unsigned.
 > It's usable for real debugging today; expect rough edges and read
 > [What doesn't work yet](#what-doesnt-work-yet) before you rely on it.
 
