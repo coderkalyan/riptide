@@ -6,6 +6,8 @@
 //     process (src/main/menu.ts) turns them into a real Electron menu.
 // Keep all menu content here so the two renderers never drift.
 import type { MenuItem } from "./ContextMenu";
+import type { UpdateStatus } from "../shared/update";
+import { pendingVersion } from "../shared/update";
 
 // Plain snapshot of the document/UI state the menu labels + enabled/checked flags
 // depend on. Assembled reactively in App.tsx and passed to both consumers.
@@ -22,6 +24,7 @@ export type MenuState = {
   signalHidden: boolean;
   linux: boolean; // gates the Linux-only "System Title Bar" frame toggle
   frameStyle: "custom" | "native";
+  update: UpdateStatus; // drives the Help ▸ update entry's label
 };
 
 // Basename of a path (cross-platform-ish: split on both separators).
@@ -30,19 +33,28 @@ const baseName = (p: string) => p.split(/[\\/]/).pop() || p;
 // Edit is nearly all placeholders; Find… is the one live entry (it focuses the
 // signal tree's filter box). Unimplemented items carry no `kbd` — advertising a
 // shortcut that does nothing reads as broken.
-const editHelp = (idle: boolean): { name: string; items: MenuItem[] }[] => [
-  { name: "Edit", items: [
-    { label: "Undo", disabled: true, unimplemented: true }, { label: "Redo", disabled: true, unimplemented: true }, "sep",
-    { label: "Cut", disabled: true, unimplemented: true }, { label: "Copy", disabled: true, unimplemented: true }, { label: "Paste", disabled: true, unimplemented: true }, "sep",
-    { label: "Find…", kbd: "Ctrl+F", action: "find", disabled: idle },
-  ] },
-  { name: "Help", items: [
-    { label: "Documentation", action: "docs" },
-    { label: "Keyboard Shortcuts", action: "shortcuts" },
-    "sep",
-    { label: "About Riptide", action: "about" },
-  ] },
-];
+//
+// The Help entry doubles as the only update affordance: a stable "Check for Updates…"
+// that turns into a version-bearing label once a newer release is known. Both dispatch
+// the same action — the About card is where the actual update UI lives, so there is one
+// place to look rather than a menu item and a dialog that can disagree.
+const editHelp = (idle: boolean, update: UpdateStatus): { name: string; items: MenuItem[] }[] => {
+  const pending = pendingVersion(update);
+  return [
+    { name: "Edit", items: [
+      { label: "Undo", disabled: true, unimplemented: true }, { label: "Redo", disabled: true, unimplemented: true }, "sep",
+      { label: "Cut", disabled: true, unimplemented: true }, { label: "Copy", disabled: true, unimplemented: true }, { label: "Paste", disabled: true, unimplemented: true }, "sep",
+      { label: "Find…", kbd: "Ctrl+F", action: "find", disabled: idle },
+    ] },
+    { name: "Help", items: [
+      { label: "Documentation", action: "docs" },
+      { label: "Keyboard Shortcuts", action: "shortcuts" },
+      "sep",
+      { label: pending ? `Update Available (${pending})…` : "Check for Updates…", action: "updates" },
+      { label: "About Riptide", action: "about" },
+    ] },
+  ];
+};
 
 // The full menu tree for the given state + recent-trace list. Actions are opaque
 // strings dispatched by App.tsx `runMenuAction` (shared by both renderers).
@@ -52,7 +64,7 @@ export function buildMenus(s: MenuState, recent: string[]): { name: string; item
     recent.length === 0
       ? [{ label: "No Recent Traces", disabled: true }]
       : recent.map((p) => ({ label: baseName(p), action: "open-recent", path: p }));
-  const [edit, help] = editHelp(idle);
+  const [edit, help] = editHelp(idle, s.update);
 
   return [
     { name: "File", items: [

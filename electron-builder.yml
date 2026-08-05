@@ -14,7 +14,16 @@ asarUnpack:
   - dist/native/**
 linux:
   target:
+    # AppImage is the portable "just run it" artifact, but its squashfs/FUSE wrapper adds
+    # ~1.9s to every launch (measured: 2.6s vs 0.76s for the identical unwrapped build)
+    # and never settles into a stable warm time. deb and tar.gz exist so the common cases
+    # don't pay that: deb for a real install, tar.gz for extract-and-run.
     - AppImage
+    - deb
+    - tar.gz
+  # dpkg needs a maintainer and package.json's `author` carries no email address, so
+  # electron-builder cannot derive one.
+  maintainer: Kalyan Sriram <kalyan@ksriram.dev>
   category: Development
   # Pairs with package.json `desktopName`: Electron uses it as the app_id/WM_CLASS,
   # and the generated .desktop entry's StartupWMClass must match or desktop
@@ -23,6 +32,11 @@ linux:
 mac:
   target:
     - dmg
+    # Squirrel.Mac only consumes a zip — MacUpdater hard-requires one in latest-mac.yml
+    # and never touches the dmg. Auto-update is still off on macOS (ad-hoc signing can't
+    # satisfy Squirrel's designated-requirement check; see src/main/updater.ts), but the
+    # artifact ships now so enabling it is a one-line change once a Developer ID exists.
+    - zip
   # Ad-hoc signature (no Apple Developer ID yet): arm64 macOS kills binaries
   # with no signature at all, so beta builds must be at least ad-hoc signed.
   # Hardened runtime is off — it breaks Electron's frameworks under an ad-hoc
@@ -32,8 +46,30 @@ mac:
   category: public.app-category.developer-tools
 win:
   target:
+    # nsis is the only auto-updatable Windows target (electron-builder writes no update
+    # metadata for portable, and NsisUpdater drives installs with /S and /D= flags a
+    # portable exe does not implement). portable stays for the zero-install case; the app
+    # detects it at runtime via PORTABLE_EXECUTABLE_FILE and falls back to a manual check.
+    - nsis
     - portable
-  # ${productName}, not ${name}: the other platforms ship "Riptide-<version>…",
-  # and electron-builder's default portable name has a space in it
-  # ("Riptide 0.1.0….exe"), which GitHub mangles into dots on a release asset.
+nsis:
+  # Per-user install (no UAC), so an auto-update never raises an elevation prompt.
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  # ${productName}, not ${name}: the other platforms ship "Riptide-<version>…", and
+  # electron-builder's default nsis name has spaces in it ("Riptide Setup 0.1.0.exe"),
+  # which GitHub mangles into dots on a release asset.
+  artifactName: ${productName}-${version}-setup.${ext}
+portable:
+  # Same spaces-in-the-default-name problem as nsis above.
   artifactName: ${productName}-${version}-portable.${ext}
+# Required by electron-updater: drives the provider block written into
+# resources/app-update.yml and the generation of latest*.yml next to the installers.
+# Explicit rather than inferred from the git remote so a fork or a mirror-clone build
+# cannot silently point users' updates at the wrong repository. `--publish never` still
+# writes the metadata; only the upload is skipped (CI attaches the assets itself).
+publish:
+  provider: github
+  owner: coderkalyan
+  repo: riptide

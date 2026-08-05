@@ -14,6 +14,7 @@
 // anyway. Nothing in the translation logic is mac-specific, so it stays reusable if another
 // platform ever adopts a native menu bar.
 import { Menu, BrowserWindow, type MenuItemConstructorOptions } from "electron";
+import { sendToWindow } from "./send";
 
 // Mirror of the renderer's `MenuItem` (ContextMenu.ts) — only the fields the menu tree
 // actually uses. Arrives via IPC (structured-clone of plain objects), so no functions.
@@ -31,7 +32,8 @@ type MenuItem =
 type Section = { name: string; items: MenuItem[] };
 
 function send(action: string, path?: string): void {
-  BrowserWindow.getFocusedWindow()?.webContents.send("riptide:menu-action", { action, path });
+  const win = BrowserWindow.getFocusedWindow();
+  if (win) sendToWindow(win, "riptide:menu-action", { action, path });
 }
 
 // Turn a `kbd` hint into a native accelerator. Only modifier chords (e.g. "Ctrl+O")

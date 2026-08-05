@@ -387,6 +387,34 @@
             cursor: default;
         }
         .about-modal .link:hover { color: var(--accent); text-decoration: underline; }
+        /* Update section (Help ▸ Check for Updates renders into the same card). Separated
+           by a rule so the card still reads as "identity, then state" rather than one run
+           of centred lines. `.about-update .link` inherits the link styling above. */
+        .about-update {
+            font-size: var(--text-sm);
+            color: var(--text-2);
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border);
+        }
+        .about-update.muted { color: var(--muted); }
+        .about-update .muted { color: var(--muted); }
+        .about-update .btn { margin: 8px auto 0; }
+        .about-update .about-meta { margin-top: 6px; }
+        /* Determinate bar — electron-updater reports real byte progress, so never
+           animate it as indeterminate. */
+        .about-progress {
+            height: 4px;
+            margin-top: 8px;
+            border-radius: 2px;
+            overflow: hidden;
+            background: var(--border);
+        }
+        .about-progress > div {
+            height: 100%;
+            background: var(--accent);
+            transition: width 120ms linear;
+        }
 
         /* Keyboard-shortcuts dialog (Help ▸ Keyboard Shortcuts). Two columns: the
            chord in the mono face the menu uses for its own hints, then the action. */

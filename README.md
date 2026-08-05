@@ -19,17 +19,44 @@ can be handed to whoever reviews the bug.
 ## Install
 
 Grab the build for your machine from the [latest release](https://github.com/coderkalyan/riptide/releases).
-There's no package manager entry yet — Linux and Windows ship a single file you run, macOS ships a
-disk image.
+There's no package manager entry yet.
 
 | Platform | File | First run |
 |---|---|---|
-| Linux x64 | the `.AppImage` | `chmod +x` it, then run it |
+| Linux x64 (Debian/Ubuntu) | the `.deb` | `sudo dpkg -i` it; installs to `/opt/Riptide` |
+| Linux x64 (any distro) | the `.tar.gz` | Extract anywhere, run `./riptide` |
+| Linux x64 (no extract) | the `.AppImage` | `chmod +x` it, then run it |
 | macOS (Apple silicon) | the `-arm64.dmg` | Open, drag to Applications, then **right-click ▸ Open** |
 | macOS (Intel) | the `.dmg` without `-arm64` | Same as above |
-| Windows x64 | the `-portable.exe` | Run it; at the SmartScreen prompt pick **More info ▸ Run anyway** |
+| Windows x64 | the `-setup.exe` | Run it; at the SmartScreen prompt pick **More info ▸ Run anyway** |
+| Windows x64 (no install) | the `-portable.exe` | Same, but nothing is written outside the folder you run it from |
 
 There's no arm64 build for Linux or Windows — arm64 is macOS-only.
+
+**Which Linux file — the AppImage is the slow one.** It is a compressed filesystem image
+mounted through FUSE on every launch, which costs roughly **1.9 seconds of extra startup on
+every run** and never settles down the way a normal install does (measured: ~2.6 s to first
+frame vs ~0.78 s for the byte-identical `.deb` and `.tar.gz`). Prefer the `.deb` if you're on
+Debian/Ubuntu, or the `.tar.gz` anywhere else. Take the AppImage only if you specifically want
+a single self-contained file.
+
+**Which Windows file.** `-setup.exe` installs per-user (no admin prompt) and can update itself.
+`-portable.exe` is a single file you can run from a USB stick, and cannot — see Updates below.
+
+### Updates
+
+Riptide checks for a new release on startup and reports it under **Help ▸ Check for Updates**,
+which is also where you can check on demand. Nothing is downloaded without you asking.
+
+| Build | Updates itself? |
+|---|---|
+| Linux `.AppImage`, Windows `-setup.exe` | Yes — installs when you next quit |
+| Linux `.deb` | Yes — needs **Restart Now** and asks for administrator access (`dpkg` does) |
+| Linux `.tar.gz`, Windows `-portable.exe`, macOS `.dmg` | No — tells you and opens the download page |
+
+The three that can't update in place have no installer to hand the update to — and on macOS,
+in-place updates additionally require a paid Apple Developer ID that Riptide doesn't have yet
+(the ad-hoc signature these builds use cannot satisfy the OS's update check).
 
 **Why the extra clicks.** These builds aren't signed by a paid developer certificate, so macOS
 Gatekeeper and Windows SmartScreen both object the first time. Right-click ▸ Open (macOS) and
@@ -40,8 +67,8 @@ normally.
 Any reasonably modern discrete or integrated graphics will do. If the GPU can't be used, the app
 still opens and the rest of the UI works, but the waveform area shows *"WebGPU unavailable"* with
 the specific reason — usually a driver or hardware-acceleration problem. On Linux you'll also want
-working Vulkan drivers, and the AppImage is built against glibc 2.31, so distributions older than
-roughly Ubuntu 20.04 won't run it.
+working Vulkan drivers, and the Linux builds are compiled against glibc 2.31, so distributions
+older than roughly Ubuntu 20.04 won't run them.
 
 ## Opening a trace
 
@@ -53,8 +80,8 @@ with the app, and dragging a file onto the window does nothing. For scripts and 
 environment variable on the executable itself:
 
 ```sh
-# Linux
-RIPTIDE_VCD=/path/to/sim.vcd ./Riptide-<version>.AppImage
+# Linux (deb install; use ./riptide or the AppImage path for the other builds)
+RIPTIDE_VCD=/path/to/sim.vcd /opt/Riptide/riptide
 
 # macOS
 RIPTIDE_VCD=/path/to/sim.vcd /Applications/Riptide.app/Contents/MacOS/Riptide

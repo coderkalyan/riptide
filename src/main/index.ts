@@ -2,6 +2,8 @@ import { app, BrowserWindow, Menu, dialog, ipcMain, shell } from "electron";
 import * as path from "node:path";
 import fs from 'fs';
 import { installNativeMenu } from "./menu";
+import { initUpdater } from "./updater";
+import { sendToWindow } from "./send";
 
 app.commandLine.appendSwitch("enable-unsafe-webgpu");
 if (process.platform === "linux") {
@@ -139,6 +141,12 @@ function createWindow(): void {
     ...(process.platform === "darwin" ? {} : { icon: path.join(app.getAppPath(), "dist/renderer/icon.png") }),
     frame: !frameless,
     autoHideMenuBar: true,
+    // Matches --bg in index.css. Electron paints white until the renderer's first frame,
+    // which on a dark-themed app is a jarring flash — and it lasts as long as startup
+    // does (~0.4s unpacked, ~1.0s from an AppImage, where the squashfs/FUSE wrapper
+    // slows the bundle load). Keep this in sync with :root --bg or the flash comes back
+    // as a colour step instead of a white one.
+    backgroundColor: "#141517",
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -152,10 +160,41 @@ function createWindow(): void {
   // the page-driven update (fires on load) with our own.
   win.on("page-title-updated", (e) => { e.preventDefault(); win.setTitle(windowTitle()); });
   // Keep the custom titlebar's maximize/restore glyph in sync with the real window
-  // state (the WM can also (un)maximize, e.g. double-click or a keybind).
-  const sendMax = () => win.webContents.send("riptide:maximized", win.isMaximized());
+  // state (the WM can also (un)maximize, e.g. double-click or a keybind). Routed through
+  // sendToWindow: a crashed renderer leaves the window alive with its frame disposed, and
+  // a raw send would then throw out of the WM's maximize event.
+  const sendMax = () => sendToWindow(win, "riptide:maximized", win.isMaximized());
   win.on("maximize", sendMax);
   win.on("unmaximize", sendMax);
+
+  // A dead renderer is otherwise completely silent: the window stays up showing the last
+  // painted frame or plain white, nothing is logged, and the only hint is whatever
+  // unrelated send throws next. Report the reason (this is the diagnostic — "oom",
+  // "crashed", "killed" say very different things) and offer to reload, which rebuilds
+  // the renderer against the same trace since currentVcd is main-process state.
+  //
+  // Deliberately a prompt rather than an automatic reload: if the renderer dies on
+  // something reproducible in the trace, auto-reload is an infinite crash loop.
+  win.webContents.on("render-process-gone", (_e, details) => {
+    console.error(`[renderer] gone: reason=${details.reason} exitCode=${details.exitCode}`);
+    if (details.reason === "clean-exit") return;
+    if (win.isDestroyed()) return;
+    void dialog
+      .showMessageBox(win, {
+        type: "error",
+        title: "Riptide stopped responding",
+        message: "The Riptide window crashed and has to be reloaded.",
+        detail: `Reason: ${details.reason} (exit code ${details.exitCode}). Your view is restored from the sidecar; unsaved marker or colour changes since the last autosave may be lost.`,
+        buttons: ["Reload", "Close Window"],
+        defaultId: 0,
+        cancelId: 1,
+      })
+      .then(({ response }) => {
+        if (win.isDestroyed()) return;
+        if (response === 0) loadTrace(win);
+        else win.close();
+      });
+  });
   loadTrace(win);
   // win.webContents.openDevTools({ mode: "detach" });
   //
@@ -341,6 +380,9 @@ app.whenReady().then(() => {
   else Menu.setApplicationMenu(null);
   currentVcd = resolveBootTrace();
   createWindow();
+  // After the window exists: initUpdater schedules a silent check that broadcasts its
+  // result to every open window, and the renderer asks for the current state on mount.
+  initUpdater();
 });
 
 app.on("window-all-closed", () => {

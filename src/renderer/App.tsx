@@ -20,6 +20,7 @@ import { buildEnumLabels } from "./wave/value";
 import { getSignal } from "./hier/hierarchy";
 import { declarationOf, instantiationOf, locLabel } from "./hier/describe";
 import type { SourceLoc } from "./hier/types";
+import type { UpdateStatus } from "../shared/update";
 import { SCENE, swapTrace, applySidecar, currentVcdPath, hasTrace } from "./hier/scene";
 import { view } from "./wave/viewport";
 import { ZOOM_STEP } from "./wave/constants";
@@ -55,6 +56,14 @@ const DOCS_URL = "https://riptide.ksriram.dev/docs";
 function openExternal(url: string): void {
   void ipc()?.invoke("riptide:open-external", url);
 }
+
+// Update state. The main process owns the state machine (src/main/updater.ts); the
+// renderer mirrors it for the Help-menu label and the About card. `checkUpdate` is the
+// user-initiated check — unlike the silent boot check it always reports its outcome,
+// including "you are up to date".
+function checkUpdate(): void { void ipc()?.invoke("riptide:update-check"); }
+function downloadUpdate(): void { void ipc()?.invoke("riptide:update-download"); }
+function restartForUpdate(): void { void ipc()?.invoke("riptide:update-restart"); }
 
 // Jump to a declaration in whatever editor the user already has open — see the main
 // process's `riptide:open-in-editor`. There is no built-in code viewer: the editor
@@ -277,6 +286,18 @@ export function App() {
       onCleanup(() => ipcRenderer.removeListener("riptide:maximized", on));
     } catch (e) { console.error("[ipc] maximize subscribe failed", e); }
   });
+  // Update state mirrored from main. Seeded on mount (the boot check may already have
+  // finished, or may not have run yet) and then kept live by main's broadcasts, so the
+  // Help-menu label and an open About card both stay current without polling.
+  const [update, setUpdate] = createSignal<UpdateStatus>({ kind: "idle" });
+  onMount(() => {
+    const r = ipc();
+    if (!r) return;
+    void r.invoke("riptide:update-status").then((v) => setUpdate(v as UpdateStatus));
+    const on = (_e: unknown, v: unknown) => setUpdate(v as UpdateStatus);
+    r.on("riptide:update-status", on);
+    onCleanup(() => r.removeListener("riptide:update-status", on));
+  });
   // Flip Linux frame style; main persists it and recreates the window.
   const toggleFrame = () => { ipc()?.invoke("riptide:set-frame-style", CHROME_CUSTOM ? "native" : "custom"); };
 
@@ -328,6 +349,7 @@ export function App() {
     signalHidden: selSignal()?.hidden ?? false,
     linux: IS_LINUX,
     frameStyle: CHROME_CUSTOM ? "custom" : "native",
+    update: update(),
   }));
 
   // Single dispatch for a menu action string — both the in-app MenuBar and native
@@ -362,6 +384,10 @@ export function App() {
       case "docs": openExternal(DOCS_URL); break;
       case "shortcuts": setShowShortcuts(true); break;
       case "about": setShowAbout(true); break;
+      // One entry point for updates: open the About card (where the update UI lives) and
+      // kick off a fresh check. Re-checking on an already-known update is harmless — the
+      // main process short-circuits a check that is already in flight.
+      case "updates": setShowAbout(true); checkUpdate(); break;
     }
   };
 
@@ -665,8 +691,21 @@ export function App() {
       <Show when={s.enumDialog}>{(d) => (
         <EnumDialog row={d().row} onClose={() => s.setEnumDialog(null)} />
       )}</Show>
+      </Show>
+      {/* Help dialogs live OUTSIDE the traceOpen gate above: they describe the app, not
+          the document, so they must open on the empty state too. (They used to be nested
+          inside it, which silently no-op'd Help ▸ About / Keyboard Shortcuts whenever no
+          trace was loaded.) The picker/context-menu/enum blocks stay inside — those act on
+          a trace that has to exist. */}
       <Show when={showAbout()}>
-        <AboutDialog onClose={() => setShowAbout(false)} onOpenUrl={openExternal} />
+        <AboutDialog
+          onClose={() => setShowAbout(false)}
+          onOpenUrl={openExternal}
+          update={update()}
+          onCheck={checkUpdate}
+          onDownload={downloadUpdate}
+          onRestart={restartForUpdate}
+        />
       </Show>
       <Show when={showShortcuts()}>
         <ShortcutsDialog
@@ -674,7 +713,6 @@ export function App() {
           mac={IS_MAC}
           onClose={() => setShowShortcuts(false)}
         />
-      </Show>
       </Show>
       <GlobalTooltip />
       <PerfOverlay />

@@ -28,14 +28,19 @@ backpressure. A multi-GB VCD OOMs at load (surfaces as a thrown JS error, so it
 doesn't corrupt, but it can't open). Trigger to revisit: first multi-hundred-MB /
 GB trace; longer-term wants a size cap or the streaming model tide references.
 
-### Every Open VCD leaks the prior trace
-`tide`'s `Database.deinit` frees only the signal list + map, never the per-signal
-`timestamps`/`x0s`/`x1s` payloads (`Signal.deinit` exists but is never called), so
-each in-app trace swap leaks the entire prior trace (~0.42 MB/swap on the mock; the
-whole trace on a real one → RSS grows monotonically, OOM after enough opens). A
-*bug*, not a deferred optimization, but it's the dominant memory cost of repeated
-opens. Fix is upstream: loop `for (db.signals.items) |*s| s.deinit(db.gpa);` in
-`tide`'s `Database.deinit`.
+### Label glyph capacity is a one-way ratchet, ceilinged by the adapter
+`gpu/labels.ts` grows the per-batch glyph capacity with
+`capacityGlyphs = Math.min(maxGlyphs, Math.max(need, capacityGlyphs * 2, 256))` — it at
+least doubles on demand and **never shrinks** for the life of the GPU generation, and each
+step allocates twice: a GPU buffer of `capacityGlyphs * LABEL_U32 * 4` bytes *and* a
+JS-heap `Uint32Array` of the same size. There are two batches (multi-bit pills + single-bit
+booleans), so double it again. The ceiling is `maxStorageBufferBindingSize / LABEL_U32`,
+and `gpu/device.ts` deliberately requests the *adapter's maximum* for that limit (commonly
+multiple GiB on AMD/Vulkan), so in practice there is no meaningful cap. One brief zoom-out
+over a label-dense region sets a high-water mark that is held until the device is lost.
+Not unbounded over time — it is bounded by the widest window ever packed — but it is the
+largest single retained allocation in the renderer. Fix would be an absolute clamp on
+`maxGlyphs` plus shrinking when a rebuild needs far less.
 
 ## Name search (scales with hierarchy size)
 

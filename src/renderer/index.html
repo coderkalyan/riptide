@@ -5,8 +5,67 @@
         <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'self' ws://localhost:5173">
         <title>Riptide</title>
         <link rel="stylesheet" href="index.css">
+        <!--
+            Boot splash. It covers the window between the document painting and Solid
+            committing the real UI — on a packaged build ~0.2s, on the AppImage ~1s, and
+            before this it was simply an empty window.
+
+            The styles are INLINE because the thing they must not wait on is index.js
+            (~500 KB, and the dominant cost of that gap): parsed with the document, the
+            splash is up the moment the first paint happens. index.css above is
+            render-blocking either way, so this is not about beating it to the screen —
+            it is about the splash never depending on the bundle that it exists to hide.
+
+            html/body background is repeated here so a missing or failed index.css still
+            paints dark rather than white. Three places now carry #141517 — this rule,
+            index.css `--bg`, and the BrowserWindow `backgroundColor` in src/main/index.ts.
+            They must agree, or the flash comes back as a colour step.
+
+            Inline <style> is allowed by the CSP above (style-src 'unsafe-inline'); an
+            inline <script> would NOT be (script-src 'self'), which is why the splash is
+            pure markup + CSS and index.tsx is what removes it.
+        -->
+        <style>
+            html, body { margin: 0; padding: 0; height: 100%; background: #141517; }
+            #splash {
+                position: fixed;
+                inset: 0;
+                z-index: 9999;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: #141517;
+                transition: opacity 180ms ease-out;
+            }
+            /* Both properties matter: opacity hides it, pointer-events guarantees it can
+               never swallow a click even if the removal below somehow does not run. */
+            #splash.is-done { opacity: 0; pointer-events: none; }
+            #splash svg { width: 76px; height: 76px; }
+            #splash .glyph { stroke: #2F333A; }
+            /* pathLength normalises the glyph to 100 units, so the dash figures below are
+               percentages of the path and do not need remeasuring if the mark changes. */
+            #splash .sweep {
+                stroke: #a6d189;
+                stroke-dasharray: 40 100;
+                animation: splash-sweep 1.6s linear infinite;
+            }
+            @keyframes splash-sweep {
+                from { stroke-dashoffset: 140; }
+                to   { stroke-dashoffset: 0; }
+            }
+            @media (prefers-reduced-motion: reduce) {
+                #splash .sweep { animation: none; stroke-dasharray: none; }
+            }
+        </style>
     </head>
     <body>
+        <div id="splash" role="status" aria-label="Loading Riptide">
+            <!-- Same path as build/icon.svg and the About card's mark. -->
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path class="glyph" pathLength="100" d="M2 14 L6 14 L6 7 L11 7 L11 17 L16 17 L16 11 L22 11" />
+                <path class="sweep" pathLength="100" d="M2 14 L6 14 L6 7 L11 7 L11 17 L16 17 L16 11 L22 11" />
+            </svg>
+        </div>
         <div id="root"></div>
         <script src="index.js"></script>
     </body>

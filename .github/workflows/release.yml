@@ -119,16 +119,21 @@ jobs:
         working-directory: riptide
         run: pnpm exec electron-builder ${{ matrix.eb }} --publish never
 
-      # Explicit installer globs only — the output dir also holds electron-builder
-      # debug yamls and the full *-unpacked/ trees, which must not become assets.
+      # Explicit globs only — the output dir also holds electron-builder debug yamls and
+      # the full *-unpacked/ trees, which must not become assets. latest*.yml IS wanted:
+      # electron-updater fetches it from the release to discover the new version.
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
           path: |
             riptide/dist/installers/*.AppImage
+            riptide/dist/installers/*.deb
+            riptide/dist/installers/*.tar.gz
             riptide/dist/installers/*.exe
             riptide/dist/installers/*.dmg
+            riptide/dist/installers/*-mac.zip
+            riptide/dist/installers/latest*.yml
           if-no-files-found: error
 
   release:
@@ -155,6 +160,14 @@ jobs:
         run: |
           set -euo pipefail
           ver=$(node -p "require('./riptide/package.json').version")
+          # Drives the release's `prerelease` flag. It is not cosmetic: electron-updater
+          # with a stable running version resolves through GitHub's /releases/latest,
+          # which excludes pre-releases by definition. Flagging a 1.0.0 release as a
+          # pre-release would therefore make auto-update silently find nothing.
+          case "$ver" in
+            *-*) echo "prerelease=true"  >> "$GITHUB_OUTPUT" ;;
+            *)   echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
           if [ "${{ github.ref_type }}" = "tag" ]; then
             # The installers are named from package.json, not the tag — refuse to
             # publish a release whose tag disagrees with what's inside it.
@@ -166,6 +179,9 @@ jobs:
             echo "draft=false" >> "$GITHUB_OUTPUT"
             echo "name=Riptide ${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
           else
+            # Manual runs stay drafts, and a draft is invisible to unauthenticated
+            # callers — which is exactly what keeps CI builds from being offered to
+            # users as an update.
             echo "tag=v${ver}-ci.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
             echo "draft=true" >> "$GITHUB_OUTPUT"
             echo "name=Riptide v${ver} (CI #${{ github.run_number }})" >> "$GITHUB_OUTPUT"
@@ -177,9 +193,17 @@ jobs:
           tag_name: ${{ steps.meta.outputs.tag }}
           name: ${{ steps.meta.outputs.name }}
           draft: ${{ steps.meta.outputs.draft }}
-          prerelease: true
+          prerelease: ${{ steps.meta.outputs.prerelease }}
+          # latest-mac.yml is deliberately absent: the arm64 and x64 runners each produce
+          # one, they collide on the same asset name, and nothing consumes it while macOS
+          # auto-update is off. Add it (per-arch) when a Developer ID lands.
           files: |
             artifacts/**/*.AppImage
+            artifacts/**/*.deb
+            artifacts/**/*.tar.gz
             artifacts/**/*.exe
             artifacts/**/*.dmg
+            artifacts/**/*-mac.zip
+            artifacts/**/latest.yml
+            artifacts/**/latest-linux.yml
           fail_on_unmatched_files: true
