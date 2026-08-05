@@ -64,6 +64,20 @@ export function WaveCanvas() {
     // which include device.destroy). Reassigned by each boot(); called on unmount
     // and before a loss-driven rebuild.
     let teardown: (() => void) | null = null;
+    // Monotonic id of the generation that owns `teardown`.
+    //
+    // boot()'s init is a long async chain (pipeline compiles, two font-atlas
+    // rasterizations, a full-trace pack) and `cleanups` is only populated at the very
+    // END of it. A device loss landing inside that window sets `lost`, runs an empty
+    // `runCleanups`, and boots a replacement that takes over `teardown` — but the old
+    // generation's `.then` then RESUMES and wires up its ResizeObserver, seven DOM
+    // listeners, six store subscriptions and its device.destroy into a cleanups array
+    // nothing can reach any more. Those subscriptions keep running on every store
+    // change and every pointer move, pinning a dead GPUDevice, and the retry budget
+    // resets on each successful frame so it can recur all session. That is the
+    // hours-to-manifest leak. Each boot claims an id and bails at every await
+    // boundary once it is no longer the owner.
+    let generation = 0;
 
     // One GPU generation: init the device, build every pipeline/buffer, wire the
     // rAF loop + input + store subscriptions. Re-invoked from scratch on device
@@ -72,6 +86,7 @@ export function WaveCanvas() {
     // outside GPU in the store + viewport controller and the native db is
     // untouched, so a fresh generation comes back exactly where it left off.
     const boot = () => {
+      const gen = ++generation;
       let raf = 0;
       let lost = false; // this generation's device died — stop its frame loop
       // Optimized rendering: the rAF loop polls every frame but only does the
@@ -88,9 +103,13 @@ export function WaveCanvas() {
       perf.stamp("gpu:start");
       const runCleanups = () => { cancelAnimationFrame(raf); for (const c of cleanups) c(); cleanups.length = 0; };
       teardown = runCleanups; // until the device exists, teardown is just cleanup
+      // Superseded by a newer generation, unmounted, or our own device died. MUST be
+      // re-checked after every await below: anything registered past a stale point is
+      // unreachable for the rest of the process's life.
+      const stale = () => disposed || lost || gen !== generation;
 
       initGPU(canvasEl).then(async ({ device, ctx, format }) => {
-        if (disposed) { device.destroy(); return; }
+        if (stale()) { device.destroy(); return; }
         setGpuError(null); // a (re)boot succeeded — clear any prior loss/init overlay
         const gpuCtx = { device, ctx, format };
         // Device-lost recovery (driver reset / TDR / discrete↔integrated GPU switch).
@@ -132,7 +151,7 @@ export function WaveCanvas() {
           createLineRenderer(gpuCtx, renderer.uniformBuf),
           createRectRenderer(gpuCtx, renderer.uniformBuf),
         ]);
-        if (disposed) { device.destroy(); return; }
+        if (stale()) { device.destroy(); return; }
         let multiBit = multiBitInit;
         let singleBit = singleBitInit;
 
@@ -141,7 +160,7 @@ export function WaveCanvas() {
           textRenderer.atlasLgView, textRenderer.atlasSmView, textRenderer.sampler,
           textRenderer.cellLg, textRenderer.cellSm,
         );
-        if (disposed) { device.destroy(); return; }
+        if (stale()) { device.destroy(); return; }
         const labelBatch = labelRenderer.createBatch();
         labelBatch.setLabels(NATIVE.multi, NATIVE.multiCount, NATIVE.labelBytes, NATIVE.labelOffsets, scene.rowInfo, false);
         // Boolean true/false labels over the single-bit lines — same label renderer,
@@ -979,7 +998,9 @@ export function WaveCanvas() {
         // the single most likely thing a tester on bad/absent GPU drivers hits.
         const msg = e instanceof GPUInitError ? e.message : `GPU initialization error: ${e?.message ?? e}`;
         console.error("GPU init failed:", msg);
-        if (!disposed) setGpuError(msg);
+        // stale(), not just disposed: a superseded generation failing must not paint an
+        // error overlay over the healthy generation that replaced it.
+        if (!stale()) setGpuError(msg);
       });
     };
 
