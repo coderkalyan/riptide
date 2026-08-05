@@ -165,35 +165,53 @@ let lastLoad: LoadReport | null = null;
 let hierarchyNodes = 0;
 export function setHierarchyNodes(n: number): void { hierarchyNodes = n; }
 
-// Called once the first canvas frame has presented. Builds the load breakdown
-// as a CONTIGUOUS segmentation from navigation start (t=0 on the performance.now
-// clock = timeOrigin) through each stamp to the first frame. Segments telescope,
-// so they sum to the total — time that used to hide between bracketed spans
-// (bundle download/parse/eval, the native .node require/dlopen, Solid rendering
-// the whole UI before the GPU init, the rAF wait) is now its own visible row.
-// Each label describes the work done in the interval ending at that stamp.
+// Label for the interval ENDING at each stamp. Keyed, not ordered: the running order is
+// derived from the timestamps themselves (see markFirstFrame).
+//
+// Keep the substrings `loadVcd`, `hierarchy`, `scene build` and `segment pack` intact —
+// PerfOverlay's `recursOnOpen` regex matches on them to flag the phases that recur on an
+// in-app "Open VCD…".
+const LOAD_PHASE_LABELS: Record<string, string> = {
+  "native:require": "bundle download + parse + eval",
+  "native:start": "native addon require (.node dlopen)",
+  "native:end": "native db load (loadVcd)",
+  "scene:start": "module eval to scene build",
+  "scene:hierarchy": "hierarchy decode",
+  "scene:end": "scene build (overlays/sidecar)",
+  "render:start": "app module eval tail (labels)",
+  "gpu:start": "solid render to canvas mount",
+  "render:committed": "solid render + commit (build DOM)",
+  "pack:start": "browser layout + paint + GPU adapter/device",
+  "pack:end": "initial segment pack",
+  "gpu:ready": "GPU pipelines + label renderer",
+  "frame:first": "first frame draw + present",
+};
+
+// Called once the first canvas frame has presented. Builds the load breakdown as a
+// CONTIGUOUS segmentation from navigation start (t=0 on the performance.now clock =
+// timeOrigin) through each stamp to the first frame. Segments telescope, so they sum to
+// the total — time that used to hide between bracketed spans (bundle download/parse/eval,
+// the native .node require/dlopen, Solid rendering the whole UI before the GPU init, the
+// rAF wait) is its own visible row.
+//
+// Ordering comes from the recorded timestamps, NOT from the order the stamps appear in
+// source, because those disagree: WaveCanvas's onMount stamps `gpu:start` *before*
+// index.tsx reaches `render:committed`, and `pack:end` lands inside boot()'s async chain
+// long after both. A hardcoded order subtracted those intervals backwards and reported
+// negative phases (`app module eval tail` at -145ms), quietly misattributing the time to
+// its neighbours. Sorting makes every phase non-negative by construction and keeps the
+// breakdown honest if the startup sequence is ever reshuffled again.
 export function markFirstFrame(): void {
   if (lastLoad) return; // first frame only
   stamp("frame:first");
-  const boundaries: [string, string][] = [
-    ["native:require", "bundle download + parse + eval"],
-    ["native:start", "native addon require (.node dlopen)"],
-    ["native:end", "native db load (loadVcd)"],
-    ["scene:hierarchy", "hierarchy decode"],
-    ["scene:end", "scene build (overlays/sidecar)"],
-    ["pack:end", "initial segment pack"],
-    ["render:start", "app module eval tail (labels)"],
-    ["render:committed", "solid render + commit (build DOM)"],
-    ["gpu:start", "browser layout + paint"],
-    ["gpu:ready", "GPU init (adapter/device/pipelines)"],
-    ["frame:first", "first frame draw + present"],
-  ];
+  const ordered = Object.keys(LOAD_PHASE_LABELS)
+    .map((key) => ({ key, t: stamps.get(key) }))
+    .filter((s): s is { key: string; t: number } => s.t != null)
+    .sort((a, b) => a.t - b.t);
   const phases: { label: string; ms: number }[] = [];
   let prev = 0;
-  for (const [key, label] of boundaries) {
-    const t = stamps.get(key);
-    if (t == null) continue; // missing stamp: fold its interval into the next
-    phases.push({ label, ms: t - prev });
+  for (const { key, t } of ordered) {
+    phases.push({ label: LOAD_PHASE_LABELS[key], ms: t - prev });
     prev = t;
   }
   const first = stamps.get("frame:first") ?? performance.now();
@@ -214,11 +232,22 @@ type Pending = { marks: PhaseMark[]; rows: number; rebuilt: boolean };
 let pendingAdd: Pending | null = null;
 let lastAdd: PhaseReport | null = null;
 
+// A phase list is a diagnostic, not a log, and it is only drained when the add
+// finalizes. `addSignal`/`addSignals` have no-op paths (unsupported node, row >=
+// MAX_ROWS, nothing new selected) that leave `pendingAdd` live forever — and every
+// later pan/zoom repack keeps pushing marks into it, so the array grows without bound
+// for the rest of the session. Past the cap the report is meaningless anyway (and
+// PerfOverlay renders one row per mark), so stop recording rather than accumulate.
+const MAX_PHASE_MARKS = 64;
+const pushMark = (p: Pending | null, label: string): void => {
+  if (p && p.marks.length < MAX_PHASE_MARKS) p.marks.push({ label, t: performance.now() });
+};
+
 // Click on a tree "+" — start the clock.
 export function beginAdd(): void { pendingAdd = { marks: [{ label: "_start", t: performance.now() }], rows: 0, rebuilt: false }; }
 // Record a sub-phase boundary (label = work done since the previous mark). Cheap
 // no-op when no add is in flight.
-export function addMark(label: string): void { if (pendingAdd) pendingAdd.marks.push({ label, t: performance.now() }); }
+export function addMark(label: string): void { pushMark(pendingAdd, label); }
 // GPU buffers repacked for the new active set — flag it so frameEnd finalizes
 // once the resulting frame presents.
 export function markAddRebuilt(rows: number): void {
@@ -232,7 +261,8 @@ let pendingSwap: Pending | null = null;
 let lastSwap: PhaseReport | null = null;
 
 export function beginSwap(): void { pendingSwap = { marks: [{ label: "_start", t: performance.now() }], rows: 0, rebuilt: false }; }
-export function swapMark(label: string): void { if (pendingSwap) pendingSwap.marks.push({ label, t: performance.now() }); }
+// Same cap as addMark — a swap that never finalizes would strand and grow identically.
+export function swapMark(label: string): void { pushMark(pendingSwap, label); }
 export function markSwapRebuilt(rows: number): void {
   if (pendingSwap) { pendingSwap.rows = rows; pendingSwap.rebuilt = true; }
 }
