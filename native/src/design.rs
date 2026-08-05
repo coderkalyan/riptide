@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use sdi::{Direction, Sdi, TypeKind, UnitKind};
+use sdi::{Direction, HintRole, Sdi, TypeKind, UnitKind};
 
 /// Where a declaration is, with the file resolved to something openable.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -37,6 +37,14 @@ pub struct VarFacts {
     pub comment: Option<String>,
     /// Index into [`Design::enums`], when the declared type is an enumeration.
     pub enum_type: Option<u32>,
+    /// Producer's `hints.role`, in the renderer's `ActiveRole` spelling.
+    ///
+    /// This is what lets a trace align its grid to a clock without anyone hand-writing
+    /// a view sidecar: the SDI already states which variable is the clock, so the
+    /// renderer stops having to be told. Only the roles the renderer models are mapped;
+    /// the rest stay `None` rather than inventing a spelling for them. A sidecar role
+    /// always wins — hints are the tool's opinion, the sidecar is the user's.
+    pub role: Option<&'static str>,
 }
 
 /// What SDI adds to one scope in the tree.
@@ -346,6 +354,7 @@ impl<'a> Walk<'a> {
             enum_type: rty
                 .filter(|t| t.kind == TypeKind::Enum)
                 .and_then(|_| self.enums.iter().find(|e| e.id == resolved).map(|e| e.id)),
+            role: var.hints.as_ref().and_then(|h| h.role).and_then(hint_role),
         }
     }
 
@@ -436,6 +445,21 @@ fn direction(d: Direction) -> &'static str {
         // closest thing it offers for a by-reference port.
         Direction::Ref => "linkage",
         Direction::Internal => "implicit",
+    }
+}
+
+/// SDI's role hints in the renderer's `ActiveRole` vocabulary.
+///
+/// Only the three the renderer actually models are mapped. `Enable`, `Ready` and the
+/// `Data` fallback deliberately yield `None`: the renderer would have to invent a
+/// meaning for them, and `HintRole` falls back to `Data` for anything it does not
+/// recognise, so mapping it would turn every unknown role into a real one.
+fn hint_role(role: HintRole) -> Option<&'static str> {
+    match role {
+        HintRole::Clock => Some("clock"),
+        HintRole::Reset => Some("reset"),
+        HintRole::Valid => Some("valid"),
+        HintRole::Enable | HintRole::Ready | HintRole::Data => None,
     }
 }
 
@@ -537,6 +561,34 @@ mod tests {
         assert!(waves.decl.is_some(), "a module definition has a site");
         assert!(waves.inst.is_some(), "and so does its instantiation");
         assert_eq!(waves.comment.as_deref(), Some("The signals the bundled view puts on screen."));
+    }
+
+    #[test]
+    fn reads_role_hints_so_a_clock_needs_no_hand_written_sidecar() {
+        let design = mock();
+        // The regression this guards: without these, "Align Grid to Clock" is dead on
+        // any trace whose roles are not spelled out in a view sidecar, even though the
+        // SDI beside it says outright which variable is the clock.
+        assert_eq!(design.var("top.keysched.waves.clk").and_then(|v| v.role), Some("clock"));
+        assert_eq!(design.var("top.keysched.clk").and_then(|v| v.role), Some("clock"));
+        assert_eq!(design.var("top.keysched.waves.rst").and_then(|v| v.role), Some("reset"));
+        assert_eq!(design.var("top.keysched.rst_n").and_then(|v| v.role), Some("reset"));
+        // A variable the producer said nothing about stays roleless — no guessing from
+        // names, which is the whole point of the hint being explicit.
+        let state = design.var("top.keysched.waves.state[1:0]").expect("waves.state");
+        assert_eq!(state.role, None);
+    }
+
+    #[test]
+    fn maps_only_the_roles_the_renderer_models() {
+        assert_eq!(hint_role(HintRole::Clock), Some("clock"));
+        assert_eq!(hint_role(HintRole::Reset), Some("reset"));
+        assert_eq!(hint_role(HintRole::Valid), Some("valid"));
+        // `HintRole` parses unknown strings as `Data`, so Data MUST stay unmapped: map
+        // it and every role a future SDI invents silently becomes a real one here.
+        assert_eq!(hint_role(HintRole::Data), None);
+        assert_eq!(hint_role(HintRole::Enable), None);
+        assert_eq!(hint_role(HintRole::Ready), None);
     }
 
     #[test]

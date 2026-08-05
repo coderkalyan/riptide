@@ -37,6 +37,12 @@ export interface Signal {
   typeName?: string;
   // Declared bit range, when known from the type rather than scraped from the name.
   range?: { msb: number; lsb: number };
+  // The producer's `hints.role` from source debug info, in ActiveRole spelling —
+  // "this variable is the clock/reset/valid", stated rather than measured. Applied as
+  // the DEFAULT role when a signal becomes active; a view sidecar's explicit role
+  // always overrides it. Without this a trace that ships an SDI still could not align
+  // its grid to a clock unless someone hand-wrote a sidecar naming one.
+  hintRole?: "clock" | "reset" | "valid";
 }
 
 export interface SourceLoc {

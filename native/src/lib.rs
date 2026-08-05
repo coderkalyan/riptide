@@ -453,6 +453,11 @@ pub fn get_hierarchy(env: &Env) -> Result<Object<'_>> {
                         if let Some(comment) = &facts.comment {
                             object.set("comment", comment.as_str())?;
                         }
+                        // Producer's suggestion, not a decision: the renderer applies
+                        // it only where a view sidecar has not already spoken.
+                        if let Some(role) = facts.role {
+                            object.set("hintRole", role)?;
+                        }
                     }
                 }
             }

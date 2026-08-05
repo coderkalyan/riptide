@@ -156,6 +156,76 @@ for (const name of SEED_FIXTURES) {
   });
 }
 
+// ---- clock alignment on a trace with an SDI and no view sidecar ----
+//
+// Regression guard. "Align Grid to Clock" needs a row whose role is "clock"; the only
+// source for that on a real trace is the SDI's `hints.role`, which native surfaces as
+// `hintRole` and the renderer applies when a signal becomes active. When that plumbing
+// was missing the control sat permanently disabled ("no clock-format signal to align
+// to") on every trace without a hand-written sidecar.
+//
+// The assertion is the marker pill, not the toolbar button, and deliberately so: the
+// button only reflects `clockAnchor`, which flips even when the detected grid is
+// invalid. The pill renders `#<cycle>` ONLY when `clockAnchor && clockGrid.valid`, so
+// it fails on both shapes of the bug — the control being dead, and the control
+// appearing to work while the grid behind it is garbage.
+test("e2e clock: SDI role hints make Align-to-Clock work without a sidecar", async () => {
+  // Run against a COPY, in the temp root the seeded fixtures already use. Adding rows
+  // arms the autosave, which writes `<trace>.sidecar.json` beside the trace — pointed
+  // at samples/ that both litters the repo and destroys this test's own precondition
+  // on the next run, since the second run would find the sidecar it wrote first.
+  const src = path.join(APP_ROOT, "samples", "sdi", "gate.vcd");
+  const dir = fs.mkdtempSync(path.join(root, "riptide-e2e-clock-"));
+  const vcd = path.join(dir, "gate.vcd");
+  fs.copyFileSync(src, vcd);
+  fs.copyFileSync(`${src}.sdi.json`, `${vcd}.sdi.json`);
+  assert.ok(!fs.existsSync(`${vcd}.sidecar.json`), "the copy must start with no view sidecar");
+
+  const { app, win, errors } = await launch(vcd);
+  try {
+    await win.waitForSelector(".t-row", { timeout: 30_000 });
+    // Add every signal the tree offers, the way a user would.
+    await win.evaluate(() => {
+      for (const r of document.querySelectorAll(".t-row")) r.querySelector(".plus")?.click();
+    });
+    await win.waitForSelector(".s-row", { timeout: 30_000 });
+    await win.waitForTimeout(800);
+
+    const clockBtn = ".btn.icon[data-tip='align grid to clock']";
+    assert.ok(
+      await win.$(clockBtn),
+      "clock toggle should be enabled once a hinted clock is active (got: " +
+        (await win.evaluate(() => {
+          const b = [...document.querySelectorAll(".btn.icon")]
+            .find((e) => /clock|timescale/.test(e.getAttribute("data-tip") || ""));
+          return b ? `${b.className} / ${b.getAttribute("data-tip")}` : "no clock button";
+        })) + ")",
+    );
+
+    // A marker reads in absolute time until the grid is aligned.
+    await win.click(".btn.sm.icon[data-tip='add marker at cursor']");
+    await win.waitForSelector(".marker-pill", { timeout: 10_000 });
+    const before = await win.evaluate(() => document.querySelector(".marker-pill").textContent.trim());
+    assert.ok(!/^#/.test(before), `marker should read absolute time before aligning, got "${before}"`);
+
+    // Dispatched rather than hit-tested: the ClockPicker sits over the toggle and
+    // intercepts a real pointer click, which is a layout detail, not what is under test.
+    await win.evaluate((sel) => document.querySelector(sel).click(), clockBtn);
+    await win.waitForTimeout(600);
+    const after = await win.evaluate(() => document.querySelector(".marker-pill").textContent.trim());
+    assert.match(
+      after,
+      /#\d+/,
+      `marker should read a cycle index once aligned (grid detected + applied), got "${after}"`,
+    );
+
+    const fatal = fatalErrors(errors);
+    assert.strictEqual(fatal.length, 0, `console errors:\n  ${fatal.slice(0, 6).join("\n  ")}`);
+  } finally {
+    await app.close();
+  }
+});
+
 after(() => {
   // Best-effort cleanup of the temp seeds.
   try {

@@ -248,7 +248,11 @@ export function resolveView(
       vcdType: s.derived ? "derived" : vcdTypeOf(node.varType),
       ...(s.selected ? { selected: true } : {}),
       ...(s.hidden ? { hidden: true } : {}),
-      ...(s.role ? { role: s.role } : {}),
+      // Sidecar role wins; the SDI's hint only fills the gap. A sidecar written before
+      // the trace grew an SDI therefore still gets clock alignment, and one that names
+      // roles explicitly is never second-guessed — hints are the tool's opinion, the
+      // sidecar is the user's.
+      ...(s.role ? { role: s.role } : node.hintRole ? { role: node.hintRole } : {}),
       ...(s.clock ? { clock: s.clock } : {}),
       ...(s.enumTable ? { enumTable: s.enumTable } : {}),
       ...(s.height ? { height: s.height } : {}),

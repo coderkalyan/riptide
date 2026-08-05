@@ -218,6 +218,11 @@ export function makeActiveRef(h: Hierarchy, signalId: NodeId, row: number): Acti
     color: ADD_PALETTE[row % ADD_PALETTE.length],
     path: pathOf(h, signalId),
     vcdType: vcdTypeOf(sig.varType),
+    // Seed the role from the SDI's `hints.role`. Without this a signal added from the
+    // tree is always roleless, so "Align Grid to Clock" stays disabled on every trace
+    // that has no hand-written view sidecar — even one whose SDI says outright which
+    // variable is the clock. The user can still override via Format.
+    ...(sig.hintRole ? { role: sig.hintRole } : {}),
   };
 }
 

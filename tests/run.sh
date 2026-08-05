@@ -2,7 +2,7 @@
 # Regression/integration runner for riptide against the vcd-tests oracle corpus.
 #
 #   tests/run.sh            # node suites (headless) + e2e if a display exists
-#   tests/run.sh native     # one suite: native | format | malformed | sdi | e2e
+#   tests/run.sh native     # one suite: native | format | malformed | clock | sdi | e2e
 #
 # Env:
 #   VCD_TESTS_DIR   path to the vcd-tests checkout (default ~/Documents/vcd-tests)
@@ -20,6 +20,9 @@ run_native()       { node --test tests/native.test.cjs; }
 run_format()       { node --test tests/format.test.cjs; }
 run_differential() { node --test tests/differential.test.cjs; }
 run_malformed()    { node --test tests/malformed.test.cjs; }
+# Timebase/clock seam: SDI role hints crossing into the hierarchy, and the edge data
+# grid detection consumes. Headless — the user-visible half is in the e2e suite.
+run_clock()        { node --test tests/clock.test.cjs; }
 # The SDI suite is two halves: cargo unit tests for the format crate and the
 # verilator converter, then the node end-to-end (schema, binding, cone, producer
 # round-trip). Both self-skip what they cannot find.
@@ -46,6 +49,7 @@ case "${1:-all}" in
   format)       run_format       || rc=$? ;;
   differential) run_differential || rc=$? ;;
   malformed)    run_malformed    || rc=$? ;;
+  clock)        run_clock        || rc=$? ;;
   sdi)          run_sdi          || rc=$? ;;
   e2e)          run_e2e          || rc=$? ;;
   all)
@@ -54,6 +58,7 @@ case "${1:-all}" in
     run_format       || rc=$?
     run_differential || rc=$?
     run_malformed    || rc=$?
+    run_clock        || rc=$?
     run_sdi          || rc=$?
     run_e2e          || rc=$?
     ;;

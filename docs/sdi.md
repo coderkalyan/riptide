@@ -690,7 +690,7 @@ Mapped onto what exists today, an SDI import is mostly deleting shims:
 | `ENUM_TYPES` / `ROWS` mock tables in `scene.ts` provide enum labels for the bundled mock only | enum tables come from the design; the mocks go away |
 | `declaredRange()` parses `[7:0]` out of the name string | declared ranges come from the type |
 | `Scope.declSourceLoc` / `instSourceLoc` / `Signal.sourceLoc` / `comment` are declared and never populated | populated; go-to-declaration and tooltips become possible |
-| Clock detection measures waveform periods | `hints.role: "clock"` states it, measurement becomes a fallback |
+| Nothing says which signal is the clock, so clock alignment needs a hand-written view sidecar | `hints.role` states it; a signal added from the tree gets the role, and the period is still measured from the waveform |
 | No notion of drivers or connectivity anywhere in the stack | driver/reader lists and cone of influence, path-keyed like the sidecar |
 
 Everything above the last row is **done**, read from the SDI in `native/src/design.rs`

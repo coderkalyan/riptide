@@ -45,6 +45,7 @@ interface RawSignalNode {
   enumTypeId?: number;
   sourceLoc?: SourceLoc;
   comment?: string;
+  hintRole?: "clock" | "reset" | "valid";
 }
 
 type RawNode = RawScopeNode | RawSignalNode;
@@ -301,6 +302,7 @@ export function getHierarchy(): Hierarchy {
       if (n.enumTypeId != null) sig.enumTypeId = n.enumTypeId;
       if (n.sourceLoc) sig.sourceLoc = n.sourceLoc;
       if (n.comment) sig.comment = n.comment;
+      if (n.hintRole) sig.hintRole = n.hintRole;
       nodes.set(n.id, sig);
       const arr = byHandle.get(sig.handle);
       if (arr) arr.push(n.id);
